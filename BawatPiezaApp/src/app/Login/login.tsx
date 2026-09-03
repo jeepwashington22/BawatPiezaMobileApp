@@ -26,8 +26,12 @@ export default function LoginScreen() {
   const [showPassword, setShowPassword] = useState(false);
 
   const handleLogin = () => {
-    // Hook up to your auth logic here
-    console.log('Logging in with', email);
+    console.log('handleLogin called');
+    // Simulate auth delay
+    setTimeout(() => {
+      console.log('Navigating to /home');
+      router.replace('/home');
+    }, 1000);
   };
 
   return (
