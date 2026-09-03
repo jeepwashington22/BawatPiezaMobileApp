@@ -1,32 +1,144 @@
-import { StyleSheet, Text, View } from 'react-native';
+import { useEffect, useMemo, useState } from 'react';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { ScreenShell } from '../../components/screen-shell';
 import { TileLoader } from '../../components/tile-loader';
+import { ContentCard } from '../../components/content-card';
 
 const PRUSSIAN = '#0A2A4A';
+const BUTTER = '#F6C445';
 const MUTED = 'rgba(10, 42, 74, 0.62)';
-const LINE = 'rgba(10, 42, 74, 0.12)';
+const DAY_LABELS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+
+// Same month builder as web schedule page (Monday-first)
+function buildMonth(date: Date): (number | null)[] {
+  const year = date.getFullYear();
+  const month = date.getMonth();
+  const first = new Date(year, month, 1);
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const offset = (first.getDay() + 6) % 7;
+  const cells: (number | null)[] = Array.from({ length: offset }, () => null);
+  for (let d = 1; d <= daysInMonth; d++) cells.push(d);
+  while (cells.length % 7 !== 0) cells.push(null);
+  return cells;
+}
 
 export default function ScheduleScreen() {
+  const today = useMemo(() => new Date(), []);
+  const [loading, setLoading] = useState(true);
+  const [monthCursor, setMonthCursor] = useState(new Date(today.getFullYear(), today.getMonth(), 1));
+  const [selectedDate, setSelectedDate] = useState<number>(today.getDate());
+  const [operatingDays, setOperatingDays] = useState<boolean[]>([true, true, true, true, true, false, false]);
+
+  useEffect(() => {
+    const t = setTimeout(() => setLoading(false), 600);
+    return () => clearTimeout(t);
+  }, []);
+
+  if (loading) {
+    return (
+      <ScreenShell title="Schedule" subtitle="Operating days & hours">
+        <View style={styles.loaderWrap}>
+          <TileLoader label="Loading schedule" size="lg" />
+        </View>
+      </ScreenShell>
+    );
+  }
+
+  const monthCells = buildMonth(monthCursor);
+  const monthLabel = monthCursor.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+  const isThisMonth =
+    monthCursor.getMonth() === today.getMonth() && monthCursor.getFullYear() === today.getFullYear();
+
+  function shiftMonth(delta: number) {
+    setMonthCursor(new Date(monthCursor.getFullYear(), monthCursor.getMonth() + delta, 1));
+  }
+  function toggleDay(i: number) {
+    setOperatingDays((prev) => prev.map((v, idx) => (idx === i ? !v : v)));
+  }
+
   return (
-    <ScreenShell title="Schedule" subtitle="Maintenance & harvest windows">
-      <View style={styles.card}>
-        <Text style={styles.title}>Schedule</Text>
-        <Text style={styles.subtitle}>Mirrors the web Schedule dashboard — planned jobs and shifts.</Text>
-      </View>
-      <TileLoader label="Loading schedule..." size="md" />
+    <ScreenShell title="Schedule" subtitle="Operating days & hours">
+      <ContentCard
+        title={monthLabel}
+        eyebrow="Availability Calendar"
+        action={
+          <View style={styles.monthNav}>
+            <Pressable style={styles.navBtn} onPress={() => shiftMonth(-1)} hitSlop={6}>
+              <Text style={styles.navBtnText}>‹</Text>
+            </Pressable>
+            <Pressable style={styles.navBtn} onPress={() => shiftMonth(1)} hitSlop={6}>
+              <Text style={styles.navBtnText}>›</Text>
+            </Pressable>
+          </View>
+        }
+      >
+        <View style={styles.weekRow}>
+          {DAY_LABELS.map((d, i) => (
+            <Text key={i} style={styles.dayLabel}>{d}</Text>
+          ))}
+        </View>
+        <View style={styles.calGrid}>
+          {monthCells.map((d, i) => {
+            const isToday = isThisMonth && d === today.getDate();
+            const isSelected = isThisMonth && d === selectedDate;
+            return (
+              <Pressable
+                key={i}
+                disabled={d === null}
+                onPress={() => d !== null && setSelectedDate(d)}
+                style={[styles.calCell, isToday && styles.calToday, isSelected && !isToday && styles.calSelected]}
+              >
+                <Text style={[styles.calText, isToday && styles.calTextToday]}>{d ?? ''}</Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      </ContentCard>
+
+      <ContentCard title="Operating Days" eyebrow="Weekly">
+        <View style={styles.weekRow}>
+          {operatingDays.map((on, i) => (
+            <Pressable
+              key={i}
+              onPress={() => toggleDay(i)}
+              style={[styles.dayToggle, on && styles.dayToggleOn]}
+              accessibilityRole="button"
+            >
+              <Text style={[styles.dayToggleText, on && styles.dayToggleTextOn]}>{DAY_LABELS[i]}</Text>
+            </Pressable>
+          ))}
+        </View>
+      </ContentCard>
     </ScreenShell>
   );
 }
 
 const styles = StyleSheet.create({
-  card: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: LINE,
-    padding: 18,
-    marginBottom: 18,
+  loaderWrap: { alignItems: 'center', paddingVertical: 48 },
+  monthNav: { flexDirection: 'row', gap: 8 },
+  navBtn: {
+    width: 30, height: 30, borderRadius: 9,
+    borderWidth: 1, borderColor: 'rgba(10, 42, 74, 0.14)',
+    alignItems: 'center', justifyContent: 'center',
   },
-  title: { color: PRUSSIAN, fontSize: 20, fontWeight: '800', marginBottom: 6 },
-  subtitle: { color: MUTED, fontSize: 13, lineHeight: 20 },
+  navBtnText: { color: PRUSSIAN, fontSize: 18, fontWeight: '800', lineHeight: 20 },
+  weekRow: { flexDirection: 'row', gap: 4 },
+  dayLabel: { flex: 1, textAlign: 'center', color: MUTED, fontSize: 11, fontWeight: '800' },
+  calGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: 8 },
+  calCell: {
+    width: '13%', aspectRatio: 1, borderRadius: 9,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  calToday: { backgroundColor: PRUSSIAN },
+  calSelected: { borderWidth: 2, borderColor: BUTTER },
+  calText: { color: PRUSSIAN, fontSize: 12, fontWeight: '600' },
+  calTextToday: { color: '#FFFFFF', fontWeight: '800' },
+  dayToggle: {
+    flex: 1, aspectRatio: 1, borderRadius: 12, maxWidth: 44,
+    borderWidth: 1, borderColor: 'rgba(10, 42, 74, 0.16)',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  dayToggleOn: { backgroundColor: PRUSSIAN, borderColor: PRUSSIAN },
+  dayToggleText: { color: MUTED, fontSize: 13, fontWeight: '800' },
+  dayToggleTextOn: { color: '#FFFFFF' },
 });
