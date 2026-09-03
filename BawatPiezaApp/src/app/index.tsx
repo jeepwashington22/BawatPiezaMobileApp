@@ -1,4 +1,4 @@
-import LoginScreen from './Login/login';
+import LoginScreen from './login';
 
 export default function Index() {
   return <LoginScreen />;
