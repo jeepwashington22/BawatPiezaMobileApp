@@ -1,18 +1,12 @@
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { usePathname, useRouter, type Href } from 'expo-router';
+import { useTheme } from '../theme';
 
 /**
- * BottomNav — React Native port of the web dashboard's BottomNav.
- * Same set of destinations, labels, icons and active-state styling, wired to
- * expo-router for navigation.
+ * BottomNav — 5 destinations: Home, Heatmap, Energy (raised center bolt),
+ * Reports and Profile. Theme-aware (light/dark) with Poppins labels.
  */
-
-const PRUSSIAN = '#0A2A4A';
-const BUTTER = '#F6C445';
-const MUTED = 'rgba(10, 42, 74, 0.62)';
-const FAINT = 'rgba(10, 42, 74, 0.42)';
-const LINE = 'rgba(10, 42, 74, 0.12)';
 
 type IconName = keyof typeof Ionicons.glyphMap;
 
@@ -23,55 +17,61 @@ type NavItem = {
   activeIcon: IconName;
 };
 
-const items: NavItem[] = [
+// Order matters: [left items…] center FAB [right items…]
+const LEFT: NavItem[] = [
   { label: 'Home', href: '/home', icon: 'home-outline', activeIcon: 'home' },
-  { label: 'Energy', href: '/pages/energy', icon: 'flash-outline', activeIcon: 'flash' },
   { label: 'Heatmap', href: '/pages/heatmap', icon: 'grid-outline', activeIcon: 'grid' },
-  { label: 'Report', href: '/pages/reports', icon: 'document-text-outline', activeIcon: 'document-text' },
-  { label: 'Schedule', href: '/pages/schedule', icon: 'calendar-outline', activeIcon: 'calendar' },
-  { label: 'Accounts', href: '/pages/accounts', icon: 'people-outline', activeIcon: 'people' },
+];
+const RIGHT: NavItem[] = [
+  { label: 'Reports', href: '/pages/reports', icon: 'bar-chart-outline', activeIcon: 'bar-chart' },
   { label: 'Profile', href: '/pages/profile', icon: 'person-outline', activeIcon: 'person' },
 ];
+const CENTER = { label: 'Energy', href: '/pages/energy' };
 
 export function BottomNav() {
   const router = useRouter();
   const pathname = usePathname();
+  const { colors: c, fonts: f } = useTheme();
 
   const isActive = (href: string) =>
     href === '/home'
       ? pathname === '/home'
       : pathname === href || pathname.startsWith(`${href}/`);
 
-  return (
-    <View style={styles.wrap}>
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.scrollContent}
+  const renderItem = ({ label, href, icon, activeIcon }: NavItem) => {
+    const active = isActive(href);
+    return (
+      <Pressable
+        key={href}
+        onPress={() => router.push(href as Href)}
+        style={styles.item}
+        accessibilityRole="button"
+        accessibilityState={{ selected: active }}
+        accessibilityLabel={label}
       >
-        {items.map(({ label, href, icon, activeIcon }) => {
-          const active = isActive(href);
-          return (
-            <Pressable
-              key={href}
-              onPress={() => router.push(href as Href)}
-              style={styles.item}
-              accessibilityRole="button"
-              accessibilityState={{ selected: active }}
-              accessibilityLabel={label}
-            >
-              <View style={[styles.iconWrap, active && styles.iconWrapActive]}>
-                <Ionicons
-                  name={active ? activeIcon : icon}
-                  size={20}
-                  color={active ? BUTTER : MUTED}
-                />
-              </View>
-              <Text style={[styles.label, active && styles.labelActive]}>{label}</Text>
-            </Pressable>
-          );
-        })}
-      </ScrollView>
+        <Ionicons name={active ? activeIcon : icon} size={22} color={active ? c.text : c.muted} />
+        <Text style={[styles.label, { color: active ? c.text : c.muted, fontFamily: active ? f.bold : f.medium }]}>
+          {label}
+        </Text>
+      </Pressable>
+    );
+  };
+
+  return (
+    <View style={[styles.wrap, { backgroundColor: c.tabBar, borderTopColor: c.line }]}>
+      {LEFT.map(renderItem)}
+
+      {/* Raised center Energy button */}
+      <Pressable
+        onPress={() => router.push(CENTER.href as Href)}
+        style={({ pressed }) => [styles.centerBtn, { borderColor: c.tabBar }, pressed && styles.centerBtnPressed]}
+        accessibilityRole="button"
+        accessibilityLabel={CENTER.label}
+      >
+        <Ionicons name="flash" size={26} color="#FFFFFF" />
+      </Pressable>
+
+      {RIGHT.map(renderItem)}
     </View>
   );
 }
@@ -82,50 +82,42 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: 'rgba(255, 255, 255, 0.92)',
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    justifyContent: 'space-around',
     borderTopWidth: 1,
-    borderTopColor: LINE,
-    paddingTop: 8,
-    paddingBottom: 8,
+    paddingTop: 10,
+    paddingBottom: 10,
     shadowColor: '#000000',
     shadowOpacity: 0.08,
     shadowRadius: 16,
     shadowOffset: { width: 0, height: -4 },
     elevation: 12,
   },
-  scrollContent: {
-    paddingHorizontal: 8,
-    gap: 4,
-  },
   item: {
     alignItems: 'center',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    gap: 4,
-    minWidth: 62,
-  },
-  iconWrap: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    alignItems: 'center',
     justifyContent: 'center',
-  },
-  iconWrapActive: {
-    backgroundColor: PRUSSIAN,
-    shadowColor: PRUSSIAN,
-    shadowOpacity: 0.25,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 4,
+    gap: 4,
+    flex: 1,
+    paddingVertical: 2,
   },
   label: {
-    fontSize: 9,
-    fontWeight: '600',
-    color: FAINT,
+    fontSize: 11,
   },
-  labelActive: {
-    color: PRUSSIAN,
-    fontWeight: '700',
+  centerBtn: {
+    width: 62,
+    height: 62,
+    borderRadius: 31,
+    backgroundColor: '#F97316',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: -34,
+    borderWidth: 4,
+    shadowColor: '#EA580C',
+    shadowOpacity: 0.45,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 10,
   },
+  centerBtnPressed: { transform: [{ scale: 0.94 }], opacity: 0.9 },
 });

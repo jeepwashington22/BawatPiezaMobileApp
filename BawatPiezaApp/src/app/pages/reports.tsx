@@ -1,11 +1,10 @@
+import { fonts, useTheme, type ThemeColors } from '../../theme';
 import { useEffect, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { ScreenShell } from '../../components/screen-shell';
 import { TileLoader } from '../../components/tile-loader';
 import { ContentCard } from '../../components/content-card';
 
-const PRUSSIAN = '#0A2A4A';
-const BUTTER = '#F6C445';
 const MUTED = 'rgba(10, 42, 74, 0.62)';
 
 // Mirrors web reports KPIs
@@ -32,6 +31,16 @@ const ZONES = [
 ];
 
 export default function ReportsScreen() {
+  const { colors: c, fonts: f } = useTheme();
+  const styles = makeStyles(c);
+  const PRUSSIAN = c.accent;
+  const BUTTER = c.butter;
+  const MUTED = c.muted;
+  const LINE = c.line;
+  const DANGER = c.danger;
+  const WHITE = c.onAccent;
+  const OK = c.ok;
+  const BAD = c.danger;
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -41,7 +50,7 @@ export default function ReportsScreen() {
 
   if (loading) {
     return (
-      <ScreenShell title="Reports" subtitle="Monthly analytics">
+      <ScreenShell>
         <View style={styles.loaderWrap}>
           <TileLoader label="Loading reports" size="lg" />
         </View>
@@ -52,7 +61,7 @@ export default function ReportsScreen() {
   const maxEnergy = Math.max(...TREND.map((d) => d.energy));
 
   return (
-    <ScreenShell title="Reports" subtitle="Monthly analytics">
+    <ScreenShell>
       <View style={styles.kpiGrid}>
         {KPIS.map((k) => (
           <View key={k.label} style={styles.kpiCard}>
@@ -63,7 +72,7 @@ export default function ReportsScreen() {
         ))}
       </View>
 
-      <ContentCard title="September 2026" eyebrow="Monthly Energy Trend (kWh)">
+      <ContentCard eyebrow="Monthly Energy Trend (kWh)">
         <View style={styles.chart}>
           {TREND.map((d) => (
             <View key={d.m} style={styles.barCol}>
@@ -74,7 +83,7 @@ export default function ReportsScreen() {
         </View>
       </ContentCard>
 
-      <ContentCard title="Zone Tile Stats" eyebrow="Performance">
+      <ContentCard eyebrow="Performance">
         <View style={[styles.zoneRow, styles.zoneHeader]}>
           <Text style={[styles.zoneCell, styles.zoneName]}>Zone</Text>
           <Text style={styles.zoneCell}>Avg</Text>
@@ -96,25 +105,32 @@ export default function ReportsScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (c: ThemeColors) => {
+  const PRUSSIAN = c.accent;
+  const MUTED = c.muted;
+  const LINE = c.line;
+  const BUTTER = c.butter;
+  const DANGER = c.danger;
+  const WHITE = c.onAccent;
+  return StyleSheet.create({
   loaderWrap: { alignItems: 'center', paddingVertical: 48 },
   kpiGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 16 },
   kpiCard: {
     flexGrow: 1,
     flexBasis: '47%',
-    backgroundColor: '#FFFFFF',
+    backgroundColor: c.surface,
     borderRadius: 16,
     borderWidth: 1,
     borderColor: 'rgba(10, 42, 74, 0.1)',
     padding: 14,
   },
-  kpiValue: { color: PRUSSIAN, fontSize: 17, fontWeight: '900' },
-  kpiLabel: { color: MUTED, fontSize: 11, fontWeight: '600', marginTop: 2 },
-  kpiDelta: { color: '#15803D', fontSize: 10, fontWeight: '700', marginTop: 4 },
+  kpiValue: { color: PRUSSIAN, fontSize: 17, fontWeight: '900', fontFamily: fonts.extrabold },
+  kpiLabel: { color: MUTED, fontSize: 11, fontWeight: '600', fontFamily: fonts.semibold, marginTop: 2 },
+  kpiDelta: { color: '#15803D', fontSize: 10, fontWeight: '700', fontFamily: fonts.bold, marginTop: 4 },
   chart: { flexDirection: 'row', alignItems: 'flex-end', gap: 6, height: 110 },
   barCol: { flex: 1, alignItems: 'center', justifyContent: 'flex-end', height: '100%' },
   bar: { width: '70%', backgroundColor: PRUSSIAN, borderTopRightRadius: 4, borderTopLeftRadius: 4 },
-  barLabel: { color: MUTED, fontSize: 9, marginTop: 4, fontWeight: '600' },
+  barLabel: { color: MUTED, fontSize: 9, marginTop: 4, fontWeight: '600', fontFamily: fonts.semibold },
   zoneRow: {
     flexDirection: 'row',
     paddingVertical: 9,
@@ -122,6 +138,11 @@ const styles = StyleSheet.create({
     borderBottomColor: 'rgba(10, 42, 74, 0.08)',
   },
   zoneHeader: { borderBottomWidth: 2 },
-  zoneCell: { flex: 1, color: MUTED, fontSize: 12, fontWeight: '600', textAlign: 'right' },
-  zoneName: { flex: 1.4, textAlign: 'left', color: PRUSSIAN, fontWeight: '800' },
-});
+  zoneCell: { flex: 1, color: MUTED, fontSize: 12, fontWeight: '600', fontFamily: fonts.semibold, textAlign: 'right' },
+  zoneName: { flex: 1.4, textAlign: 'left', color: PRUSSIAN, fontWeight: '800', fontFamily: fonts.extrabold },
+  });
+};
+
+
+
+

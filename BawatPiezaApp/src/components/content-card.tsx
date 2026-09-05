@@ -1,9 +1,9 @@
 import type { ReactNode } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
+import { useTheme } from '../theme';
 
 /**
- * ContentCard — reusable card wrapper mirroring the web dashboard's surface
- * cards (white/translucent panel, rounded corners, hairline border, soft shadow).
+ * ContentCard — reusable themed card wrapper with soft shadow and Poppins type.
  */
 export type ContentCardProps = {
   title?: string;
@@ -14,13 +14,16 @@ export type ContentCardProps = {
 };
 
 export function ContentCard({ title, eyebrow, action, children, style }: ContentCardProps) {
+  const { colors: c, fonts: f } = useTheme();
   return (
-    <View style={[styles.card, style]}>
+    <View style={[styles.card, { backgroundColor: c.surface, borderColor: c.line }, style]}>
       {(title || eyebrow || action) && (
         <View style={styles.header}>
           <View style={styles.headerText}>
-            {eyebrow ? <Text style={styles.eyebrow}>{eyebrow}</Text> : null}
-            {title ? <Text style={styles.title}>{title}</Text> : null}
+            {eyebrow ? (
+              <Text style={[styles.eyebrow, { color: c.muted, fontFamily: f.semibold }]}>{eyebrow}</Text>
+            ) : null}
+            {title ? <Text style={[styles.title, { color: c.text, fontFamily: f.extrabold }]}>{title}</Text> : null}
           </View>
           {action ?? null}
         </View>
@@ -32,10 +35,8 @@ export function ContentCard({ title, eyebrow, action, children, style }: Content
 
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: '#FFFFFF',
     borderRadius: 18,
     borderWidth: 1,
-    borderColor: 'rgba(10, 42, 74, 0.1)',
     padding: 18,
     marginBottom: 16,
     shadowColor: 'rgba(10, 42, 74, 0.08)',
@@ -52,16 +53,12 @@ const styles = StyleSheet.create({
   },
   headerText: { flex: 1, paddingRight: 8 },
   eyebrow: {
-    color: 'rgba(10, 42, 74, 0.42)',
     fontSize: 10,
     textTransform: 'uppercase',
     letterSpacing: 1.2,
-    fontWeight: '800',
     marginBottom: 2,
   },
   title: {
-    color: '#0A2A4A',
     fontSize: 16,
-    fontWeight: '800',
   },
 });

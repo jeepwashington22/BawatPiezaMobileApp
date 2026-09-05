@@ -1,9 +1,10 @@
+﻿import { useTheme } from '../theme';
 import { useEffect, useRef } from 'react';
 import { Animated, Easing, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
 /**
- * TileLoader — a custom loading indicator styled as a grid of piezoelectric
+ * TileLoader â€” a custom loading indicator styled as a grid of piezoelectric
  * tiles that "harvest" energy in sequence (butter-yellow glow pulse). This is
  * the React Native port of the web dashboard's TileLoader component.
  *

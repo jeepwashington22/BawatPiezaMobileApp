@@ -1,31 +1,39 @@
+import { fonts, useTheme, type ThemeColors } from '../../theme';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 import { ScreenShell } from '../../components/screen-shell';
 import { TileLoader } from '../../components/tile-loader';
 import { ContentCard } from '../../components/content-card';
 
-const PRUSSIAN = '#0A2A4A';
 const PRUSSIAN_SOFT = '#3B5B7A';
-const BUTTER = '#F6C445';
 const WHITE = '#FFFFFF';
 const MUTED = 'rgba(10, 42, 74, 0.62)';
 
 // Mirrors web dashboard statCards (frontend/src/app/dashboard/page.tsx)
 type Stat = { label: string; value: string; unit: string; delta: string; up: boolean; bg: string };
 const STATS: Stat[] = [
-  { label: 'Energy Today', value: '12.4', unit: 'kWh', delta: '+12%', up: true, bg: BUTTER },
-  { label: 'Waste Converted', value: '8.6', unit: 'kg', delta: '+5%', up: true, bg: PRUSSIAN_SOFT },
-  { label: 'CO₂ Offset', value: '3.9', unit: 'kg', delta: '-8%', up: false, bg: PRUSSIAN },
+  { label: 'Energy Today', value: '12.4', unit: 'kWh', delta: '+12%', up: true, bg: '#F6C445' },
+  { label: 'Waste Converted', value: '8.6', unit: 'kg', delta: '+5%', up: true, bg: '#345271' },
+  { label: 'CO₂ Offset', value: '3.9', unit: 'kg', delta: '-8%', up: false, bg: '#0A2A4A' },
 ];
 
 // Mirrors web sourcesData mix
 const SOURCES = [
-  { name: 'Waste-to-Energy', pct: 46, color: PRUSSIAN },
-  { name: 'Solar', pct: 32, color: BUTTER },
-  { name: 'Grid', pct: 22, color: PRUSSIAN_SOFT },
+  { name: 'Waste-to-Energy', pct: 46, color: '#0A2A4A' },
+  { name: 'Solar', pct: 32, color: '#F6C445' },
+  { name: 'Grid', pct: 22, color: '#345271' },
 ];
 
 export default function EnergyScreen() {
+  const { colors: c, fonts: f } = useTheme();
+  const styles = makeStyles(c);
+  const PRUSSIAN = c.accent;
+  const BUTTER = c.butter;
+  const MUTED = c.muted;
+  const LINE = c.line;
+  const DANGER = c.danger;
+  const OK = c.ok;
+  const BAD = c.danger;
   const [loading, setLoading] = useState(true);
 
   // Same simulated fetch as the web dashboard (900ms), swap for real queries later
@@ -36,7 +44,7 @@ export default function EnergyScreen() {
 
   if (loading) {
     return (
-      <ScreenShell title="Energy" subtitle="Live generation & harvest">
+      <ScreenShell>
         <View style={styles.loaderWrap}>
           <TileLoader label="Loading energy data" size="lg" />
         </View>
@@ -45,7 +53,7 @@ export default function EnergyScreen() {
   }
 
   return (
-    <ScreenShell title="Energy" subtitle="Live generation & harvest">
+    <ScreenShell>
       {STATS.map((s) => (
         <View key={s.label} style={[styles.statCard, { backgroundColor: s.bg }]}>
           <Text style={[styles.statValue, s.bg === BUTTER ? { color: PRUSSIAN } : null]}>
@@ -61,7 +69,7 @@ export default function EnergyScreen() {
         </View>
       ))}
 
-      <ContentCard title="Energy Mix" eyebrow="Sources">
+      <ContentCard eyebrow="Sources">
         <View style={styles.mixTrack}>
           {SOURCES.map((src) => (
             <View key={src.name} style={{ flex: src.pct, backgroundColor: src.color, height: 10 }} />
@@ -79,7 +87,7 @@ export default function EnergyScreen() {
         </View>
       </ContentCard>
 
-      <ContentCard title="Grid Flow" eyebrow="Live">
+      <ContentCard eyebrow="Live">
         <View style={styles.flowRow}>
           <Text style={styles.flowLabel}>Inverter output</Text>
           <Text style={styles.flowValue}>4.2 kW</Text>
@@ -97,7 +105,13 @@ export default function EnergyScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (c: ThemeColors) => {
+  const PRUSSIAN = c.accent;
+  const MUTED = c.muted;
+  const LINE = c.line;
+  const BUTTER = c.butter;
+  const DANGER = c.danger;
+  return StyleSheet.create({
   loaderWrap: { alignItems: 'center', paddingVertical: 48 },
   statCard: {
     borderRadius: 22,
@@ -109,16 +123,16 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 6 },
     elevation: 4,
   },
-  statValue: { color: WHITE, fontSize: 34, fontWeight: '900', letterSpacing: -1 },
-  statUnit: { fontSize: 14, fontWeight: '600', opacity: 0.75 },
+  statValue: { color: WHITE, fontSize: 34, fontWeight: '900', fontFamily: fonts.extrabold, letterSpacing: -1 },
+  statUnit: { fontSize: 14, fontWeight: '600', fontFamily: fonts.semibold, opacity: 0.75 },
   statFooter: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 6 },
-  statLabel: { color: 'rgba(255,255,255,0.75)', fontSize: 13, fontWeight: '600' },
-  statDelta: { color: 'rgba(255,255,255,0.9)', fontSize: 13, fontWeight: '800' },
+  statLabel: { color: 'rgba(255,255,255,0.75)', fontSize: 13, fontWeight: '600', fontFamily: fonts.semibold },
+  statDelta: { color: 'rgba(255,255,255,0.9)', fontSize: 13, fontWeight: '800', fontFamily: fonts.extrabold },
   mixTrack: { flexDirection: 'row', borderRadius: 6, overflow: 'hidden', marginBottom: 12 },
   legend: { gap: 6 },
   legendItem: { flexDirection: 'row', alignItems: 'center' },
   dot: { width: 10, height: 10, borderRadius: 5, marginRight: 8 },
-  legendText: { color: MUTED, fontSize: 13, fontWeight: '600' },
+  legendText: { color: MUTED, fontSize: 13, fontWeight: '600', fontFamily: fonts.semibold },
   flowRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -127,6 +141,11 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(10, 42, 74, 0.08)',
   },
-  flowLabel: { color: MUTED, fontSize: 14, fontWeight: '600' },
-  flowValue: { color: PRUSSIAN, fontSize: 15, fontWeight: '800' },
-});
+  flowLabel: { color: MUTED, fontSize: 14, fontWeight: '600', fontFamily: fonts.semibold },
+  flowValue: { color: PRUSSIAN, fontSize: 15, fontWeight: '800', fontFamily: fonts.extrabold },
+  });
+};
+
+
+
+

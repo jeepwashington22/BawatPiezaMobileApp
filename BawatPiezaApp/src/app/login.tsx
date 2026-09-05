@@ -13,6 +13,7 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
+import { fonts } from '../theme';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../lib/supabase';
 
@@ -131,7 +132,7 @@ export default function LoginScreen() {
 
             <View style={styles.passwordHeader}>
               <Text style={styles.label}>Password</Text>
-              <TouchableOpacity>
+              <TouchableOpacity onPress={() => router.push('/forgot-password')}>
                 <Text style={styles.linkText}>Forgot password?</Text>
               </TouchableOpacity>
             </View>
@@ -293,7 +294,7 @@ const styles = StyleSheet.create({
   brandTitle: {
     color: '#FFFFFF',
     fontSize: 34,
-    fontWeight: '800',
+    fontWeight: '800', fontFamily: fonts.extrabold,
     letterSpacing: -1,
   },
   brandAccent: {
@@ -305,7 +306,7 @@ const styles = StyleSheet.create({
     fontSize: 11,
     letterSpacing: 1.8,
     textTransform: 'uppercase',
-    fontWeight: '700',
+    fontWeight: '700', fontFamily: fonts.bold,
     textAlign: 'center',
   },
   card: {
@@ -325,7 +326,7 @@ const styles = StyleSheet.create({
   },
   title: {
     fontSize: 30,
-    fontWeight: '800',
+    fontWeight: '800', fontFamily: fonts.extrabold,
     color: '#FFFFFF',
     letterSpacing: -0.8,
     marginBottom: 8,
@@ -338,7 +339,7 @@ const styles = StyleSheet.create({
   label: {
     color: 'rgba(255,255,255,0.82)',
     fontSize: 13,
-    fontWeight: '600',
+    fontWeight: '600', fontFamily: fonts.semibold,
     marginBottom: 8,
   },
   inputBox: {
@@ -368,7 +369,7 @@ const styles = StyleSheet.create({
   linkText: {
     color: BUTTER,
     fontSize: 12,
-    fontWeight: '700',
+    fontWeight: '700', fontFamily: fonts.bold,
   },
   rememberRow: {
     marginTop: 2,
@@ -396,7 +397,7 @@ const styles = StyleSheet.create({
   rememberText: {
     color: 'rgba(255,255,255,0.75)',
     fontSize: 13,
-    fontWeight: '500',
+    fontWeight: '500', fontFamily: fonts.medium,
   },
   errorText: {
     backgroundColor: 'rgba(239, 68, 68, 0.12)',
@@ -405,7 +406,7 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(239,68,68,0.35)',
     color: '#FCA5A5',
     fontSize: 12,
-    fontWeight: '600',
+    fontWeight: '600', fontFamily: fonts.semibold,
     paddingHorizontal: 12,
     paddingVertical: 10,
     marginBottom: 16,
@@ -424,7 +425,7 @@ const styles = StyleSheet.create({
   primaryButtonText: {
     color: '#FFFFFF',
     fontSize: 15,
-    fontWeight: '800',
+    fontWeight: '800', fontFamily: fonts.extrabold,
     marginRight: 8,
   },
   primaryButtonIcon: {
@@ -442,7 +443,7 @@ const styles = StyleSheet.create({
     marginHorizontal: 12,
     textTransform: 'uppercase',
     letterSpacing: 1.2,
-    fontWeight: '700',
+    fontWeight: '700', fontFamily: fonts.bold,
   },
   googleButton: {
     flexDirection: 'row',
@@ -457,7 +458,7 @@ const styles = StyleSheet.create({
   googleButtonText: {
     color: '#FFFFFF',
     fontSize: 14,
-    fontWeight: '700',
+    fontWeight: '700', fontFamily: fonts.bold,
     marginLeft: 10,
   },
   footerRow: {
@@ -467,5 +468,5 @@ const styles = StyleSheet.create({
     marginTop: 20,
   },
   footerText: { color: MUTED, fontSize: 13 },
-  footerLink: { color: BUTTER, fontSize: 13, fontWeight: '800', marginLeft: 4 },
+  footerLink: { color: BUTTER, fontSize: 13, fontWeight: '800', fontFamily: fonts.extrabold, marginLeft: 4 },
 });

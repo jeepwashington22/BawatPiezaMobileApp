@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+﻿import React, { useState } from 'react';
 import {
   View,
   Text,
@@ -13,6 +13,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import { fonts } from '../theme';
 
 const PRUSSIAN = '#0A2A4A';
 const PRUSSIAN_SOFT = '#3B5B7A';
@@ -140,14 +141,14 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 10 },
     marginBottom: 14,
   },
-  brandTitle: { color: PRUSSIAN, fontSize: 32, fontWeight: '800', letterSpacing: -0.8 },
+  brandTitle: { color: PRUSSIAN, fontSize: 32, fontWeight: '800', fontFamily: fonts.extrabold, letterSpacing: -0.8 },
   brandSubtitle: {
     marginTop: 8,
     color: MUTED,
     fontSize: 12,
     letterSpacing: 1.5,
     textTransform: 'uppercase',
-    fontWeight: '700',
+    fontWeight: '700', fontFamily: fonts.bold,
   },
   card: {
     width: '100%',
@@ -162,7 +163,7 @@ const styles = StyleSheet.create({
     shadowRadius: 20,
     shadowOffset: { width: 0, height: 10 },
   },
-  title: { fontSize: 28, fontWeight: '800', color: PRUSSIAN, marginBottom: 8 },
+  title: { fontSize: 28, fontWeight: '800', fontFamily: fonts.extrabold, color: PRUSSIAN, marginBottom: 8 },
   subtitle: { color: MUTED, fontSize: 14, marginBottom: 20 },
   inputBox: {
     flexDirection: 'row',
@@ -185,8 +186,9 @@ const styles = StyleSheet.create({
     gap: 8,
     paddingVertical: 16,
   },
-  primaryButtonText: { color: '#FFFFFF', fontSize: 15, fontWeight: '800' },
+  primaryButtonText: { color: '#FFFFFF', fontSize: 15, fontWeight: '800', fontFamily: fonts.extrabold },
   footerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginTop: 18 },
   footerText: { color: MUTED, fontSize: 13 },
-  footerLink: { color: PRUSSIAN, fontSize: 13, fontWeight: '800', marginLeft: 4 },
+  footerLink: { color: PRUSSIAN, fontSize: 13, fontWeight: '800', fontFamily: fonts.extrabold, marginLeft: 4 },
 });
+

@@ -1,11 +1,10 @@
+import { fonts, useTheme, type ThemeColors } from '../../theme';
 import { useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { ScreenShell } from '../../components/screen-shell';
 import { TileLoader } from '../../components/tile-loader';
 import { ContentCard } from '../../components/content-card';
 
-const PRUSSIAN = '#0A2A4A';
-const BUTTER = '#F6C445';
 const MUTED = 'rgba(10, 42, 74, 0.62)';
 const DAY_LABELS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
 
@@ -23,6 +22,16 @@ function buildMonth(date: Date): (number | null)[] {
 }
 
 export default function ScheduleScreen() {
+  const { colors: c, fonts: f } = useTheme();
+  const styles = makeStyles(c);
+  const PRUSSIAN = c.accent;
+  const BUTTER = c.butter;
+  const MUTED = c.muted;
+  const LINE = c.line;
+  const DANGER = c.danger;
+  const WHITE = c.onAccent;
+  const OK = c.ok;
+  const BAD = c.danger;
   const today = useMemo(() => new Date(), []);
   const [loading, setLoading] = useState(true);
   const [monthCursor, setMonthCursor] = useState(new Date(today.getFullYear(), today.getMonth(), 1));
@@ -36,7 +45,7 @@ export default function ScheduleScreen() {
 
   if (loading) {
     return (
-      <ScreenShell title="Schedule" subtitle="Operating days & hours">
+      <ScreenShell>
         <View style={styles.loaderWrap}>
           <TileLoader label="Loading schedule" size="lg" />
         </View>
@@ -57,7 +66,7 @@ export default function ScheduleScreen() {
   }
 
   return (
-    <ScreenShell title="Schedule" subtitle="Operating days & hours">
+    <ScreenShell>
       <ContentCard
         title={monthLabel}
         eyebrow="Availability Calendar"
@@ -95,7 +104,7 @@ export default function ScheduleScreen() {
         </View>
       </ContentCard>
 
-      <ContentCard title="Operating Days" eyebrow="Weekly">
+      <ContentCard eyebrow="Weekly">
         <View style={styles.weekRow}>
           {operatingDays.map((on, i) => (
             <Pressable
@@ -113,7 +122,14 @@ export default function ScheduleScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (c: ThemeColors) => {
+  const PRUSSIAN = c.accent;
+  const MUTED = c.muted;
+  const LINE = c.line;
+  const BUTTER = c.butter;
+  const DANGER = c.danger;
+  const WHITE = c.onAccent;
+  return StyleSheet.create({
   loaderWrap: { alignItems: 'center', paddingVertical: 48 },
   monthNav: { flexDirection: 'row', gap: 8 },
   navBtn: {
@@ -121,9 +137,9 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: 'rgba(10, 42, 74, 0.14)',
     alignItems: 'center', justifyContent: 'center',
   },
-  navBtnText: { color: PRUSSIAN, fontSize: 18, fontWeight: '800', lineHeight: 20 },
+  navBtnText: { color: PRUSSIAN, fontSize: 18, fontWeight: '800', fontFamily: fonts.extrabold, lineHeight: 20 },
   weekRow: { flexDirection: 'row', gap: 4 },
-  dayLabel: { flex: 1, textAlign: 'center', color: MUTED, fontSize: 11, fontWeight: '800' },
+  dayLabel: { flex: 1, textAlign: 'center', color: MUTED, fontSize: 11, fontWeight: '800', fontFamily: fonts.extrabold },
   calGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: 8 },
   calCell: {
     width: '13%', aspectRatio: 1, borderRadius: 9,
@@ -131,14 +147,18 @@ const styles = StyleSheet.create({
   },
   calToday: { backgroundColor: PRUSSIAN },
   calSelected: { borderWidth: 2, borderColor: BUTTER },
-  calText: { color: PRUSSIAN, fontSize: 12, fontWeight: '600' },
-  calTextToday: { color: '#FFFFFF', fontWeight: '800' },
+  calText: { color: PRUSSIAN, fontSize: 12, fontWeight: '600', fontFamily: fonts.semibold },
+  calTextToday: { color: WHITE, fontWeight: '800', fontFamily: fonts.extrabold },
   dayToggle: {
     flex: 1, aspectRatio: 1, borderRadius: 12, maxWidth: 44,
     borderWidth: 1, borderColor: 'rgba(10, 42, 74, 0.16)',
     alignItems: 'center', justifyContent: 'center',
   },
   dayToggleOn: { backgroundColor: PRUSSIAN, borderColor: PRUSSIAN },
-  dayToggleText: { color: MUTED, fontSize: 13, fontWeight: '800' },
-  dayToggleTextOn: { color: '#FFFFFF' },
-});
+  dayToggleText: { color: MUTED, fontSize: 13, fontWeight: '800', fontFamily: fonts.extrabold },
+  dayToggleTextOn: { color: WHITE },
+  });
+};
+
+
+
