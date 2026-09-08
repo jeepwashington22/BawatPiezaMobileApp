@@ -12,6 +12,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { supabase } from '../../lib/supabase';
 import { ScreenShell } from '../../components/screen-shell';
+import { TopBar } from '../../components/top-bar';
 import { LoadingScreen } from '../../components/loading-screen';
 import { Card, Toggle, SectionHead, AnimatedPressable, LiveDot, scale, GOLD, NAVY } from '../../components/glass-ui';
 
@@ -89,9 +90,11 @@ export default function HomeScreen() {
 
   return (
     <ScreenShell>
+      <TopBar />
       {/* ============ TOTAL CONSUMPTION â€” big, centered, no gradient card ============ */}
       <Animated.View style={enter[0]}>
-        <View style={{ alignItems: 'center', marginTop: scale(6) }}>
+        <View style={[st.energyCard, { backgroundColor: mode === 'dark' ? '#123456' : '#12499A' }]}>
+          <Ionicons name="flash" size={scale(86)} color="rgba(255,255,255,0.12)" style={st.energyBolt} />
           <View style={[st.totalPill, { backgroundColor: mode === 'dark' ? 'rgba(255,255,255,0.08)' : 'rgba(10,42,74,0.06)' }]}>
             <Text style={{ color: mode === 'dark' ? 'rgba(237,242,250,0.75)' : 'rgba(10,42,74,0.6)', fontSize: scale(8.5), letterSpacing: 1.6, fontFamily: fonts.bold }}>
               TOTAL CONSUMPTION Â· TODAY
@@ -122,6 +125,20 @@ export default function HomeScreen() {
               ))}
             </View>
           </Card>
+        </View>
+      </Animated.View>
+
+      <Animated.View style={[enter[1], { marginTop: scale(14) }]}>
+        <View style={st.batteryBanner}>
+          <View style={st.batteryIcon}><Ionicons name="flash" size={scale(25)} color="#F97316" /></View>
+          <View style={{ flex: 1 }}>
+            <Text style={st.batteryEyebrow}>POWERING VIA</Text>
+            <Text style={st.batteryTitle}>BATTERY</Text>
+          </View>
+          <View style={st.batteryPct}>
+            <Text style={st.batteryPctText}>89%</Text>
+            <Ionicons name="battery-full" size={scale(25)} color="#FFFFFF" />
+          </View>
         </View>
       </Animated.View>
 
@@ -330,6 +347,62 @@ export default function HomeScreen() {
 /* ------------------------------- styles ---------------------------------- */
 
 const st = StyleSheet.create({
+  energyCard: {
+    position: 'relative',
+    overflow: 'hidden',
+    borderRadius: scale(28),
+    padding: scale(18),
+    paddingBottom: scale(14),
+  },
+  energyBolt: {
+    position: 'absolute',
+    right: scale(12),
+    top: scale(16),
+  },
+  batteryBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: scale(12),
+    borderRadius: scale(20),
+    backgroundColor: '#F97316',
+    paddingHorizontal: scale(14),
+    paddingVertical: scale(11),
+  },
+  batteryIcon: {
+    width: scale(42),
+    height: scale(42),
+    borderRadius: scale(10),
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FFFFFF',
+  },
+  batteryEyebrow: {
+    color: '#FFFFFF',
+    fontSize: scale(8),
+    letterSpacing: 1.2,
+    fontFamily: fonts.bold,
+  },
+  batteryTitle: {
+    color: '#FFFFFF',
+    fontSize: scale(17),
+    letterSpacing: 1,
+    fontFamily: fonts.extrabold,
+  },
+  batteryPct: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: scale(2),
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.75)',
+    borderRadius: scale(8),
+    paddingHorizontal: scale(7),
+    paddingVertical: scale(5),
+  },
+  batteryPctText: {
+    color: '#FFFFFF',
+    fontSize: scale(14),
+    fontFamily: fonts.bold,
+  },
   totalPill: {
     borderRadius: 999,
     paddingHorizontal: scale(12),

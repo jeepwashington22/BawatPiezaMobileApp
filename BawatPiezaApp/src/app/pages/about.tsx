@@ -1,5 +1,5 @@
 import { fonts, useTheme, type ThemeColors } from '../../theme';
-import { StyleSheet, Text, View } from 'react-native';
+import { Image, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { ScreenShell } from '../../components/screen-shell';
 import { ContentCard } from '../../components/content-card';
@@ -20,12 +20,7 @@ export default function AboutScreen() {
   return (
     <ScreenShell>
       <View style={styles.hero}>
-        <View style={styles.logo}>
-          <Ionicons name="flash" size={34} color={PRUSSIAN} />
-        </View>
-        <Text style={styles.appName}>
-          Bawat<Text style={{ color: BUTTER }}>Pieza</Text>
-        </Text>
+        <Image source={require('../../../assets/images/LOGO3.png')} style={styles.logo} resizeMode="contain" />
         <Text style={styles.tagline}>Waste Into Watts, Ions</Text>
         <Text style={styles.version}>Mobile App v1.0.0</Text>
       </View>
@@ -64,15 +59,10 @@ const makeStyles = (c: ThemeColors) => {
   return StyleSheet.create({
   hero: { alignItems: 'center', marginBottom: 18 },
   logo: {
-    width: 76,
-    height: 76,
-    borderRadius: 24,
-    backgroundColor: BUTTER,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 12,
+    width: 250,
+    height: 140,
+    marginBottom: 4,
   },
-  appName: { color: PRUSSIAN, fontSize: 24, fontWeight: '900', fontFamily: fonts.extrabold, letterSpacing: -0.5 },
   tagline: { color: MUTED, fontSize: 12, marginTop: 2 },
   version: { color: MUTED, fontSize: 11, marginTop: 8 },
   body: { color: MUTED, fontSize: 13, lineHeight: 20 },

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import {
   View,
+  Image,
   Text,
   TextInput,
   TouchableOpacity,
@@ -103,12 +104,7 @@ export default function LoginScreen() {
       <SafeAreaView style={styles.safeArea}>
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.flex}>
           <View style={styles.brandWrap}>
-            <View style={styles.brandMark}>
-              <Ionicons name="flash-outline" size={28} color="#FFFFFF" />
-            </View>
-            <Text style={styles.brandTitle}>
-              Bawat<Text style={styles.brandAccent}>Pieza</Text>
-            </Text>
+            <Image source={require('../../assets/images/LOGO3.png')} style={styles.logo} resizeMode="contain" />
             <Text style={styles.brandSubtitle}>Piezo Technology - Kinetic Energy to Electricity</Text>
           </View>
 
@@ -278,28 +274,7 @@ const styles = StyleSheet.create({
     marginBottom: 24,
     zIndex: 1,
   },
-  brandMark: {
-    width: 68,
-    height: 68,
-    borderRadius: 22,
-    backgroundColor: '#0A2A4A',
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#0A2A4A',
-    shadowOpacity: 0.35,
-    shadowRadius: 18,
-    shadowOffset: { width: 0, height: 12 },
-    marginBottom: 14,
-  },
-  brandTitle: {
-    color: '#FFFFFF',
-    fontSize: 34,
-    fontWeight: '800', fontFamily: fonts.extrabold,
-    letterSpacing: -1,
-  },
-  brandAccent: {
-    color: BUTTER,
-  },
+  logo: { width: 270, height: 150, marginBottom: 2 },
   brandSubtitle: {
     marginTop: 10,
     color: MUTED,

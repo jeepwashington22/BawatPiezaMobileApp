@@ -1,6 +1,7 @@
 ﻿import React, { useState } from 'react';
 import {
   View,
+  Image,
   Text,
   TextInput,
   TouchableOpacity,
@@ -46,9 +47,7 @@ export default function SignupScreen() {
       <SafeAreaView style={styles.safeArea}>
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.flex}>
           <View style={styles.header}>
-            <View style={styles.brandMark}>
-              <Ionicons name="person-add-outline" size={26} color="#F6C445" />
-            </View>
+            <Image source={require('../../assets/images/LOGO3.png')} style={styles.logo} resizeMode="contain" />
             <Text style={styles.brandTitle}>Request access</Text>
             <Text style={styles.brandSubtitle}>Admin invited accounts only</Text>
           </View>
@@ -128,19 +127,7 @@ const styles = StyleSheet.create({
     paddingVertical: 24,
   },
   header: { alignItems: 'center', marginBottom: 28 },
-  brandMark: {
-    width: 64,
-    height: 64,
-    borderRadius: 20,
-    backgroundColor: PRUSSIAN,
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#0A2A4A',
-    shadowOpacity: 0.12,
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: 10 },
-    marginBottom: 14,
-  },
+  logo: { width: 230, height: 128, marginBottom: 10 },
   brandTitle: { color: PRUSSIAN, fontSize: 32, fontWeight: '800', fontFamily: fonts.extrabold, letterSpacing: -0.8 },
   brandSubtitle: {
     marginTop: 8,
