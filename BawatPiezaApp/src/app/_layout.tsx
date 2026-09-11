@@ -11,6 +11,8 @@ import {
 } from '@expo-google-fonts/poppins';
 
 import { ThemeProvider } from '../theme';
+import { supabase } from '../lib/supabase';
+import type { AuthChangeEvent } from '@supabase/supabase-js';
 
 // Keep the splash visible until fonts + root layout are ready,
 // then hide it so the app (login screen) is actually rendered.
@@ -28,6 +30,43 @@ export default function RootLayout() {
   useEffect(() => {
     if (fontsLoaded) SplashScreen.hideAsync();
   }, [fontsLoaded]);
+
+  // Handle OAuth callback and auth state changes
+  useEffect(() => {
+    let isMounted = true;
+
+    // Check for existing session on mount (handles OAuth redirect)
+    const checkExistingSession = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        
+        if (session && isMounted && session.user) {
+          console.log('Existing session found:', session.user.email);
+          // Session exists, let the app handle redirection
+        }
+      } catch (err) {
+        console.error('Session check error:', err);
+      }
+    };
+
+    checkExistingSession();
+
+    // Set up auth state change listener
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'SIGNED_IN' && session?.user && isMounted) {
+        console.log('User signed in:', session.user.email);
+        // Dispatch custom event for any listener
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('supabase:signedIn'));
+        }
+      }
+    });
+
+    return () => {
+      isMounted = false;
+      subscription.unsubscribe();
+    };
+  }, []);
 
   if (!fontsLoaded) return null;
 

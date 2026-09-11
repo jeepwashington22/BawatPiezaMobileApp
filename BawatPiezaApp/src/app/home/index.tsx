@@ -15,6 +15,7 @@ import { ScreenShell } from '../../components/screen-shell';
 import { TopBar } from '../../components/top-bar';
 import { LoadingScreen } from '../../components/loading-screen';
 import { Card, Toggle, SectionHead, AnimatedPressable, LiveDot, scale, GOLD, NAVY } from '../../components/glass-ui';
+import { LinearGradient } from 'expo-linear-gradient';
 
 /* ------------------------------ demo data ------------------------------- */
 
@@ -93,53 +94,61 @@ export default function HomeScreen() {
       <TopBar />
       {/* ============ TOTAL CONSUMPTION â€” big, centered, no gradient card ============ */}
       <Animated.View style={enter[0]}>
-        <View style={[st.energyCard, { backgroundColor: mode === 'dark' ? '#123456' : '#12499A' }]}>
-          <Ionicons name="flash" size={scale(86)} color="rgba(255,255,255,0.12)" style={st.energyBolt} />
-          <View style={[st.totalPill, { backgroundColor: mode === 'dark' ? 'rgba(255,255,255,0.08)' : 'rgba(10,42,74,0.06)' }]}>
-            <Text style={{ color: mode === 'dark' ? 'rgba(237,242,250,0.75)' : 'rgba(10,42,74,0.6)', fontSize: scale(8.5), letterSpacing: 1.6, fontFamily: fonts.bold }}>
-              TOTAL CONSUMPTION Â· TODAY
+        <LinearGradient
+          colors={['#0A2A4A', '#123B66', '#1B4D8F']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={[st.energyCard, { borderWidth: 1, borderColor: 'rgba(246,196,69,0.32)' }]}
+        >
+          {/* gold lux top trim */}
+          <View style={st.energyTrim} />
+          <Ionicons name="flash" size={scale(96)} color="rgba(246,196,69,0.10)" style={st.energyBolt} />
+          <View style={st.totalPill}>
+            <View style={st.luxDot} />
+            <Text style={{ color: 'rgba(246,196,69,0.95)', fontSize: scale(8.5), letterSpacing: 2, fontFamily: fonts.extrabold }}>
+              TOTAL CONSUMPTION · TODAY
             </Text>
           </View>
-          <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: scale(4) }}>
-            <Text style={{ color: c.text, fontSize: scale(46), fontFamily: fonts.extrabold, letterSpacing: -1.5 }}>4.82</Text>
-            <Text style={{ color: mode === 'dark' ? 'rgba(237,242,250,0.55)' : 'rgba(10,42,74,0.5)', fontSize: scale(15), fontFamily: fonts.extrabold, marginBottom: scale(8) }}>kWh</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: scale(5) }}>
+            <Text style={{ color: '#FFFFFF', fontSize: scale(52), fontFamily: fonts.extrabold, letterSpacing: -1.5 }}>4.82</Text>
+            <Text style={{ color: 'rgba(255,255,255,0.55)', fontSize: scale(16), fontFamily: fonts.extrabold, marginBottom: scale(9) }}>kWh</Text>
           </View>
-          <View style={st.savedPill}>
-            <Ionicons name="arrow-down" size={scale(11)} color="#15803D" />
-            <Text style={{ color: '#15803D', fontSize: scale(10), fontFamily: fonts.bold }}>₱86 saved this month</Text>
+          <View style={[st.savedPill, { backgroundColor: 'rgba(255,255,255,0.10)' }]}>
+            <Ionicons name="arrow-down" size={scale(11)} color="#6EE7A0" />
+            <Text style={{ color: '#6EE7A0', fontSize: scale(10), fontFamily: fonts.bold }}>₱86 saved this month</Text>
           </View>
 
-          {/* volts / power / battery â€” dedicated card */}
-          <Card mode={mode} style={st.statsCard}>
+          {/* volts / power / battery — translucent luxe strip */}
+          <View style={[st.statsCard, { backgroundColor: mode === 'dark' ? 'rgba(255,255,255,0.06)' : 'rgba(255,255,255,0.5)' }]}>
             <View style={st.statsRow}>
               {stats.map((s, i) => (
-                <View key={s.label} style={[st.statCell, i > 0 && { borderLeftWidth: 1, borderLeftColor: mode === 'dark' ? 'rgba(255,255,255,0.1)' : 'rgba(10,42,74,0.1)' }]}>
-                  <Text style={{ color: mode === 'dark' ? 'rgba(237,242,250,0.45)' : 'rgba(10,42,74,0.45)', fontSize: scale(7.5), letterSpacing: 1, fontFamily: fonts.bold }}>
+                <View key={s.label} style={[st.statCell, i > 0 && { borderLeftWidth: 1, borderLeftColor: mode === 'dark' ? 'rgba(255,255,255,0.16)' : 'rgba(10,42,74,0.14)' }]}>
+                  <Text style={{ color: 'rgba(246,196,69,0.75)', fontSize: scale(7.5), letterSpacing: 1.2, fontFamily: fonts.bold }}>
                     {s.label}
                   </Text>
                   <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 2, justifyContent: 'center' }}>
-                    <Text style={{ color: c.text, fontSize: scale(14), fontFamily: fonts.extrabold }}>{s.value}</Text>
+                    <Text style={{ color: '#FFFFFF', fontSize: scale(15), fontFamily: fonts.extrabold }}>{s.value}</Text>
                     <Text style={{ color: GOLD, fontSize: scale(8.5), fontFamily: fonts.bold }}>{s.unit}</Text>
                   </View>
                 </View>
               ))}
             </View>
-          </Card>
-        </View>
+          </View>
+        </LinearGradient>
       </Animated.View>
 
       <Animated.View style={[enter[1], { marginTop: scale(14) }]}>
-        <View style={st.batteryBanner}>
-          <View style={st.batteryIcon}><Ionicons name="flash" size={scale(25)} color="#F97316" /></View>
+        <LinearGradient colors={['#F6C445', '#E2A617']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={st.batteryBanner}>
+          <View style={st.batteryIcon}><Ionicons name="flash" size={scale(25)} color="#F6C445" /></View>
           <View style={{ flex: 1 }}>
             <Text style={st.batteryEyebrow}>POWERING VIA</Text>
             <Text style={st.batteryTitle}>BATTERY</Text>
           </View>
           <View style={st.batteryPct}>
             <Text style={st.batteryPctText}>89%</Text>
-            <Ionicons name="battery-full" size={scale(25)} color="#FFFFFF" />
+            <Ionicons name="battery-full" size={scale(25)} color="#0A2A4A" />
           </View>
-        </View>
+        </LinearGradient>
       </Animated.View>
 
       {/* ============ FILTER CHIPS (All / On / Off) ============ */}
@@ -155,8 +164,12 @@ export default function HomeScreen() {
             const active = filter === f.key;
             return (
               <AnimatedPressable key={f.key} onPress={() => setFilter(f.key)}>
-                <View style={[st.chip, { backgroundColor: active ? NAVY : mode === 'dark' ? 'rgba(255,255,255,0.07)' : 'rgba(255,255,255,0.7)' }]}>
-                  <Text style={{ color: active ? '#FFFFFF' : c.textSoft, fontSize: scale(10.5), fontFamily: fonts.bold }}>{f.label}</Text>
+                <View style={[st.chip, {
+                  backgroundColor: active ? GOLD : mode === 'dark' ? 'rgba(255,255,255,0.07)' : 'rgba(255,255,255,0.7)',
+                  borderWidth: active ? 0 : 1,
+                  borderColor: mode === 'dark' ? 'rgba(255,255,255,0.14)' : 'rgba(10,42,74,0.12)',
+                }]}>
+                  <Text style={{ color: active ? NAVY : c.textSoft, fontSize: scale(10.5), fontFamily: fonts.bold }}>{f.label}</Text>
                 </View>
               </AnimatedPressable>
             );
@@ -175,8 +188,8 @@ export default function HomeScreen() {
           ].map((a) => (
             <AnimatedPressable key={a.label} onPress={a.onPress}>
               <View style={{ alignItems: 'center', gap: scale(5) }}>
-                <View style={[st.actionCircle, { backgroundColor: mode === 'dark' ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.8)' }, a.center && st.actionCircleCenter]}>
-                  <Ionicons name={a.icon} size={scale(18)} color={a.center ? '#FFFFFF' : mode === 'dark' ? 'rgba(237,242,250,0.8)' : NAVY} />
+                <View style={[st.actionCircle, { backgroundColor: mode === 'dark' ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.8)', borderColor: 'rgba(246,196,69,0.4)' }, a.center && st.actionCircleCenter]}>
+                  <Ionicons name={a.icon} size={a.center ? scale(20) : scale(17)} color={a.center ? NAVY : mode === 'dark' ? 'rgba(237,242,250,0.85)' : NAVY} />
                 </View>
                 <Text style={{ color: mode === 'dark' ? 'rgba(237,242,250,0.7)' : 'rgba(10,42,74,0.6)', fontSize: scale(9), fontFamily: fonts.semibold }}>{a.label}</Text>
               </View>
@@ -263,13 +276,13 @@ export default function HomeScreen() {
               </Text>
             </View>
             <View style={st.stepsPill}>
-              <Ionicons name="footsteps" size={scale(13)} color="#F36F21" />
+              <Ionicons name="footsteps" size={scale(13)} color={NAVY} />
               <Text style={[st.stepsPillText, { color: c.text }]}>1,248</Text>
             </View>
           </View>
 
           <View style={st.kineticRow}>
-            <Ionicons name="footsteps" size={scale(14)} color="#F36F21" />
+            <Ionicons name="footsteps" size={scale(14)} color="#B4771B" />
             <Text style={[st.kineticText, { color: mode === 'dark' ? 'rgba(237,242,250,0.75)' : 'rgba(10,42,74,0.7)' }]}>
               Footsteps converted today
             </Text>
@@ -353,6 +366,29 @@ const st = StyleSheet.create({
     borderRadius: scale(28),
     padding: scale(18),
     paddingBottom: scale(14),
+    shadowColor: 'rgba(10,42,74,0.35)',
+    shadowOpacity: 0.4,
+    shadowRadius: scale(14),
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 8,
+  },
+  energyTrim: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: scale(3),
+    backgroundColor: GOLD,
+    opacity: 0.85,
+  },
+  luxDot: {
+    width: scale(7),
+    height: scale(7),
+    borderRadius: 99,
+    backgroundColor: GOLD,
+    shadowColor: GOLD,
+    shadowOpacity: 1,
+    shadowRadius: scale(4),
   },
   energyBolt: {
     position: 'absolute',
@@ -364,27 +400,33 @@ const st = StyleSheet.create({
     alignItems: 'center',
     gap: scale(12),
     borderRadius: scale(20),
-    backgroundColor: '#F97316',
+    borderWidth: 1,
+    borderColor: 'rgba(10,42,74,0.16)',
     paddingHorizontal: scale(14),
     paddingVertical: scale(11),
+    shadowColor: 'rgba(10,42,74,0.3)',
+    shadowOpacity: 0.25,
+    shadowRadius: scale(10),
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 5,
   },
   batteryIcon: {
     width: scale(42),
     height: scale(42),
-    borderRadius: scale(10),
+    borderRadius: scale(21),
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#FFFFFF',
+    backgroundColor: NAVY,
   },
   batteryEyebrow: {
-    color: '#FFFFFF',
+    color: NAVY,
     fontSize: scale(8),
-    letterSpacing: 1.2,
-    fontFamily: fonts.bold,
+    letterSpacing: 1.4,
+    fontFamily: fonts.extrabold,
   },
   batteryTitle: {
-    color: '#FFFFFF',
-    fontSize: scale(17),
+    color: NAVY,
+    fontSize: scale(18),
     letterSpacing: 1,
     fontFamily: fonts.extrabold,
   },
@@ -392,16 +434,17 @@ const st = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: scale(2),
+    backgroundColor: 'rgba(10,42,74,0.10)',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.75)',
-    borderRadius: scale(8),
-    paddingHorizontal: scale(7),
-    paddingVertical: scale(5),
+    borderColor: 'rgba(10,42,74,0.35)',
+    borderRadius: scale(10),
+    paddingHorizontal: scale(8),
+    paddingVertical: scale(6),
   },
   batteryPctText: {
-    color: '#FFFFFF',
-    fontSize: scale(14),
-    fontFamily: fonts.bold,
+    color: NAVY,
+    fontSize: scale(15),
+    fontFamily: fonts.extrabold,
   },
   totalPill: {
     borderRadius: 999,
@@ -437,21 +480,26 @@ const st = StyleSheet.create({
     paddingVertical: scale(8),
   },
   actionCircle: {
-    width: scale(48),
-    height: scale(48),
-    borderRadius: scale(24),
+    width: scale(46),
+    height: scale(46),
+    borderRadius: scale(23),
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: 'rgba(10,42,74,0.08)',
+    borderColor: 'rgba(246,196,69,0.4)',
   },
   actionCircleCenter: {
+    width: scale(56),
+    height: scale(56),
+    borderRadius: scale(28),
     backgroundColor: GOLD,
+    borderWidth: 1,
+    borderColor: '#E2A617',
     shadowColor: GOLD,
-    shadowOpacity: 0.45,
-    shadowRadius: scale(10),
-    shadowOffset: { width: 0, height: 3 },
-    elevation: 6,
+    shadowOpacity: 0.6,
+    shadowRadius: scale(12),
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 7,
   },
   ringWrap: {
     width: scale(52),
@@ -506,9 +554,9 @@ const st = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: scale(4),
-    backgroundColor: 'rgba(243,111,33,0.12)',
+    backgroundColor: 'rgba(246,196,69,0.14)',
     borderWidth: 1,
-    borderColor: 'rgba(243,111,33,0.35)',
+    borderColor: 'rgba(246,196,69,0.4)',
     borderRadius: 999,
     paddingHorizontal: scale(9),
     paddingVertical: scale(5),
@@ -523,8 +571,8 @@ const st = StyleSheet.create({
     gap: scale(6),
     borderRadius: scale(11),
     borderWidth: 1,
-    borderColor: 'rgba(243,111,33,0.3)',
-    backgroundColor: 'rgba(243,111,33,0.08)',
+    borderColor: 'rgba(246,196,69,0.35)',
+    backgroundColor: 'rgba(246,196,69,0.10)',
     paddingHorizontal: scale(10),
     paddingVertical: scale(8),
     marginTop: scale(10),

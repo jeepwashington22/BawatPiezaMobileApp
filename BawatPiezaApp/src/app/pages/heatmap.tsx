@@ -8,9 +8,11 @@ import {
   Text,
   View,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { ScreenShell } from '../../components/screen-shell';
 import { TileLoader } from '../../components/tile-loader';
 import { ContentCard } from '../../components/content-card';
+import { scale, GOLD, NAVY } from '../../components/glass-ui';
 
 /* 5x5 pressure field: outer ring low, mid ring moderate, bottom-right center peak */
 const GRID: number[][] = [
@@ -21,19 +23,19 @@ const GRID: number[][] = [
   [ 4, 14, 26, 62, 96],
 ];
 
-/* Neon dashboard palette — dark, high-tech, electrical */
+/* Premium navy-and-gold palette - dark, luxurious, electrical */
 const NEON = {
-  bg: '#0B0F19',
-  panel: 'rgba(255,255,255,0.035)',
-  panelBorder: 'rgba(255,255,255,0.08)',
+  bg: '#0B1220',
+  panel: 'rgba(255,255,255,0.05)',
+  panelBorder: 'rgba(255,255,255,0.10)',
   idle: 'rgba(255,255,255,0.05)',
-  idleBorder: 'rgba(255,255,255,0.05)',
-  cyan: '#00E5FF',
-  teal: '#3DD9A0',
-  lime: '#A3E635',
-  yellow: '#FACC15',
-  textPrimary: '#E7ECF5',
-  textMuted: '#8B93A7',
+  idleBorder: 'rgba(255,255,255,0.08)',
+  cyan: '#123B66',
+  teal: '#1B4D8F',
+  lime: '#C8921F',
+  yellow: '#F6C445',
+  textPrimary: '#FFFFFF',
+  textMuted: 'rgba(255,255,255,0.6)',
 };
 
 /* Color + label stops used by both the tile interpolation and the legend */
@@ -55,73 +57,14 @@ const HEAT_OUTPUT_COLORS = [
   NEON.yellow,
 ];
 
-export default function HeatmapScreen() {
-  const { colors: c } = useTheme();
-  const styles = makeStyles(c);
-  const [loading, setLoading] = useState(true);
-  const [grid] = useState<number[][]>(GRID);
-
-  // Session-level stats, gamifying the harvest
-  const [steps, setSteps] = useState(0);
-  const [energyMj, setEnergyMj] = useState(0);
-  const [peakVoltage, setPeakVoltage] = useState(0);
-
-  useEffect(() => {
-    const t = setTimeout(() => setLoading(false), 900);
-    return () => clearTimeout(t);
-  }, []);
-
-  const registerImpact = (heatAtTap: number) => {
-    const voltage = +(heatAtTap / 100 * 4.2).toFixed(1);
-    const mj = +(heatAtTap / 100 * 18).toFixed(1);
-    setSteps((s) => s + 1);
-    setEnergyMj((e) => +(e + mj).toFixed(1));
-    setPeakVoltage((p) => Math.max(p, voltage));
-  };
-
-
-  const flat = grid.flat();
-  const avg = Math.round(flat.reduce((a, b) => a + b, 0) / flat.length);
-  const peak = Math.max(...flat);
-
-  return (
-    <ScreenShell>
-      <View style={styles.statsRow}>
-        <StatPill label="Steps" value={String(steps)} />
-        <StatPill label="Energy" value={`${energyMj} mJ`} />
-        <StatPill label="Peak V" value={`${peakVoltage.toFixed(1)}V`} />
-        <StatPill label="Avg / Peak" value={`${avg} / ${peak}`} />
-      </View>
-
-      <ContentCard title="Piezoelectric Sensor Grid" eyebrow="Tile Array 5×5 · tap a tile">
-        <View style={styles.matrix}>
-          {grid.map((row, r) => (
-            <View key={r} style={styles.gridRow}>
-              {row.map((value, col) => (
-                <Tile
-                  key={col}
-                  baseValue={value}
-                  onImpact={registerImpact}
-                />
-              ))}
-            </View>
-          ))}
-        </View>
-      </ContentCard>
-
-      <ContentCard title="Pressure Scale" eyebrow="Legend">
-        {SCALE.map((s) => (
-          <View key={s.label} style={styles.legendRow}>
-            <View style={[styles.dot, { backgroundColor: s.color }]} />
-            <Text style={styles.legendLabel}>{s.label}</Text>
-            <Text style={styles.legendRange}>{s.min}+</Text>
-          </View>
-        ))}
-      </ContentCard>
-    </ScreenShell>
-  );
-}
-
+/* -------------------- 3D perspective controls -------------------- */
+type ViewName = 'isometric' | 'top' | 'side';
+const VIEWS: Record<ViewName, { label: string; icon: string; rotX: number; rotY: number }> = {
+  isometric: { label: '3D', icon: 'cube-outline', rotX: 34, rotY: -24 },
+  top: { label: 'Top', icon: 'scan-outline', rotX: 2, rotY: 0 },
+  side: { label: 'Side', icon: 'resize-outline', rotX: 60, rotY: 0 },
+};
+const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 /* ---------------------------------------------------------------------- */
 /* Tile — a single piezoelectric sensor: glass tile + footprint overlay + */
 /* pulse ring + decaying thermal trail, all driven off one Animated value */
@@ -193,12 +136,12 @@ function Tile({
 
   const glowOpacity = energyAnim.interpolate({
     inputRange: [0, 1],
-    outputRange: [isBasePeak ? 0.35 : 0.08, 0.9],
+    outputRange: [isBasePeak ? 0.45 : 0.1, 0.95],
   });
 
   const glowRadius = energyAnim.interpolate({
     inputRange: [0, 1],
-    outputRange: [isBasePeak ? 6 : 2, 16],
+    outputRange: [isBasePeak ? 6 : 2, 18],
   });
 
   const translateY = pressAnim.interpolate({
@@ -230,38 +173,18 @@ function Tile({
           isBasePeak && styles.cellPeakBorder,
         ]}
       >
-        {/* Glass highlight strip */}
         <View style={styles.glassHighlight} />
-
-        {/* Outward ripple on impact */}
         <Animated.View
           pointerEvents="none"
-          style={[
-            styles.ring,
-            {
-              opacity: ringOpacity,
-              transform: [{ scale: ringScale }],
-            },
-          ]}
+          style={[styles.ring, { opacity: ringOpacity, transform: [{ scale: ringScale }] }]}
         />
-
-        {/* Footprint trail — fades as the tile cools */}
-        <Animated.Text
-          pointerEvents="none"
-          style={[styles.footprint, { opacity: energyAnim }]}
-        >
+        <Animated.Text pointerEvents="none" style={[styles.footprint, { opacity: energyAnim }]}>
           👣
         </Animated.Text>
-
-        {/* Live voltage / energy tooltip */}
-        <Animated.View
-          pointerEvents="none"
-          style={[styles.tooltip, { opacity: energyAnim }]}
-        >
+        <Animated.View pointerEvents="none" style={[styles.tooltip, { opacity: energyAnim }]}>
           <Text style={styles.tooltipVoltage}>{voltageLabel}</Text>
           <Text style={styles.tooltipEnergy}>{energyLabel}</Text>
         </Animated.View>
-
         <Text style={styles.cellValue}>{baseValue}</Text>
       </Animated.View>
     </Pressable>
@@ -276,17 +199,26 @@ function StatPill({ label, value }: { label: string; value: string }) {
     </View>
   );
 }
-
 /* ---------------------------------------------------------------------- */
 
 const styles = StyleSheet.create({
   loaderWrap: { alignItems: 'center', paddingVertical: 48 },
 
-  statsRow: {
+  pageHead: { marginBottom: 2 },
+  pageHeadEyebrowRow: {
     flexDirection: 'row',
-    gap: 8,
-    marginBottom: 14,
+    alignItems: 'center',
+    gap: scale(7),
+    marginBottom: scale(4),
   },
+  pageHeadTick: {
+    width: scale(3),
+    height: scale(12),
+    borderRadius: 2,
+    backgroundColor: GOLD,
+  },
+
+  statsRow: { flexDirection: 'row', gap: 8, marginBottom: 14 },
   statPill: {
     flex: 1,
     backgroundColor: NEON.panel,
@@ -312,7 +244,84 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
   },
 
-  matrix: { gap: 8 },
+  /* —— rotation controls —— */
+  rotRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: scale(8),
+    marginTop: scale(4),
+    marginBottom: scale(10),
+    flexWrap: 'wrap',
+  },
+  rotLabel: {
+    color: NEON.textMuted,
+    fontSize: scale(9),
+    fontFamily: fonts.extrabold,
+    letterSpacing: 0.8,
+  },
+  rotBtn: {
+    width: scale(28),
+    height: scale(28),
+    borderRadius: scale(14),
+    backgroundColor: 'rgba(246,196,69,0.14)',
+    borderWidth: 1,
+    borderColor: 'rgba(246,196,69,0.4)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  rotValue: {
+    minWidth: scale(40),
+    paddingHorizontal: scale(6),
+    paddingVertical: scale(3),
+    borderRadius: scale(8),
+    backgroundColor: NEON.panel,
+    alignItems: 'center',
+  },
+  rotValueText: {
+    color: NEON.textPrimary,
+    fontSize: scale(9.5),
+    fontFamily: fonts.extrabold,
+  },
+  rotDivider: {
+    width: 1,
+    height: scale(18),
+    backgroundColor: 'rgba(255,255,255,0.14)',
+  },
+
+  /* —— perspective presets —— */
+  viewRow: { flexDirection: 'row', gap: scale(8), marginBottom: scale(12) },
+  viewChip: { flex: 1 },
+  viewChipInner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: scale(4),
+    borderRadius: scale(11),
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+    backgroundColor: NEON.panel,
+    paddingVertical: scale(7),
+  },
+  viewChipActive: {
+    backgroundColor: GOLD,
+    borderColor: GOLD,
+    shadowColor: GOLD,
+    shadowOpacity: 0.4,
+    shadowRadius: 7,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 4,
+  },
+  viewChipText: { fontSize: scale(10), fontFamily: fonts.extrabold },
+
+  /* —— 3D stage + grid —— */
+  stage: {
+    width: scale(300),
+    height: scale(300),
+    alignSelf: 'center',
+    marginTop: scale(6),
+    marginBottom: scale(10),
+    justifyContent: 'flex-start',
+  },
   gridRow: { flexDirection: 'row', gap: 8 },
 
   cellPressable: { flex: 1, aspectRatio: 1 },
@@ -324,20 +333,18 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: NEON.idleBorder,
     overflow: 'hidden',
-    shadowColor: NEON.lime,
+    shadowColor: NEON.yellow,
     shadowOffset: { width: 0, height: 0 },
     elevation: 4,
   },
-  cellPeakBorder: {
-    borderColor: 'rgba(250, 204, 21, 0.5)',
-  },
+  cellPeakBorder: { borderColor: 'rgba(246, 196, 69, 0.5)' },
   glassHighlight: {
     position: 'absolute',
     top: 0,
     left: 0,
     right: 0,
     height: '45%',
-    backgroundColor: 'rgba(255,255,255,0.06)',
+    backgroundColor: 'rgba(255,255,255,0.08)',
     borderTopLeftRadius: 18,
     borderTopRightRadius: 18,
   },
@@ -347,18 +354,10 @@ const styles = StyleSheet.create({
     height: '70%',
     borderRadius: 999,
     borderWidth: 2,
-    borderColor: '#FFFFFF',
+    borderColor: GOLD,
   },
-  footprint: {
-    position: 'absolute',
-    top: 4,
-    fontSize: 12,
-  },
-  tooltip: {
-    position: 'absolute',
-    bottom: 4,
-    alignItems: 'center',
-  },
+  footprint: { position: 'absolute', top: 4, fontSize: 12 },
+  tooltip: { position: 'absolute', bottom: 4, alignItems: 'center' },
   tooltipVoltage: {
     color: '#FFFFFF',
     fontSize: 10,
@@ -372,7 +371,7 @@ const styles = StyleSheet.create({
     fontFamily: fonts.semibold,
   },
   cellValue: {
-    color: 'rgba(9,13,22,0.55)',
+    color: 'rgba(255,255,255,0.55)',
     fontSize: 11,
     fontWeight: '700',
     fontFamily: fonts.bold,

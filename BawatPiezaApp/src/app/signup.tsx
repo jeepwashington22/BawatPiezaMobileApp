@@ -1,4 +1,4 @@
-﻿import React, { useState } from 'react';
+﻿import React, { useEffect, useState } from 'react';
 import {
   View,
   Image,
@@ -9,12 +9,14 @@ import {
   KeyboardAvoidingView,
   Platform,
   Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { fonts } from '../theme';
+import { supabase, signInWithGoogle } from '../lib/supabase';
 
 const PRUSSIAN = '#0A2A4A';
 const PRUSSIAN_SOFT = '#3B5B7A';
@@ -26,6 +28,49 @@ export default function SignupScreen() {
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [company, setCompany] = useState('');
+  const [googleSigningIn, setGoogleSigningIn] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Handle OAuth redirect and check for existing session
+  useEffect(() => {
+    let authSubscription: ReturnType<typeof supabase.auth.onAuthStateChange> | null = null;
+
+    const initAuth = async () => {
+      try {
+        // First, check if there's an existing session (from OAuth redirect or previous login)
+        const { data: { session } } = await supabase.auth.getSession();
+        
+        if (session?.user) {
+          // User is already authenticated - redirect to home
+          console.log('SignupScreen: Existing session found, redirecting to home');
+          router.replace('/home');
+          return;
+        }
+
+        // If no session, listen for auth state changes (handles OAuth callback)
+        authSubscription = supabase.auth.onAuthStateChange((event, session) => {
+          if (event === 'SIGNED_IN' && session?.user) {
+            console.log('SignupScreen: SIGNED_IN event received, redirecting to home');
+            // Small delay to ensure everything is ready
+            setTimeout(() => {
+              router.replace('/home');
+            }, 200);
+          }
+        });
+      } catch (err) {
+        console.error('SignupScreen: Error checking session:', err);
+      }
+    };
+
+    initAuth();
+
+    // Cleanup
+    return () => {
+      if (authSubscription) {
+        authSubscription.unsubscribe();
+      }
+    };
+  }, [router]);
 
   const handleRequestAccess = () => {
     if (!fullName.trim() || !email.trim()) {
@@ -40,6 +85,33 @@ export default function SignupScreen() {
     router.replace('/');
   };
 
+  const handleGoogleSignIn = async () => {
+    setGoogleSigningIn(true);
+    setError(null);
+
+    try {
+      // Sign in with Google using Supabase OAuth
+      await signInWithGoogle();
+      
+      // Note: We don't redirect here. The OAuth flow works as follows:
+      // 1. User is redirected to Google for authentication
+      // 2. Google redirects back to the app via deep link
+      // 3. Supabase establishes the session
+      // 4. The auth state change listener (set up in useEffect) detects SIGNED_IN
+      // 5. The listener automatically redirects to /home
+      //
+      // This approach is more reliable than setTimeout because it waits for
+      // the actual auth state to change rather than guessing a time delay.
+      
+    } catch (authError) {
+      const message = authError instanceof Error ? authError.message : 'Unable to sign up with Google. Please try again.';
+      setError(message);
+      Alert.alert('Google sign up failed', message);
+    } finally {
+      setGoogleSigningIn(false);
+    }
+  };
+
   return (
     <View style={styles.container}>
       <LinearGradient colors={['#F4F4F4', '#EAF1F7', '#F4F4F4']} style={StyleSheet.absoluteFill} />
@@ -48,13 +120,13 @@ export default function SignupScreen() {
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.flex}>
           <View style={styles.header}>
             <Image source={require('../../assets/images/LOGO3.png')} style={styles.logo} resizeMode="contain" />
-            <Text style={styles.brandTitle}>Request access</Text>
-            <Text style={styles.brandSubtitle}>Admin invited accounts only</Text>
+            <Text style={styles.brandTitle}>Create Account</Text>
+            <Text style={styles.brandSubtitle}>Sign up with your Google account or request access</Text>
           </View>
 
           <View style={styles.card}>
-            <Text style={styles.title}>Create your profile</Text>
-            <Text style={styles.subtitle}>The web backend creates and invites accounts from the admin dashboard.</Text>
+            <Text style={styles.title}>Join BawatPieza</Text>
+            <Text style={styles.subtitle}>Create an account to get started</Text>
 
             <View style={styles.inputBox}>
               <Ionicons name="person-outline" size={18} color={MUTED} style={styles.inputIcon} />
@@ -101,6 +173,30 @@ export default function SignupScreen() {
                 <Text style={styles.primaryButtonText}>Request Invite</Text>
                 <Ionicons name="arrow-forward" size={16} color="#FFFFFF" />
               </LinearGradient>
+            </TouchableOpacity>
+
+            {error ? <Text style={styles.errorText}>{error}</Text> : null}
+
+            <View style={styles.dividerRow}>
+              <View style={styles.divider} />
+              <Text style={styles.dividerText}>or continue with</Text>
+              <View style={styles.divider} />
+            </View>
+
+            <TouchableOpacity
+              style={styles.googleButton}
+              onPress={handleGoogleSignIn}
+              activeOpacity={0.9}
+              disabled={googleSigningIn}
+            >
+              {googleSigningIn ? (
+                <ActivityIndicator color={PRUSSIAN} size="small" />
+              ) : (
+                <>
+                  <Ionicons name="logo-google" size={20} color="#EA4335" style={styles.googleIcon} />
+                  <Text style={styles.googleButtonText}>Sign up with Google</Text>
+                </>
+              )}
             </TouchableOpacity>
           </View>
 
@@ -177,5 +273,22 @@ const styles = StyleSheet.create({
   footerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginTop: 18 },
   footerText: { color: MUTED, fontSize: 13 },
   footerLink: { color: PRUSSIAN, fontSize: 13, fontWeight: '800', fontFamily: fonts.extrabold, marginLeft: 4 },
+  googleButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    marginTop: 16,
+    shadowColor: '#0A2A4A',
+    shadowOpacity: 0.1,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 4,
+  },
+  googleIcon: { marginRight: 10 },
+  googleButtonText: { color: PRUSSIAN, fontSize: 14, fontWeight: '700', fontFamily: fonts.bold },
 });
 

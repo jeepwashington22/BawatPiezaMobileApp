@@ -112,7 +112,19 @@ export default function ReportsScreen() {
 
   return (
     <ScreenShell>
-      {/* =================== REPORT RANGE â€” selector chips =================== */}
+      {/* =================== PAGE HEADER — luxe intro =================== */}
+      <View style={st.header}>
+        <View style={st.headerEyebrowRow}>
+          <View style={st.headerTick} />
+          <Text style={{ color: mode === 'dark' ? 'rgba(246,196,69,0.85)' : '#B4771B', fontSize: scale(8.5), letterSpacing: 2.2, fontFamily: fonts.extrabold }}>INSIGHTS & ANALYTICS</Text>
+        </View>
+        <Text style={{ color: c.text, fontSize: scale(24), fontFamily: fonts.extrabold, letterSpacing: -0.3 }}>Energy Reports</Text>
+        <Text style={{ color: mode === 'dark' ? 'rgba(237,242,250,0.5)' : 'rgba(10,42,74,0.5)', fontSize: scale(10.5), fontFamily: fonts.medium, marginTop: scale(3) }}>
+          Kinetic harvesting · generation, billing & savings
+        </Text>
+      </View>
+
+      {/* =================== REPORT RANGE — selector chips =================== */}
       <SectionHead title="REPORT RANGE" mode={mode} />
       <View style={{ flexDirection: 'row', gap: scale(8) }}>
         {RANGES.map((r) => {
@@ -121,11 +133,11 @@ export default function ReportsScreen() {
             <AnimatedPressable key={r.key} onPress={() => setRange(r.key)} style={{ flex: 1 }}>
               <View style={[st.chip, active && st.chipActive]}>
                 {active ? (
-                  <LinearGradient colors={['#123B66', NAVY]} style={StyleSheet.absoluteFill} />
+                  <LinearGradient colors={['#F6C445', '#E2A617']} style={StyleSheet.absoluteFill} />
                 ) : (
                   <View style={StyleSheet.absoluteFill} />
                 )}
-                <Text style={[st.chipText, { color: active ? '#FFFFFF' : c.textSoft }]}>{r.label}</Text>
+                <Text style={[st.chipText, { color: active ? NAVY : c.textSoft }]}>{r.label}</Text>
               </View>
             </AnimatedPressable>
           );
@@ -134,13 +146,18 @@ export default function ReportsScreen() {
 
       {/* =================== FORECAST â€” animated gradient chart =================== */}
       <Card mode={mode} style={{ marginTop: scale(14), borderRadius: scale(20), padding: scale(16) }}>
-        <Text style={{ color: c.text, fontSize: scale(15), fontFamily: fonts.extrabold }}>{data.title}</Text>
-        <Text style={{ color: mode === 'dark' ? 'rgba(237,242,250,0.55)' : 'rgba(10,42,74,0.5)', fontSize: scale(10), fontFamily: fonts.medium, marginTop: 2 }}>
-          {data.subtitle}
-        </Text>
+        <View style={{ flexDirection: 'row', gap: scale(10) }}>
+          <View style={st.cardAccent} />
+          <View style={{ flex: 1 }}>
+            <Text style={{ color: c.text, fontSize: scale(15), fontFamily: fonts.extrabold }}>{data.title}</Text>
+            <Text style={{ color: mode === 'dark' ? 'rgba(237,242,250,0.55)' : 'rgba(10,42,74,0.5)', fontSize: scale(10), fontFamily: fonts.medium, marginTop: scale(2) }}>
+              {data.subtitle}
+            </Text>
+          </View>
+        </View>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: scale(6), marginTop: scale(12), marginBottom: scale(4) }}>
           <LiveDot color={GOLD} />
-          <Text style={{ color: NAVY, fontSize: scale(9.5), fontFamily: fonts.extrabold }}>
+          <Text style={{ color: c.text, fontSize: scale(9.5), fontFamily: fonts.extrabold }}>
             Forecast for Aug 12, 2026
           </Text>
           <Text style={{ color: mode === 'dark' ? 'rgba(237,242,250,0.5)' : 'rgba(10,42,74,0.45)', fontSize: scale(9), fontFamily: fonts.medium }}>
@@ -192,9 +209,9 @@ export default function ReportsScreen() {
           { icon: 'grid' as const, label: 'CSV' },
         ].map((x) => (
           <AnimatedPressable key={x.label} style={{ flex: 1 }}>
-            <View style={[st.exportBtn, { borderColor: mode === 'dark' ? 'rgba(255,255,255,0.12)' : 'rgba(10,42,74,0.1)' }]}>
-              <Ionicons name={x.icon} size={scale(15)} color={NAVY} />
-              <Text style={{ color: NAVY, fontSize: scale(12), fontFamily: fonts.extrabold, marginLeft: scale(7) }}>{x.label}</Text>
+            <View style={[st.exportBtn, { borderColor: mode === 'dark' ? 'rgba(246,196,69,0.3)' : 'rgba(246,196,69,0.6)' }]}>
+              <View style={st.exportIcon}><Ionicons name={x.icon} size={scale(15)} color={NAVY} /></View>
+              <Text style={{ color: c.text, fontSize: scale(12), fontFamily: fonts.extrabold, marginLeft: scale(7) }}>{x.label}</Text>
             </View>
           </AnimatedPressable>
         ))}
@@ -209,6 +226,26 @@ export default function ReportsScreen() {
 
 const st = StyleSheet.create({
   loaderWrap: { alignItems: 'center', paddingVertical: 48 },
+  header: { marginTop: scale(6), marginBottom: scale(6) },
+  headerEyebrowRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: scale(7),
+    marginBottom: scale(4),
+  },
+  headerTick: {
+    width: scale(3),
+    height: scale(12),
+    borderRadius: 2,
+    backgroundColor: GOLD,
+  },
+  cardAccent: {
+    width: scale(3),
+    height: scale(34),
+    borderRadius: 2,
+    backgroundColor: GOLD,
+    marginTop: scale(1),
+  },
   chip: {
     alignItems: 'center',
     justifyContent: 'center',
@@ -216,16 +253,24 @@ const st = StyleSheet.create({
     paddingVertical: scale(9),
     overflow: 'hidden',
     borderWidth: 1,
-    borderColor: 'rgba(10,42,74,0.1)',
+    borderColor: 'rgba(246,196,69,0.35)',
     backgroundColor: 'rgba(255,255,255,0.7)',
   },
   chipActive: {
-    borderColor: NAVY,
-    shadowColor: NAVY,
-    shadowOpacity: 0.25,
+    borderColor: GOLD,
+    shadowColor: GOLD,
+    shadowOpacity: 0.4,
     shadowRadius: 8,
     shadowOffset: { width: 0, height: 3 },
     elevation: 4,
+  },
+  exportIcon: {
+    width: scale(30),
+    height: scale(30),
+    borderRadius: scale(10),
+    backgroundColor: 'rgba(246,196,69,0.22)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   chipText: {
     fontSize: scale(11),

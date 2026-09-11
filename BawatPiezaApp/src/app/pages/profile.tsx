@@ -1,11 +1,11 @@
-import { fonts, useTheme, type ThemeColors } from '../../theme';
 import { useEffect, useState } from 'react';
-import { Alert, Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Alert, Image, Pressable, StyleSheet, Text, View, Modal } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, type Href } from 'expo-router';
 import { ScreenShell } from '../../components/screen-shell';
 import { TileLoader } from '../../components/tile-loader';
 import { supabase } from '../../lib/supabase';
+import { useTheme, fonts, type ThemeColors } from '../../theme';
 
 const MUTED = 'rgba(10, 42, 74, 0.62)';
 const LINE = 'rgba(10, 42, 74, 0.1)';
@@ -30,7 +30,7 @@ const BUTTONS: HubButton[] = [
 
 export default function ProfileScreen() {
   const { colors: c, fonts: f } = useTheme();
-  const styles = makeStyles(c);
+  const styles = makeStyles(c, f);
   const PRUSSIAN = c.accent;
   const BUTTER = c.butter;
   const MUTED = c.muted;
@@ -45,6 +45,7 @@ export default function ProfileScreen() {
   const [fullName, setFullName] = useState<string | null>(null);
   const [role, setRole] = useState<string | null>(null);
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+  const [showLogoutModal, setShowLogoutModal] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -76,18 +77,25 @@ export default function ProfileScreen() {
     })();
   }, []);
 
-  const handleLogout = () => {
-    Alert.alert('Log out', 'Are you sure you want to sign out?', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Log out',
-        style: 'destructive',
-        onPress: async () => {
-          await supabase.auth.signOut();
-          router.replace('/');
-        },
-      },
-    ]);
+  const handleLogoutConfirm = async () => {
+    try {
+      // Clear the Supabase session completely
+      const { error } = await supabase.auth.signOut();
+      if (error) throw error;
+      
+      // Clear any cached user data
+      setShowLogoutModal(false);
+      
+      // Redirect to login screen
+      router.replace('/');
+    } catch (error) {
+      Alert.alert('Error', 'Could not sign out. Please try again.');
+      setShowLogoutModal(false);
+    }
+  };
+
+  const handleLogoutCancel = () => {
+    setShowLogoutModal(false);
   };
 
   if (loading) {
@@ -142,16 +150,52 @@ export default function ProfileScreen() {
         </Pressable>
       ))}
 
-      {/* Logout */}
-      <Pressable style={styles.logoutBtn} onPress={handleLogout}>
+      {/* Logout button */}
+      <Pressable 
+        style={({ pressed }) => [styles.logoutBtn, pressed && { opacity: 0.7 }]}
+        onPress={() => setShowLogoutModal(true)}
+        accessibilityRole="button"
+        accessibilityLabel="Log out"
+      >
         <Ionicons name="log-out-outline" size={18} color="#FFFFFF" style={{ marginRight: 8 }} />
         <Text style={styles.logoutText}>Log out</Text>
       </Pressable>
+
+      {/* Logout Confirmation Modal */}
+      <Modal
+        visible={showLogoutModal}
+        transparent
+        animationType="fade"
+        onRequestClose={handleLogoutCancel}
+      >
+        <View style={[styles.modalOverlay, { backgroundColor: 'rgba(0, 0, 0, 0.5)' }]}>
+          <View style={[styles.modalContent, { backgroundColor: '#FFFFFF', borderRadius: 16, padding: 20, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8, elevation: 5 }]}>
+            <Text style={[styles.modalTitle, { color: PRUSSIAN, fontSize: 18, fontWeight: '800', marginBottom: 8, textAlign: 'center' }]}>Log out</Text>
+            <Text style={[styles.modalText, { color: MUTED, fontSize: 14, lineHeight: 20, marginBottom: 20, textAlign: 'center' }]}>
+              Are you sure you want to sign out of your account?
+            </Text>
+            <View style={[styles.modalButtons, { flexDirection: 'row', gap: 12 }]}>
+              <Pressable 
+                onPress={handleLogoutCancel}
+                style={({ pressed }) => [styles.cancelButton, { backgroundColor: c.surface, borderColor: LINE, borderWidth: 1, paddingVertical: 12, borderRadius: 8, alignItems: 'center' }, pressed && { opacity: 0.7 }]}
+              >
+                <Text style={[styles.cancelText, { color: c.text, fontSize: 14, fontWeight: '600' }]}>Cancel</Text>
+              </Pressable>
+              <Pressable 
+                onPress={handleLogoutConfirm}
+                style={({ pressed }) => [styles.confirmButton, { backgroundColor: DANGER, paddingVertical: 12, borderRadius: 8, alignItems: 'center' }, pressed && { opacity: 0.7 }]}
+              >
+                <Text style={[styles.confirmText, { color: '#FFFFFF', fontSize: 14, fontWeight: '600' }]}>Log out</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </ScreenShell>
   );
 }
 
-const makeStyles = (c: ThemeColors) => {
+const makeStyles = (c: ThemeColors, f: any) => {
   const PRUSSIAN = c.accent;
   const MUTED = c.muted;
   const LINE = c.line;
@@ -178,8 +222,8 @@ const makeStyles = (c: ThemeColors) => {
     borderWidth: 2,
     borderColor: BUTTER,
   },
-  avatarText: { color: PRUSSIAN, fontSize: 32, fontWeight: '900', fontFamily: fonts.extrabold },
-  heroName: { color: PRUSSIAN, fontSize: 19, fontWeight: '900', fontFamily: fonts.extrabold },
+  avatarText: { color: PRUSSIAN, fontSize: 32, fontWeight: '900', fontFamily: f.extrabold },
+  heroName: { color: PRUSSIAN, fontSize: 19, fontWeight: '900', fontFamily: f.extrabold },
   heroEmail: { color: MUTED, fontSize: 12, marginTop: 2 },
   roleChip: {
     backgroundColor: 'rgba(246, 196, 69, 0.28)',
@@ -188,7 +232,7 @@ const makeStyles = (c: ThemeColors) => {
     paddingVertical: 4,
     marginTop: 6,
   },
-  roleChipText: { color: PRUSSIAN, fontSize: 11, fontWeight: '800', fontFamily: fonts.extrabold, textTransform: 'capitalize' },
+  roleChipText: { color: PRUSSIAN, fontSize: 11, fontWeight: '800', fontFamily: f.extrabold, textTransform: 'capitalize' },
   hubBtn: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -209,7 +253,7 @@ const makeStyles = (c: ThemeColors) => {
     marginRight: 12,
   },
   hubText: { flex: 1 },
-  hubLabel: { color: PRUSSIAN, fontSize: 15, fontWeight: '800', fontFamily: fonts.extrabold },
+  hubLabel: { color: PRUSSIAN, fontSize: 15, fontWeight: '800', fontFamily: f.extrabold },
   hubSub: { color: MUTED, fontSize: 11, marginTop: 1 },
   logoutBtn: {
     backgroundColor: DANGER,
@@ -221,8 +265,69 @@ const makeStyles = (c: ThemeColors) => {
     marginTop: 8,
     marginBottom: 8,
   },
-  logoutText: { color: WHITE, fontSize: 14, fontWeight: '800', fontFamily: fonts.extrabold },
-  });
+  logoutText: { color: WHITE, fontSize: 14, fontWeight: '800', fontFamily: f.extrabold },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalContent: {
+    width: '85%',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 5,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  modalText: {
+    fontSize: 14,
+    lineHeight: 20,
+    marginBottom: 20,
+    textAlign: 'center',
+  },
+  modalButtons: {
+    flexDirection: 'row',
+    gap: 12,
+    justifyContent: 'flex-end',
+  },
+  cancelButton: {
+    flex: 1,
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#0A2A4A',
+    alignItems: 'center',
+  },
+  cancelText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#0A2A4A',
+  },
+  confirmButton: {
+    flex: 1,
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 8,
+    backgroundColor: '#EA4335',
+    alignItems: 'center',
+  },
+  confirmText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#FFFFFF',
+  },
+});
 };
 
 

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Image,
@@ -16,7 +16,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { fonts } from '../theme';
 import { Ionicons } from '@expo/vector-icons';
-import { supabase } from '../lib/supabase';
+import { supabase, signInWithGoogle } from '../lib/supabase';
 
 const PRUSSIAN = '#0A2A4A';
 const PRUSSIAN_SOFT = '#345271';
@@ -33,7 +33,49 @@ export default function LoginScreen() {
   const [showPassword, setShowPassword] = useState(false);
   const [remember, setRemember] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [googleSigningIn, setGoogleSigningIn] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Handle OAuth redirect and check for existing session
+  useEffect(() => {
+    let authSubscription: ReturnType<typeof supabase.auth.onAuthStateChange> | null = null;
+
+    const initAuth = async () => {
+      try {
+        // First, check if there's an existing session (from OAuth redirect or previous login)
+        const { data: { session } } = await supabase.auth.getSession();
+        
+        if (session?.user) {
+          // User is already authenticated - redirect to home
+          console.log('LoginScreen: Existing session found, redirecting to home');
+          router.replace('/home');
+          return;
+        }
+
+        // If no session, listen for auth state changes (handles OAuth callback)
+        authSubscription = supabase.auth.onAuthStateChange((event, session) => {
+          if (event === 'SIGNED_IN' && session?.user) {
+            console.log('LoginScreen: SIGNED_IN event received, redirecting to home');
+            // Small delay to ensure everything is ready
+            setTimeout(() => {
+              router.replace('/home');
+            }, 200);
+          }
+        });
+      } catch (err) {
+        console.error('LoginScreen: Error checking session:', err);
+      }
+    };
+
+    initAuth();
+
+    // Cleanup
+    return () => {
+      if (authSubscription) {
+        authSubscription.unsubscribe();
+      }
+    };
+  }, [router]);
 
   const handleLogin = async () => {
     const trimmedEmail = email.trim();
@@ -76,6 +118,33 @@ export default function LoginScreen() {
       Alert.alert('Login failed', message);
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const handleGoogleSignIn = async () => {
+    setGoogleSigningIn(true);
+    setError(null);
+
+    try {
+      // Sign in with Google using Supabase OAuth
+      await signInWithGoogle();
+      
+      // Note: We don't redirect here. The OAuth flow works as follows:
+      // 1. User is redirected to Google for authentication
+      // 2. Google redirects back to the app via deep link
+      // 3. Supabase establishes the session
+      // 4. The auth state change listener (set up in useEffect) detects SIGNED_IN
+      // 5. The listener automatically redirects to /home
+      //
+      // This approach is more reliable than setTimeout because it waits for
+      // the actual auth state to change rather than guessing a time delay.
+      
+    } catch (authError) {
+      const message = authError instanceof Error ? authError.message : 'Unable to sign in with Google. Please try again.';
+      setError(message);
+      Alert.alert('Google sign in failed', message);
+    } finally {
+      setGoogleSigningIn(false);
     }
   };
 
@@ -178,9 +247,20 @@ export default function LoginScreen() {
               <View style={styles.divider} />
             </View>
 
-            <TouchableOpacity style={styles.googleButton} activeOpacity={0.9}>
-              <Ionicons name="logo-google" size={18} color="#EA4335" />
-              <Text style={styles.googleButtonText}>Continue with Google</Text>
+            <TouchableOpacity
+              style={styles.googleButton}
+              onPress={handleGoogleSignIn}
+              activeOpacity={0.9}
+              disabled={googleSigningIn}
+            >
+              {googleSigningIn ? (
+                <ActivityIndicator color="#FFFFFF" size="small" />
+              ) : (
+                <>
+                  <Ionicons name="logo-google" size={18} color="#EA4335" />
+                  <Text style={styles.googleButtonText}>Continue with Google</Text>
+                </>
+              )}
             </TouchableOpacity>
 
             <View style={styles.footerRow}>
