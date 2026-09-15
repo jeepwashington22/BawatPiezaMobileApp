@@ -11,7 +11,6 @@ import { supabase } from '../../lib/supabase';
 const MUTED = 'rgba(10, 42, 74, 0.62)';
 
 type ProfileRow = {
-  full_name?: string | null;
   firstname?: string | null;
   middlename?: string | null;
   lastname?: string | null;
@@ -56,7 +55,7 @@ export default function EditProfileScreen() {
         if (userData.user) {
           const { data: rows } = await supabase
             .from('user_accounts')
-            .select('full_name, firstname, middlename, lastname, "contactNo", role')
+            .select('firstname, middlename, lastname, "contactNo", role')
             .eq('id', userData.user.id)
             .maybeSingle();
           if (rows) setProfile(rows as ProfileRow);
@@ -70,9 +69,8 @@ export default function EditProfileScreen() {
   }, []);
 
   const displayName =
-    profile?.full_name ??
-    [profile?.firstname, profile?.lastname].filter(Boolean).join(' ') ??
-    email ??
+    [profile?.firstname, profile?.lastname].filter(Boolean).join(' ') ||
+    email ||
     'User';
 
   const changePassword = async () => {
