@@ -11,7 +11,7 @@ import {
 } from '@expo-google-fonts/poppins';
 
 import { ThemeProvider } from '../theme';
-import { supabase } from '../lib/supabase';
+import { supabase, flushPendingTermsAcceptance } from '../lib/supabase';
 import type { AuthChangeEvent } from '@supabase/supabase-js';
 
 // Keep the splash visible until fonts + root layout are ready,
@@ -42,7 +42,10 @@ export default function RootLayout() {
         
         if (session && isMounted && session.user) {
           console.log('Existing session found:', session.user.email);
-          // Session exists, let the app handle redirection
+          // Session exists, let the app handle redirection.
+          // A Google sign-up may have parked a Terms acceptance that still
+          // needs to be attached to the account.
+          void flushPendingTermsAcceptance();
         }
       } catch (err) {
         console.error('Session check error:', err);
@@ -55,6 +58,9 @@ export default function RootLayout() {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === 'SIGNED_IN' && session?.user && isMounted) {
         console.log('User signed in:', session.user.email);
+        // Attach a Terms & Conditions acceptance that was parked while the
+        // OAuth redirect was in flight (Google Sign-In).
+        void flushPendingTermsAcceptance();
         // Dispatch custom event for any listener
         if (typeof window !== 'undefined') {
           window.dispatchEvent(new CustomEvent('supabase:signedIn'));

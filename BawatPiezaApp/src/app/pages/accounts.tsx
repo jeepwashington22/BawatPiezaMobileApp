@@ -2,13 +2,12 @@ import { fonts, useTheme, type ThemeColors } from '../../theme';
 import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
-  Modal,
   Pressable,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from 'react-native';
+import { useRouter } from 'expo-router';
 import { ScreenShell } from '../../components/screen-shell';
 import { TileLoader } from '../../components/tile-loader';
 import { ContentCard } from '../../components/content-card';
@@ -30,9 +29,8 @@ type Account = {
   status?: string | null;
 };
 
-const EMPTY_FORM = { firstname: '', middlename: '', lastname: '', email: '', role: 'staff', contactNo: '' };
-
 export default function AccountsScreen() {
+  const router = useRouter();
   const { colors: c, fonts: f } = useTheme();
   const styles = makeStyles(c);
   const PRUSSIAN = c.accent;
@@ -46,13 +44,6 @@ export default function AccountsScreen() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [accounts, setAccounts] = useState<Account[]>([]);
-
-  // Add-member modal state
-  const [addOpen, setAddOpen] = useState(false);
-  const [form, setForm] = useState(EMPTY_FORM);
-  const [saving, setSaving] = useState(false);
-  const [notice, setNotice] = useState<string | null>(null);
-  const [noticeOk, setNoticeOk] = useState(true);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -80,69 +71,6 @@ export default function AccountsScreen() {
     load();
   }, [load]);
 
-  const authedFetch = useCallback(
-    async (path: string, body: object) => {
-      const { data: authData } = await supabase.auth.getSession();
-      const token = authData.session?.access_token;
-      const res = await fetch(`${API_URL}${path}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        body: JSON.stringify(body),
-      });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json?.error?.message ?? json?.message ?? `Backend responded ${res.status}`);
-      return json;
-    },
-    [],
-  );
-
-  // Admin invite — creates the auth user, mirrors user_accounts and emails the
-  // 5-minute set-password link (same flow as the old web accounts page).
-  const createAccount = async () => {
-    setError(null);
-    if (!form.firstname.trim() || !form.lastname.trim() || !/.+@.+\..+/.test(form.email.trim())) {
-      setNoticeOk(false);
-      setNotice('First name, last name and a valid email are required.');
-      return;
-    }
-    setSaving(true);
-    try {
-      const json = await authedFetch('/accounts', {
-        firstname: form.firstname.trim(),
-        middlename: form.middlename.trim() || undefined,
-        lastname: form.lastname.trim(),
-        email: form.email.trim(),
-        role: form.role,
-        contactNo: form.contactNo.trim() || undefined,
-      });
-      setNoticeOk(Boolean(json?.verificationEmailSent));
-      setNotice(json?.message ?? 'Account created.');
-      setForm(EMPTY_FORM);
-      setAddOpen(false);
-      await load();
-    } catch (e) {
-      setNoticeOk(false);
-      setNotice(e instanceof Error ? e.message : 'Failed to create account');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const resendInvite = async (email: string) => {
-    setNotice(null);
-    try {
-      const json = await authedFetch('/accounts/resend-invite', { email });
-      setNoticeOk(Boolean(json?.verificationEmailSent));
-      setNotice(json?.message ?? 'Invite re-sent.');
-    } catch (e) {
-      setNoticeOk(false);
-      setNotice(e instanceof Error ? e.message : 'Failed to resend invite');
-    }
-  };
-
   if (loading) {
     return (
       <ScreenShell>
@@ -155,13 +83,7 @@ export default function AccountsScreen() {
 
   return (
     <ScreenShell>
-      {notice ? (
-        <View style={[styles.notice, noticeOk ? styles.noticeOk : styles.noticeErr]}>
-          <Text style={noticeOk ? styles.noticeOkText : styles.noticeErrText}>{notice}</Text>
-        </View>
-      ) : null}
-
-      <Pressable style={styles.addBtn} onPress={() => { setAddOpen(true); setNotice(null); }}>
+      <Pressable style={styles.addBtn} onPress={() => router.push('/signup')}>
         <Text style={styles.addBtnText}>＋ Add member</Text>
       </Pressable>
 
@@ -190,11 +112,7 @@ export default function AccountsScreen() {
                   <Text style={styles.rowName}>{displayName}</Text>
                   {a.email ? <Text style={styles.rowSub}>{a.email}</Text> : null}
                 </View>
-                {a.status === 'pending' ? (
-                  <Pressable style={styles.resendBtn} onPress={() => resendInvite(a.email ?? '')} hitSlop={6}>
-                    <Text style={styles.resendText}>Resend</Text>
-                  </Pressable>
-                ) : a.role ? (
+                {a.role ? (
                   <View style={styles.roleChip}>
                     <Text style={styles.roleText}>{a.role}</Text>
                   </View>
@@ -205,43 +123,6 @@ export default function AccountsScreen() {
         </ContentCard>
       )}
       <ActivityIndicator style={styles.retry} color={PRUSSIAN} size="small" />
-
-      {/* Add-member modal (admin invite) */}
-      <Modal visible={addOpen} transparent animationType="slide" onRequestClose={() => setAddOpen(false)}>
-        <View style={styles.modalBackdrop}>
-          <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>Invite a member</Text>
-            <Text style={styles.modalSub}>They&apos;ll receive a set-password link valid for 5 minutes.</Text>
-
-            <TextInput style={styles.modalInput} placeholder="First name *" placeholderTextColor={MUTED} value={form.firstname} onChangeText={(v) => setForm({ ...form, firstname: v })} />
-            <TextInput style={styles.modalInput} placeholder="Middle name" placeholderTextColor={MUTED} value={form.middlename} onChangeText={(v) => setForm({ ...form, middlename: v })} />
-            <TextInput style={styles.modalInput} placeholder="Last name *" placeholderTextColor={MUTED} value={form.lastname} onChangeText={(v) => setForm({ ...form, lastname: v })} />
-            <TextInput style={styles.modalInput} placeholder="Email *" placeholderTextColor={MUTED} autoCapitalize="none" keyboardType="email-address" value={form.email} onChangeText={(v) => setForm({ ...form, email: v })} />
-            <TextInput style={styles.modalInput} placeholder="Contact no." placeholderTextColor={MUTED} keyboardType="phone-pad" value={form.contactNo} onChangeText={(v) => setForm({ ...form, contactNo: v })} />
-
-            <View style={styles.roleRow}>
-              {['staff', 'admin'].map((r) => (
-                <Pressable
-                  key={r}
-                  onPress={() => setForm({ ...form, role: r })}
-                  style={[styles.roleOption, form.role === r && styles.roleOptionOn]}
-                >
-                  <Text style={[styles.roleOptionText, form.role === r && styles.roleOptionTextOn]}>{r}</Text>
-                </Pressable>
-              ))}
-            </View>
-
-            <View style={styles.modalActions}>
-              <Pressable style={styles.cancelBtn} onPress={() => setAddOpen(false)} disabled={saving}>
-                <Text style={styles.cancelText}>Cancel</Text>
-              </Pressable>
-              <Pressable style={styles.inviteBtn} onPress={createAccount} disabled={saving}>
-                <Text style={styles.inviteText}>{saving ? 'Sending…' : 'Send invite'}</Text>
-              </Pressable>
-            </View>
-          </View>
-        </View>
-      </Modal>
     </ScreenShell>
   );
 }
@@ -281,11 +162,6 @@ const makeStyles = (c: ThemeColors) => {
   },
   roleText: { color: PRUSSIAN, fontSize: 11, fontWeight: '800', fontFamily: fonts.extrabold, textTransform: 'capitalize' },
   retry: { marginTop: 12 },
-  notice: { borderRadius: 12, borderWidth: 1, padding: 12, marginBottom: 12 },
-  noticeOk: { backgroundColor: 'rgba(21, 128, 61, 0.1)', borderColor: 'rgba(21, 128, 61, 0.35)' },
-  noticeOkText: { color: '#15803D', fontSize: 12, fontWeight: '700', fontFamily: fonts.bold, lineHeight: 18 },
-  noticeErr: { backgroundColor: 'rgba(185, 28, 28, 0.08)', borderColor: 'rgba(185, 28, 28, 0.3)' },
-  noticeErrText: { color: '#B91C1C', fontSize: 12, fontWeight: '700', fontFamily: fonts.bold, lineHeight: 18 },
   addBtn: {
     backgroundColor: PRUSSIAN,
     borderRadius: 14,
@@ -294,57 +170,6 @@ const makeStyles = (c: ThemeColors) => {
     marginBottom: 14,
   },
   addBtnText: { color: WHITE, fontSize: 14, fontWeight: '800', fontFamily: fonts.extrabold },
-  resendBtn: {
-    backgroundColor: 'rgba(246, 196, 69, 0.3)',
-    borderRadius: 999,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-  },
-  resendText: { color: PRUSSIAN, fontSize: 11, fontWeight: '800', fontFamily: fonts.extrabold },
-  modalBackdrop: { flex: 1, backgroundColor: 'rgba(10, 25, 45, 0.55)', justifyContent: 'flex-end' },
-  modalCard: {
-    backgroundColor: c.surface,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    padding: 20,
-  },
-  modalTitle: { color: PRUSSIAN, fontSize: 19, fontWeight: '900', fontFamily: fonts.extrabold },
-  modalSub: { color: MUTED, fontSize: 12, marginTop: 3, marginBottom: 14 },
-  modalInput: {
-    borderWidth: 1,
-    borderColor: 'rgba(10, 42, 74, 0.16)',
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 11,
-    fontSize: 14,
-    color: PRUSSIAN,
-    marginBottom: 10,
-    backgroundColor: c.surfaceMuted,
-  },
-  roleRow: { flexDirection: 'row', gap: 8, marginTop: 2, marginBottom: 16 },
-  roleOption: {
-    flex: 1,
-    borderWidth: 1,
-    borderColor: 'rgba(10, 42, 74, 0.18)',
-    borderRadius: 12,
-    paddingVertical: 10,
-    alignItems: 'center',
-  },
-  roleOptionOn: { backgroundColor: PRUSSIAN, borderColor: PRUSSIAN },
-  roleOptionText: { color: MUTED, fontSize: 13, fontWeight: '800', fontFamily: fonts.extrabold, textTransform: 'capitalize' },
-  roleOptionTextOn: { color: WHITE },
-  modalActions: { flexDirection: 'row', gap: 10 },
-  cancelBtn: {
-    flex: 1,
-    borderWidth: 1,
-    borderColor: 'rgba(10, 42, 74, 0.18)',
-    borderRadius: 13,
-    paddingVertical: 13,
-    alignItems: 'center',
-  },
-  cancelText: { color: MUTED, fontSize: 14, fontWeight: '800', fontFamily: fonts.extrabold },
-  inviteBtn: { flex: 1.4, backgroundColor: PRUSSIAN, borderRadius: 13, paddingVertical: 13, alignItems: 'center' },
-  inviteText: { color: WHITE, fontSize: 14, fontWeight: '800', fontFamily: fonts.extrabold },
   });
 };
 

@@ -36,6 +36,52 @@ const setPasswordSchema = z.object({
 });
 
 /**
+ * Sends a welcome email to a newly created account (e.g., after Google
+ * Sign-In or admin-created account). Reuses the existing Brevo mailer.
+ */
+const welcomeSchema = z.object({
+  email: z.string().email(),
+  fullName: z.string().optional(),
+  firstName: z.string().optional(),
+});
+
+/**
+ * POST /accounts/welcome-email
+ * Sends the "Welcome to BawatPieza" email. Designed to be called:
+ *  - by the mobile app right after a new Google Sign-In account is created,
+ *  - or by the Supabase Edge Function on the auth.users insert trigger.
+ */
+router.post('/welcome-email', async (req, res, next) => {
+  try {
+    const parsed = welcomeSchema.safeParse(req.body);
+    if (!parsed.success) {
+      throw createHttpError(400, 'Invalid payload.', parsed.error.flatten());
+    }
+    const { email, fullName, firstName } = parsed.data;
+    const name = firstName || fullName?.split(' ')[0] || 'there';
+    const appName = 'BawatPieza';
+    const frontendUrl = process.env.FRONTEND_URL ?? 'http://localhost:3000';
+    const subject = `Welcome to ${appName}! 🎉`;
+
+    await sendMail({
+      to: email,
+      subject,
+      text: `Hi ${name},\n\nWelcome to ${appName}! 🎉\n\nThank you for joining ${appName}! We're excited to have you on board.\n\nSign In: ${frontendUrl}/\n\nHappy exploring! 🚀`,
+      html: `<div style="font-family:Arial,sans-serif;max-width:520px;margin:auto;background:#0A2A4A;padding:40px 20px;text-align:center">
+        <h1 style="color:#F6C445;font-size:28px;margin:0 0 12px">Welcome to ${appName}! 🎉</h1>
+        <p style="color:#fff;font-size:16px;line-height:1.6">Hi <b>${name}</b>,</p>
+        <p style="color:#fff;font-size:15px;line-height:1.6">Thank you for joining <b>${appName}</b>! We're excited to have you on board.</p>
+        <a href="${frontendUrl}/" style="display:inline-block;background:#F6C445;color:#0A2A4A;padding:14px 30px;border-radius:10px;text-decoration:none;font-weight:bold;margin-top:20px">Sign In to Your Account</a>
+      </div>`,
+    });
+
+    res.status(202).json({ ok: true, message: `Welcome email sent to ${email}` });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
  * Sends the "set your password" invite email. Shared by POST / (create) and
  * POST /resend-invite. Returns true on success, false (logged) on failure so
  * the API can report `verificationEmailSent` without failing the request.

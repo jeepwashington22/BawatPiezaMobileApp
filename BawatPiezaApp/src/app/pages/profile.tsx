@@ -57,14 +57,12 @@ export default function ProfileScreen() {
         if (userData.user) {
           const { data: rows, error: profErr } = await supabase
             .from('user_accounts')
-            .select('full_name, firstname, lastname, role')
+            .select('firstname, lastname, role')
             .eq('id', userData.user.id)
             .maybeSingle();
           if (!profErr && rows) {
             setFullName(
-              rows.full_name ??
-                [rows.firstname, rows.lastname].filter(Boolean).join(' ') ??
-                null,
+              [rows.firstname, rows.lastname].filter(Boolean).join(' ') || null,
             );
             setRole(rows.role ?? null);
           }

@@ -58,12 +58,12 @@ export function TopBar() {
         if (userData.user) {
           const { data: row } = await supabase
             .from('user_accounts')
-            .select('full_name, firstname, lastname')
+            .select('firstname, lastname')
             .eq('id', userData.user.id)
             .maybeSingle();
           if (row) {
             setName(
-              row.full_name ?? [row.firstname, row.lastname].filter(Boolean).join(' ') ?? null,
+              [row.firstname, row.lastname].filter(Boolean).join(' ') || null,
             );
           }
         }
