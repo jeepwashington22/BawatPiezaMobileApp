@@ -16,7 +16,13 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { fonts } from '../theme';
 import { Ionicons } from '@expo/vector-icons';
-import { supabase, signInWithGoogle } from '../lib/supabase';
+import { supabase, signInWithGoogle, sendWelcomeEmailIfNew, isEmailRegistered } from '../lib/supabase';
+import {
+  LOGIN_CREDENTIALS_MESSAGE,
+  describeAuthError,
+  validateEmail,
+  validateLoginPassword,
+} from '../lib/validation';
 
 const PRUSSIAN = '#0A2A4A';
 const PRUSSIAN_SOFT = '#345271';
@@ -38,7 +44,7 @@ export default function LoginScreen() {
 
   // Handle OAuth redirect and check for existing session
   useEffect(() => {
-    let authSubscription: ReturnType<typeof supabase.auth.onAuthStateChange> | null = null;
+    let authSubscription: ReturnType<typeof supabase.auth.onAuthStateChange>['data']['subscription'] | null = null;
 
     const initAuth = async () => {
       try {
@@ -56,12 +62,14 @@ export default function LoginScreen() {
         authSubscription = supabase.auth.onAuthStateChange((event, session) => {
           if (event === 'SIGNED_IN' && session?.user) {
             console.log('LoginScreen: SIGNED_IN event received, redirecting to home');
+            // Send a welcome email for brand-new Google accounts (non-blocking)
+            sendWelcomeEmailIfNew();
             // Small delay to ensure everything is ready
             setTimeout(() => {
               router.replace('/home');
             }, 200);
           }
-        });
+        }).data.subscription;
       } catch (err) {
         console.error('LoginScreen: Error checking session:', err);
       }
@@ -80,19 +88,10 @@ export default function LoginScreen() {
   const handleLogin = async () => {
     const trimmedEmail = email.trim();
 
-    if (!trimmedEmail || !password) {
-      setError('Email and password are required.');
-      return;
-    }
-
-    const isValidEmail = /.+@.+\..+/.test(trimmedEmail);
-    if (!isValidEmail) {
-      setError('Enter a valid email address.');
-      return;
-    }
-
-    if (password.length < 6) {
-      setError('Password must be at least 6 characters.');
+    // Validate locally first so obvious mistakes never hit the network.
+    const validationError = validateEmail(trimmedEmail) ?? validateLoginPassword(password);
+    if (validationError) {
+      setError(validationError);
       return;
     }
 
@@ -106,14 +105,32 @@ export default function LoginScreen() {
       });
 
       if (signInError) {
-        setError(signInError.message === 'Invalid login credentials' ? 'Incorrect email or password.' : signInError.message);
+        let message = describeAuthError(signInError, 'login');
+
+        // Supabase returns the same "invalid credentials" error for an unknown
+        // email and for a wrong password, so ask the database which one it was
+        // and make the message specific. When the check is unavailable
+        // (migration 006 not applied) the combined wording is kept.
+        if (signInError.code === 'invalid_credentials') {
+          const registered = await isEmailRegistered(trimmedEmail);
+          if (registered === false) {
+            message = 'No account found for this email. Check the address, or create an account first.';
+          } else if (registered === true) {
+            message = 'Incorrect password. Check your password and try again.';
+          }
+        }
+
+        setError(message);
         return;
       }
 
       setSubmitting(false);
       router.replace('/home');
     } catch (authError) {
-      const message = authError instanceof Error ? authError.message : 'Unable to sign in right now.';
+      const message =
+        authError instanceof Error
+          ? describeAuthError({ message: authError.message }, 'login')
+          : 'Unable to sign in right now. Please try again.';
       setError(message);
       Alert.alert('Login failed', message);
     } finally {
@@ -127,18 +144,17 @@ export default function LoginScreen() {
 
     try {
       // Sign in with Google using Supabase OAuth
-      await signInWithGoogle();
-      
-      // Note: We don't redirect here. The OAuth flow works as follows:
-      // 1. User is redirected to Google for authentication
-      // 2. Google redirects back to the app via deep link
-      // 3. Supabase establishes the session
-      // 4. The auth state change listener (set up in useEffect) detects SIGNED_IN
-      // 5. The listener automatically redirects to /home
-      //
-      // This approach is more reliable than setTimeout because it waits for
-      // the actual auth state to change rather than guessing a time delay.
-      
+            await signInWithGoogle();
+
+      // signInWithGoogle() only resolves after the session is actually set.
+      // Navigate immediately instead of relying solely on the auth listener.
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user) {
+        sendWelcomeEmailIfNew();
+        router.replace('/home');
+      } else {
+        setError('Sign-in finished, but no session was created. Please try again.');
+      }
     } catch (authError) {
       const message = authError instanceof Error ? authError.message : 'Unable to sign in with Google. Please try again.';
       setError(message);
