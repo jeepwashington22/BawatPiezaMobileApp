@@ -1,6 +1,6 @@
 import { fonts, useTheme, type Mode } from '../../theme';
 import React, { useEffect, useMemo, useState } from 'react';
-import { View, Text, StyleSheet, Pressable } from 'react-native';
+import { View, Text, StyleSheet, Pressable, type StyleProp, type ViewStyle } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import Animated, {
@@ -34,7 +34,42 @@ const heatColor = (v: number) => {
   return stops[idx];
 };
 
-type ZoneFilter = 'all' | 'on' | 'off';
+/* --------------------------- entrance animation -------------------------- */
+
+/**
+ * Fades + lifts its children when it mounts.
+ *
+ * Why a component instead of a hook loop inside `HomeScreen`: the previous
+ * implementation built its shared values with
+ * `[0, 1, 2, 3, 4, 5].map(i => { useSharedValue(); useEffect(); useAnimatedStyle(); })`,
+ * which makes the parent's hook count depend on how many sections that literal
+ * listed. Adding or removing a section therefore changed the hook order and
+ * React threw "Should have a queue. You are likely calling Hooks conditionally".
+ * Owning the three hooks here keeps every call unconditional and in a fixed
+ * order, and gives each section its own independent delay.
+ */
+function EnterView({
+  delay = 0,
+  style,
+  children,
+}: {
+  delay?: number;
+  style?: StyleProp<ViewStyle>;
+  children: React.ReactNode;
+}) {
+  const v = useSharedValue(0);
+
+  useEffect(() => {
+    v.value = withDelay(delay, withTiming(1, { duration: 460, easing: Easing.out(Easing.cubic) }));
+  }, [delay, v]);
+
+  const anim = useAnimatedStyle(() => ({
+    opacity: v.value,
+    transform: [{ translateY: (1 - v.value) * scale(16) }],
+  }));
+
+  return <Animated.View style={[anim, style]}>{children}</Animated.View>;
+}
 
 /* ------------------------------- screen --------------------------------- */
 
@@ -48,7 +83,6 @@ export default function HomeScreen() {
     { id: '2', name: 'Light #2', source: 'Grid', detail: 'Stable Â· 318 W', on: true },
     { id: '3', name: 'Light #3', source: 'Solar', detail: 'Panel charging', on: false },
   ]);
-  const [filter, setFilter] = useState<ZoneFilter>('all');
   const [activeTile, setActiveTile] = useState<number | null>(null);
 
   useEffect(() => {
@@ -63,18 +97,6 @@ export default function HomeScreen() {
     loadSession();
   }, [router]);
 
-  const enter = [0, 1, 2, 3, 4].map((i) => {
-    const v = useSharedValue(0);
-    useEffect(() => {
-      v.value = withDelay(i * 90, withTiming(1, { duration: 460, easing: Easing.out(Easing.cubic) }));
-    }, [v, i]);
-    // eslint-disable-next-line react-hooks/rules-of-hooks
-    return useAnimatedStyle(() => ({
-      opacity: v.value,
-      transform: [{ translateY: (1 - v.value) * scale(16) }],
-    }));
-  });
-
   const accountStatus = useMemo(() => ({ status: 'Live', uptime: '99.2%' }), []);
 
   if (checking) {
@@ -87,13 +109,12 @@ export default function HomeScreen() {
     { label: 'BATTERY', value: '89', unit: '%' },
   ];
   const goalPct = 62;
-  const filteredZones = zones.filter((z) => (filter === 'all' ? true : filter === 'on' ? z.on : !z.on));
 
   return (
     <ScreenShell>
       <TopBar />
       {/* ============ TOTAL CONSUMPTION â€” big, centered, no gradient card ============ */}
-      <Animated.View style={enter[0]}>
+      <EnterView>
         <LinearGradient
           colors={['#0A2A4A', '#123B66', '#1B4D8F']}
           start={{ x: 0, y: 0 }}
@@ -135,9 +156,9 @@ export default function HomeScreen() {
             </View>
           </View>
         </LinearGradient>
-      </Animated.View>
+      </EnterView>
 
-      <Animated.View style={[enter[1], { marginTop: scale(14) }]}>
+      <EnterView delay={90} style={{ marginTop: scale(14) }}>
         <LinearGradient colors={['#F6C445', '#E2A617']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={st.batteryBanner}>
           <View style={st.batteryIcon}><Ionicons name="flash" size={scale(25)} color="#F6C445" /></View>
           <View style={{ flex: 1 }}>
@@ -149,57 +170,10 @@ export default function HomeScreen() {
             <Ionicons name="battery-full" size={scale(25)} color="#0A2A4A" />
           </View>
         </LinearGradient>
-      </Animated.View>
-
-      {/* ============ FILTER CHIPS (All / On / Off) ============ */}
-      <Animated.View style={[enter[1], { marginTop: scale(14) }]}>
-        <View style={{ flexDirection: 'row', gap: scale(8), justifyContent: 'center' }}>
-          {(
-            [
-              { key: 'all', label: 'All' },
-              { key: 'on', label: 'On' },
-              { key: 'off', label: 'Off' },
-            ] as { key: ZoneFilter; label: string }[]
-          ).map((f) => {
-            const active = filter === f.key;
-            return (
-              <AnimatedPressable key={f.key} onPress={() => setFilter(f.key)}>
-                <View style={[st.chip, {
-                  backgroundColor: active ? GOLD : mode === 'dark' ? 'rgba(255,255,255,0.07)' : 'rgba(255,255,255,0.7)',
-                  borderWidth: active ? 0 : 1,
-                  borderColor: mode === 'dark' ? 'rgba(255,255,255,0.14)' : 'rgba(10,42,74,0.12)',
-                }]}>
-                  <Text style={{ color: active ? NAVY : c.textSoft, fontSize: scale(10.5), fontFamily: fonts.bold }}>{f.label}</Text>
-                </View>
-              </AnimatedPressable>
-            );
-          })}
-        </View>
-      </Animated.View>
-
-      {/* ============ QUICK ACTIONS â€” circle buttons (center highlighted) ============ */}
-      <Animated.View style={[enter[1], { marginTop: scale(16) }]}>
-        <View style={{ flexDirection: 'row', justifyContent: 'space-around' }}>
-          {[
-            { icon: 'bulb-outline' as const, label: 'Lights', onPress: () => setZones((zs) => zs.map((x) => ({ ...x, on: true }))) },
-            { icon: 'grid' as const, label: 'Heatmap', onPress: () => router.push('/pages/heatmap'), center: true },
-            { icon: 'bar-chart' as const, label: 'Reports', onPress: () => router.push('/pages/reports') },
-            { icon: 'person' as const, label: 'Profile', onPress: () => router.push('/pages/profile') },
-          ].map((a) => (
-            <AnimatedPressable key={a.label} onPress={a.onPress}>
-              <View style={{ alignItems: 'center', gap: scale(5) }}>
-                <View style={[st.actionCircle, { backgroundColor: mode === 'dark' ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.8)', borderColor: 'rgba(246,196,69,0.4)' }, a.center && st.actionCircleCenter]}>
-                  <Ionicons name={a.icon} size={a.center ? scale(20) : scale(17)} color={a.center ? NAVY : mode === 'dark' ? 'rgba(237,242,250,0.85)' : NAVY} />
-                </View>
-                <Text style={{ color: mode === 'dark' ? 'rgba(237,242,250,0.7)' : 'rgba(10,42,74,0.6)', fontSize: scale(9), fontFamily: fonts.semibold }}>{a.label}</Text>
-              </View>
-            </AnimatedPressable>
-          ))}
-        </View>
-      </Animated.View>
+      </EnterView>
 
       {/* ============ TODAY'S GOAL â€” ring card ============ */}
-      <Animated.View style={[enter[2], { marginTop: scale(18) }]}>
+      <EnterView delay={180} style={{ marginTop: scale(18) }}>
         <Card mode={mode} style={{ borderRadius: scale(18) }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', padding: scale(14) }}>
             {/* progress ring (two-arc trick, no SVG) */}
@@ -226,18 +200,18 @@ export default function HomeScreen() {
             </Pressable>
           </View>
         </Card>
-      </Animated.View>
+      </EnterView>
 
       {/* ============ MY ZONES â€” glass list with filter ============ */}
-      <Animated.View style={enter[3]}>
-        <SectionHead title={`MY ZONES Â· ${filteredZones.length} of ${zones.length}`} link="Manage all" onLink={() => router.push('/pages/schedule')} mode={mode} />
+      <EnterView delay={270}>
+        <SectionHead title={`MY ZONES Â· ${zones.length}`} link="Manage all" onLink={() => router.push('/pages/schedule')} mode={mode} />
         <Card mode={mode} style={{ borderRadius: scale(18) }}>
-          {filteredZones.length === 0 && (
+          {zones.length === 0 && (
             <Text style={{ color: mode === 'dark' ? 'rgba(237,242,250,0.4)' : 'rgba(10,42,74,0.4)', fontSize: scale(10), fontFamily: fonts.medium, textAlign: 'center', paddingVertical: scale(16) }}>
-              No zones in this filter
+              No zones yet
             </Text>
           )}
-          {filteredZones.map((z, i) => (
+          {zones.map((z, i) => (
             <View key={z.id}>
               {i > 0 && (
                 <View style={{ height: 1, backgroundColor: mode === 'dark' ? 'rgba(255,255,255,0.07)' : 'rgba(10,42,74,0.07)', marginLeft: scale(56) }} />
@@ -262,10 +236,29 @@ export default function HomeScreen() {
             </View>
           ))}
         </Card>
-      </Animated.View>
+      </EnterView>
+
+      {/* ============ STATUS â€” glass strip ============ */}
+      <EnterView delay={360} style={{ marginTop: scale(18) }}>
+        <Card mode={mode} style={{ borderRadius: scale(16) }}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: scale(14) }}>
+            <View>
+              <Text style={st.microLabel}>SYSTEM STATUS</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: scale(6), marginTop: scale(3) }}>
+                <LiveDot color="#4CA83E" />
+                <Text style={{ color: c.text, fontSize: scale(13), fontFamily: fonts.extrabold }}>{accountStatus.status}</Text>
+              </View>
+            </View>
+            <View style={st.uptimePill}>
+              <Ionicons name="time-outline" size={scale(11)} color={GOLD} />
+              <Text style={{ color: GOLD, fontSize: scale(9.5), fontFamily: fonts.bold }}>{accountStatus.uptime} uptime</Text>
+            </View>
+          </View>
+        </Card>
+      </EnterView>
 
       {/* ============ MOST WALKED-ON TILES ============ */}
-      <Animated.View style={enter[4]}>
+      <EnterView delay={450}>
         <SectionHead title="MOST WALKED-ON TILES" link="Full heatmap" onLink={() => router.push('/pages/heatmap')} mode={mode} />
         <Card mode={mode} style={{ borderRadius: scale(18), padding: scale(14) }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -331,26 +324,7 @@ export default function HomeScreen() {
             </Text>
           )}
         </Card>
-      </Animated.View>
-
-      {/* ============ STATUS â€” glass strip ============ */}
-      <Animated.View style={[enter[4], { marginTop: scale(18) }]}>
-        <Card mode={mode} style={{ borderRadius: scale(16) }}>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: scale(14) }}>
-            <View>
-              <Text style={st.microLabel}>SYSTEM STATUS</Text>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: scale(6), marginTop: scale(3) }}>
-                <LiveDot color="#4CA83E" />
-                <Text style={{ color: c.text, fontSize: scale(13), fontFamily: fonts.extrabold }}>{accountStatus.status}</Text>
-              </View>
-            </View>
-            <View style={st.uptimePill}>
-              <Ionicons name="time-outline" size={scale(11)} color={GOLD} />
-              <Text style={{ color: GOLD, fontSize: scale(9.5), fontFamily: fonts.bold }}>{accountStatus.uptime} uptime</Text>
-            </View>
-          </View>
-        </Card>
-      </Animated.View>
+      </EnterView>
 
       <View style={{ height: scale(28) }} />
     </ScreenShell>
@@ -473,33 +447,6 @@ const st = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     gap: scale(3),
-  },
-  chip: {
-    borderRadius: 999,
-    paddingHorizontal: scale(16),
-    paddingVertical: scale(8),
-  },
-  actionCircle: {
-    width: scale(46),
-    height: scale(46),
-    borderRadius: scale(23),
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(246,196,69,0.4)',
-  },
-  actionCircleCenter: {
-    width: scale(56),
-    height: scale(56),
-    borderRadius: scale(28),
-    backgroundColor: GOLD,
-    borderWidth: 1,
-    borderColor: '#E2A617',
-    shadowColor: GOLD,
-    shadowOpacity: 0.6,
-    shadowRadius: scale(12),
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 7,
   },
   ringWrap: {
     width: scale(52),

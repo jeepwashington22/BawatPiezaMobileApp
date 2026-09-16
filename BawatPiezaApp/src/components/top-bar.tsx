@@ -20,7 +20,7 @@ import { useTheme } from '../theme';
 const TAB_TITLES: { path: string; label: string }[] = [
   { path: '/home', label: 'Home' },
   { path: '/pages/energy', label: 'Energy' },
-  { path: '/pages/heatmap', label: 'Heatmap' },
+  { path: '/pages/heatmap', label: 'Power Management' },
   { path: '/pages/reports', label: 'Reports' },
   { path: '/pages/profile', label: 'Profile' },
   { path: '/pages/accounts', label: 'Shared Users' },

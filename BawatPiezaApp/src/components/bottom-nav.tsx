@@ -4,7 +4,7 @@ import { usePathname, useRouter, type Href } from 'expo-router';
 import { useTheme } from '../theme';
 
 /**
- * BottomNav — 5 destinations: Home, Heatmap, Energy (raised center bolt),
+ * BottomNav — 5 destinations: Home, Power Management, Energy (raised center bolt),
  * Reports and Profile. Theme-aware (light/dark) with Poppins labels.
  */
 
@@ -20,7 +20,7 @@ type NavItem = {
 // Order matters: [left items…] center FAB [right items…]
 const LEFT: NavItem[] = [
   { label: 'Home', href: '/home', icon: 'home-outline', activeIcon: 'home' },
-  { label: 'Heatmap', href: '/pages/heatmap', icon: 'grid-outline', activeIcon: 'grid' },
+  { label: 'Power Management', href: '/pages/heatmap', icon: 'power-outline', activeIcon: 'power' },
 ];
 const RIGHT: NavItem[] = [
   { label: 'Reports', href: '/pages/reports', icon: 'bar-chart-outline', activeIcon: 'bar-chart' },
@@ -50,7 +50,10 @@ export function BottomNav() {
         accessibilityLabel={label}
       >
         <Ionicons name={active ? activeIcon : icon} size={22} color={active ? c.text : c.muted} />
-        <Text style={[styles.label, { color: active ? c.text : c.muted, fontFamily: active ? f.bold : f.medium }]}>
+        <Text
+          numberOfLines={2}
+          style={[styles.label, { color: active ? c.text : c.muted, fontFamily: active ? f.bold : f.medium }]}
+        >
           {label}
         </Text>
       </Pressable>
@@ -103,6 +106,7 @@ const styles = StyleSheet.create({
   },
   label: {
     fontSize: 11,
+    textAlign: 'center',
   },
   centerBtn: {
     width: 62,
