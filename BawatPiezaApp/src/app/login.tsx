@@ -18,11 +18,17 @@ import { fonts } from '../theme';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase, signInWithGoogle, sendWelcomeEmailIfNew, isEmailRegistered } from '../lib/supabase';
 import {
-  LOGIN_CREDENTIALS_MESSAGE,
-  describeAuthError,
   validateEmail,
   validateLoginPassword,
 } from '../lib/validation';
+import {
+  fetchWithTimeout,
+  isOnline,
+  issueForHttpStatus,
+  classifyNetworkError,
+  NETWORK_ISSUE_INFO,
+  type NetworkIssue,
+} from '../lib/network';
 
 const PRUSSIAN = '#0A2A4A';
 const PRUSSIAN_SOFT = '#345271';
@@ -31,6 +37,16 @@ const MUTED = 'rgba(255, 255, 255, 0.72)';
 const LINE = 'rgba(255, 255, 255, 0.12)';
 const SURFACE = 'rgba(15, 23, 36, 0.72)';
 const INPUT_BG = 'rgba(255, 255, 255, 0.05)';
+
+/** Express API that brokers the two-factor sign-in (see backend/src/routes/twoFactor.ts). */
+const API_URL = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:4000';
+
+/** Best-effort device description sent to the backend for security alerts. */
+function deviceInfoHeader(): string {
+  const os = Platform.OS === 'android' ? 'Android' : Platform.OS === 'ios' ? 'iOS' : 'Web';
+  const version = Platform.Version ? ` ${Platform.Version}` : '';
+  return `${os}${version} · BawatPieza App`;
+}
 
 export default function LoginScreen() {
   const router = useRouter();
@@ -41,6 +57,20 @@ export default function LoginScreen() {
   const [submitting, setSubmitting] = useState(false);
   const [googleSigningIn, setGoogleSigningIn] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Two-factor state: after a correct password the API emails a 6-digit code
+  // and only releases the session once that code is verified.
+  const [step, setStep] = useState<'credentials' | 'otp'>('credentials');
+  const [challengeId, setChallengeId] = useState('');
+  const [otp, setOtp] = useState('');
+  const [verifying, setVerifying] = useState(false);
+  const [resending, setResending] = useState(false);
+  const [info, setInfo] = useState<string | null>(null);
+  const [otpError, setOtpError] = useState<string | null>(null);
+  const [resendIn, setResendIn] = useState(0);
+  // Structured network problems (offline / unstable / rate limit / timeout)
+  // rendered as an icon + headline + explanation instead of a bare message.
+  const [netIssue, setNetIssue] = useState<NetworkIssue | null>(null);
 
   // Handle OAuth redirect and check for existing session
   useEffect(() => {
@@ -85,6 +115,38 @@ export default function LoginScreen() {
     };
   }, [router]);
 
+  // Cooldown countdown for the "Resend code" button.
+  useEffect(() => {
+    if (resendIn <= 0) return undefined;
+    const timer = setInterval(() => setResendIn((value) => (value > 0 ? value - 1 : 0)), 1000);
+    return () => clearInterval(timer);
+  }, [resendIn]);
+
+  /** Pulls the human-readable message out of the API's { error: string } envelope. */
+  const apiMessage = (payload: unknown, fallback: string): string => {
+    if (payload && typeof payload === 'object') {
+      const record = payload as Record<string, unknown>;
+      if (typeof record.error === 'string' && record.error.trim()) return record.error;
+      if (typeof record.message === 'string' && record.message.trim()) return record.message;
+    }
+    return fallback;
+  };
+
+  /** Establishes the Supabase session from the tokens released after the OTP check. */
+  const completeSignIn = async (accessToken: string, refreshToken: string): Promise<void> => {
+    const { error: sessionError } = await supabase.auth.setSession({
+      access_token: accessToken,
+      refresh_token: refreshToken,
+    });
+    if (sessionError) {
+      throw new Error('Sign-in succeeded, but the session could not be started. Please try again.');
+    }
+    // The password has served its purpose - drop it from memory.
+    setPassword('');
+    setOtp('');
+    router.replace('/home');
+  };
+
   const handleLogin = async () => {
     const trimmedEmail = email.trim();
 
@@ -92,26 +154,57 @@ export default function LoginScreen() {
     const validationError = validateEmail(trimmedEmail) ?? validateLoginPassword(password);
     if (validationError) {
       setError(validationError);
+      setNetIssue(null);
       return;
     }
 
     setSubmitting(true);
     setError(null);
+    setInfo(null);
+    setNetIssue(null);
+
+    // Offline check — fail fast with a clear indication instead of a vague
+    // "network request failed" after a long hang.
+    if (!(await isOnline())) {
+      setNetIssue('offline');
+      setError(NETWORK_ISSUE_INFO.offline.message);
+      setSubmitting(false);
+      return;
+    }
 
     try {
-      const { error: signInError } = await supabase.auth.signInWithPassword({
-        email: trimmedEmail.toLowerCase(),
-        password,
+      // Step 1 of two-factor sign-in: the API verifies the credentials, emails
+      // a 6-digit code, and parks the session server-side. No session exists
+      // in the app until the code is verified (see handleVerifyOtp).
+      const res = await fetchWithTimeout(`${API_URL}/accounts/2fa/login`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Device-Info': deviceInfoHeader(),
+        },
+        body: JSON.stringify({ email: trimmedEmail.toLowerCase(), password }),
+        timeoutMs: 15_000,
       });
+      const json = (await res.json().catch(() => null)) as Record<string, unknown> | null;
 
-      if (signInError) {
-        let message = describeAuthError(signInError, 'login');
+      if (!res.ok) {
+        // Network-shaped failures (rate limiting, timeouts, server errors) get
+        // a dedicated icon + message; everything else falls through to the
+        // credential-specific handling below.
+        const netProblem = issueForHttpStatus(res.status);
+        if (netProblem) {
+          setNetIssue(netProblem.issue);
+          setError(`${netProblem.title}. ${netProblem.message}`);
+          return;
+        }
 
-        // Supabase returns the same "invalid credentials" error for an unknown
-        // email and for a wrong password, so ask the database which one it was
-        // and make the message specific. When the check is unavailable
-        // (migration 006 not applied) the combined wording is kept.
-        if (signInError.code === 'invalid_credentials') {
+        let message = apiMessage(json, 'Unable to sign in right now. Please try again.');
+
+        // The API keeps unknown email / wrong password indistinguishable; ask
+        // the database which one it was and make the hint specific. When the
+        // check is unavailable (migration 006 not applied) the combined
+        // wording is kept.
+        if (res.status === 401) {
           const registered = await isEmailRegistered(trimmedEmail);
           if (registered === false) {
             message = 'No account found for this email. Check the address, or create an account first.';
@@ -124,18 +217,145 @@ export default function LoginScreen() {
         return;
       }
 
-      setSubmitting(false);
-      router.replace('/home');
+      const session = (json?.session ?? null) as { access_token?: unknown; refresh_token?: unknown } | null;
+      const accessToken = typeof session?.access_token === 'string' ? session.access_token : '';
+      const refreshToken = typeof session?.refresh_token === 'string' ? session.refresh_token : '';
+
+      // 2FA bypassed server-side (LOGIN_2FA_ENABLED=false): the session came
+      // straight back, so skip the code screen entirely.
+      if (accessToken && refreshToken) {
+        await completeSignIn(accessToken, refreshToken);
+        return;
+      }
+
+      const challenge = typeof json?.challengeId === 'string' ? json.challengeId : '';
+      if (!challenge) {
+        setError('Sign-in started, but the server did not send a code. Please try again.');
+        return;
+      }
+
+      setChallengeId(challenge);
+      setOtp('');
+      setOtpError(null);
+      setInfo(apiMessage(json, `A 6-digit verification code was sent to ${trimmedEmail}.`));
+      setResendIn(60);
+      setStep('otp');
     } catch (authError) {
-      const message =
-        authError instanceof Error
-          ? describeAuthError({ message: authError.message }, 'login')
-          : 'Unable to sign in right now. Please try again.';
-      setError(message);
-      Alert.alert('Login failed', message);
+      // Transport failure (offline mid-request, unstable link, timeout, abort).
+      const issue = classifyNetworkError(authError);
+      setNetIssue(issue.issue);
+      setError(`${issue.title}. ${issue.message}`);
+      Alert.alert(issue.title, issue.message);
     } finally {
       setSubmitting(false);
     }
+  };
+
+  const handleVerifyOtp = async () => {
+    const code = otp.trim();
+    if (!/^\d{6}$/.test(code)) {
+      setOtpError('Enter the 6-digit code from your email.');
+      return;
+    }
+
+    setVerifying(true);
+    setOtpError(null);
+
+    try {
+      // Step 2 of two-factor sign-in: exchange the verified code for the
+      // session the API parked when the password was accepted.
+      const res = await fetchWithTimeout(`${API_URL}/accounts/2fa/verify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ challengeId, otp: code }),
+        timeoutMs: 15_000,
+      });
+      const json = (await res.json().catch(() => null)) as Record<string, unknown> | null;
+
+      if (!res.ok) {
+        if (res.status === 410) {
+          // The challenge expired - restart cleanly from the password step.
+          backToCredentials();
+          setError(apiMessage(json, 'This sign-in attempt has expired. Please sign in again.'));
+          return;
+        }
+        const netProblem = issueForHttpStatus(res.status);
+        if (netProblem) {
+          setNetIssue(netProblem.issue);
+          setOtpError(`${netProblem.title}. ${netProblem.message}`);
+          return;
+        }
+        setOtpError(apiMessage(json, 'Unable to verify the code right now. Please try again.'));
+        return;
+      }
+
+      const session = (json?.session ?? null) as { access_token?: unknown; refresh_token?: unknown } | null;
+      const accessToken = typeof session?.access_token === 'string' ? session.access_token : '';
+      const refreshToken = typeof session?.refresh_token === 'string' ? session.refresh_token : '';
+      if (!accessToken || !refreshToken) {
+        setOtpError('The code was accepted, but no session came back. Please sign in again.');
+        return;
+      }
+
+      await completeSignIn(accessToken, refreshToken);
+    } catch (verifyError) {
+      const issue = classifyNetworkError(verifyError);
+      setNetIssue(issue.issue);
+      setOtpError(`${issue.title}. ${issue.message}`);
+    } finally {
+      setVerifying(false);
+    }
+  };
+
+  const handleResendOtp = async () => {
+    if (resendIn > 0 || resending) return;
+    setResending(true);
+    setOtpError(null);
+
+    try {
+      const res = await fetchWithTimeout(`${API_URL}/accounts/2fa/resend`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ challengeId }),
+        timeoutMs: 15_000,
+      });
+      const json = (await res.json().catch(() => null)) as Record<string, unknown> | null;
+
+      if (!res.ok) {
+        if (res.status === 410) {
+          backToCredentials();
+          setError(apiMessage(json, 'This sign-in attempt has expired. Please sign in again.'));
+          return;
+        }
+        const netProblem = issueForHttpStatus(res.status);
+        if (netProblem) {
+          setNetIssue(netProblem.issue);
+          setOtpError(`${netProblem.title}. ${netProblem.message}`);
+          return;
+        }
+        setOtpError(apiMessage(json, 'Could not resend the code. Please try again.'));
+        return;
+      }
+
+      setOtp('');
+      setInfo(apiMessage(json, 'A new 6-digit code was sent to your email.'));
+      setResendIn(60);
+    } catch (resendError) {
+      const issue = classifyNetworkError(resendError);
+      setNetIssue(issue.issue);
+      setOtpError(`${issue.title}. ${issue.message}`);
+    } finally {
+      setResending(false);
+    }
+  };
+
+  const backToCredentials = () => {
+    setStep('credentials');
+    setChallengeId('');
+    setOtp('');
+    setOtpError(null);
+    setInfo(null);
+    setResendIn(0);
   };
 
   const handleGoogleSignIn = async () => {
@@ -194,8 +414,84 @@ export default function LoginScreen() {
           </View>
 
           <View style={styles.card}>
-            <Text style={styles.title}>Welcome back</Text>
-            <Text style={styles.subtitle}>Sign in to your BawatPieza account to continue.</Text>
+            <Text style={styles.title}>{step === 'credentials' ? 'Welcome back' : 'Two-factor check'}</Text>
+            <Text style={styles.subtitle}>
+              {step === 'credentials'
+                ? 'Sign in to your BawatPieza account to continue.'
+                : `Enter the 6-digit code we emailed to ${email.trim()}.`}
+            </Text>
+
+            {step === 'otp' && (
+              <>
+                <View style={styles.otpIconBadge}>
+                  <Ionicons name="shield-checkmark-outline" size={26} color={BUTTER} />
+                </View>
+
+                {info ? (
+                  <View style={styles.otpInfoBox}>
+                    <Ionicons name="mail-open-outline" size={14} color={BUTTER} style={{ marginRight: 8 }} />
+                    <Text style={styles.otpInfoText}>{info}</Text>
+                  </View>
+                ) : null}
+
+                {otpError ? (
+                  <View style={styles.otpErrorBox}>
+                    <Ionicons
+                      name={netIssue ? NETWORK_ISSUE_INFO[netIssue].icon : 'alert-circle-outline'}
+                      size={16}
+                      color="#FCA5A5"
+                      style={styles.errorIcon}
+                    />
+                    <Text style={styles.otpErrorText}>{otpError}</Text>
+                  </View>
+                ) : null}
+
+                <Text style={styles.label}>6-digit code (expires in 5 minutes)</Text>
+                <View style={styles.inputBox}>
+                  <Ionicons name="keypad-outline" size={18} color="rgba(255,255,255,0.45)" style={styles.inputIcon} />
+                  <TextInput
+                    style={[styles.input, styles.otpInput]}
+                    placeholder="000000"
+                    placeholderTextColor="rgba(255,255,255,0.45)"
+                    value={otp}
+                    onChangeText={(text) => setOtp(text.replace(/[^0-9]/g, '').slice(0, 6))}
+                    keyboardType="number-pad"
+                    textContentType="oneTimeCode"
+                    autoComplete="sms-otp"
+                    maxLength={6}
+                    autoFocus
+                    onSubmitEditing={handleVerifyOtp}
+                  />
+                </View>
+
+                <TouchableOpacity style={styles.primaryButton} onPress={handleVerifyOtp} activeOpacity={0.9} disabled={verifying}>
+                  <LinearGradient colors={[PRUSSIAN, PRUSSIAN_SOFT]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.primaryButtonInner}>
+                    {verifying ? (
+                      <ActivityIndicator color="#FFFFFF" size="small" />
+                    ) : (
+                      <>
+                        <Text style={styles.primaryButtonText}>Verify and sign in</Text>
+                        <Ionicons name="checkmark-circle-outline" size={16} color="#FFFFFF" style={styles.primaryButtonIcon} />
+                      </>
+                    )}
+                  </LinearGradient>
+                </TouchableOpacity>
+
+                <View style={styles.otpActionsRow}>
+                  <TouchableOpacity onPress={handleResendOtp} disabled={resendIn > 0 || resending} hitSlop={8}>
+                    <Text style={[styles.linkText, (resendIn > 0 || resending) && styles.linkTextDisabled]}>
+                      {resending ? 'Sending...' : resendIn > 0 ? `Resend code in ${resendIn}s` : 'Resend code'}
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={backToCredentials} hitSlop={8}>
+                    <Text style={styles.linkText}>Use a different account</Text>
+                  </TouchableOpacity>
+                </View>
+              </>
+            )}
+
+            {step === 'credentials' && (
+              <>
 
             <Text style={styles.label}>Email</Text>
             <View style={styles.inputBox}>
@@ -242,7 +538,17 @@ export default function LoginScreen() {
               </TouchableOpacity>
             </View>
 
-            {error ? <Text style={styles.errorText}>{error}</Text> : null}
+            {error ? (
+              <View style={styles.errorBox}>
+                <Ionicons
+                  name={netIssue ? NETWORK_ISSUE_INFO[netIssue].icon : 'alert-circle-outline'}
+                  size={16}
+                  color="#FCA5A5"
+                  style={styles.errorIcon}
+                />
+                <Text style={styles.errorText}>{error}</Text>
+              </View>
+            ) : null}
 
             <TouchableOpacity style={styles.primaryButton} onPress={handleLogin} activeOpacity={0.9} disabled={submitting}>
               <LinearGradient colors={[PRUSSIAN, PRUSSIAN_SOFT]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.primaryButtonInner}>
@@ -285,6 +591,8 @@ export default function LoginScreen() {
                 <Text style={styles.footerLink}>Sign up</Text>
               </TouchableOpacity>
             </View>
+              </>
+            )}
           </View>
         </KeyboardAvoidingView>
       </SafeAreaView>
@@ -470,17 +778,27 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '500', fontFamily: fonts.medium,
   },
-  errorText: {
+  errorBox: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
     backgroundColor: 'rgba(239, 68, 68, 0.12)',
     borderRadius: 12,
     borderWidth: 1,
     borderColor: 'rgba(239,68,68,0.35)',
-    color: '#FCA5A5',
-    fontSize: 12,
-    fontWeight: '600', fontFamily: fonts.semibold,
     paddingHorizontal: 12,
     paddingVertical: 10,
     marginBottom: 16,
+  },
+  errorIcon: {
+    marginTop: 1,
+    marginRight: 8,
+  },
+  errorText: {
+    flex: 1,
+    color: '#FCA5A5',
+    fontSize: 12,
+    fontWeight: '600', fontFamily: fonts.semibold,
+    lineHeight: 17,
   },
   primaryButton: {
     borderRadius: 14,
@@ -515,6 +833,67 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
     letterSpacing: 1.2,
     fontWeight: '700', fontFamily: fonts.bold,
+  },
+  otpIconBadge: {
+    alignSelf: 'center',
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(246, 196, 69, 0.12)',
+    marginBottom: 14,
+  },
+  otpInfoBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(246, 196, 69, 0.10)',
+    borderColor: 'rgba(246, 196, 69, 0.35)',
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginBottom: 12,
+  },
+  otpInfoText: {
+    flex: 1,
+    color: BUTTER,
+    fontSize: 12,
+    fontFamily: fonts.medium,
+    lineHeight: 17,
+  },
+  otpErrorBox: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    backgroundColor: 'rgba(239, 68, 68, 0.12)',
+    borderColor: 'rgba(239,68,68,0.35)',
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginBottom: 12,
+  },
+  otpErrorText: {
+    flex: 1,
+    color: '#FCA5A5',
+    fontSize: 12,
+    fontWeight: '600', fontFamily: fonts.semibold,
+    lineHeight: 17,
+  },
+  otpInput: {
+    letterSpacing: 10,
+    fontSize: 20,
+    textAlign: 'center',
+    fontFamily: fonts.extrabold,
+  },
+  otpActionsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 14,
+  },
+  linkTextDisabled: {
+    color: 'rgba(255, 255, 255, 0.35)',
   },
   googleButton: {
     flexDirection: 'row',

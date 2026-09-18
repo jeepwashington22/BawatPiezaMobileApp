@@ -21,6 +21,58 @@ function sha256(value: string): string {
   return createHash('sha256').update(value).digest('hex');
 }
 
+/**
+ * Redis key namespace for an OTP flow. `fp` = forgot password, `lg` = login
+ * two-factor. Keeping the flows in separate namespaces means a code issued for
+ * one purpose can never be replayed against the other.
+ */
+type OtpScope = 'fp' | 'lg';
+
+/**
+ * Creates a fresh 6-digit code for `email` and stores only its SHA-256 hash,
+ * plus an attempts counter that expires together with the code. Enforces a 60s
+ * cooldown so the inbox (and the Brevo quota) cannot be spammed.
+ *
+ * Throws 429 while the cooldown is still active.
+ */
+async function issueOtp(scope: OtpScope, email: string): Promise<string> {
+  const cooling = await redis.get(`${scope}:cool:${email}`);
+  if (cooling) {
+    throw createHttpError(429, 'Please wait a minute before requesting another code.');
+  }
+
+  const otp = randomInt(0, 1_000_000).toString().padStart(6, '0');
+  await redis.set(`${scope}:otp:${email}`, sha256(otp), 'EX', OTP_TTL_SECONDS);
+  await redis.set(`${scope}:att:${email}`, '0', 'EX', OTP_TTL_SECONDS);
+  await redis.set(`${scope}:cool:${email}`, '1', 'EX', OTP_SEND_COOLDOWN_SECONDS);
+  return otp;
+}
+
+/**
+ * Checks `otp` against the stored hash, counting failed attempts, and consumes
+ * the code once it matches so it cannot be replayed.
+ *
+ * Throws when the code is missing/expired (410), exhausted (429) or wrong (400).
+ */
+async function consumeOtp(scope: OtpScope, email: string, otp: string): Promise<void> {
+  const otpHash = await redis.get(`${scope}:otp:${email}`);
+  if (!otpHash) {
+    throw createHttpError(410, 'This code has expired or was already used. Request a new one.');
+  }
+
+  // Count attempts; invalidate the code after too many wrong tries.
+  const attempts = await redis.incr(`${scope}:att:${email}`);
+  if (attempts !== null && attempts > OTP_MAX_ATTEMPTS) {
+    await redis.del(`${scope}:otp:${email}`, `${scope}:att:${email}`);
+    throw createHttpError(429, 'Too many incorrect attempts. Please request a new code.');
+  }
+  if (sha256(otp) !== otpHash) {
+    throw createHttpError(400, 'Incorrect code. Please check the email and try again.');
+  }
+
+  await redis.del(`${scope}:otp:${email}`, `${scope}:att:${email}`);
+}
+
 const createAccountSchema = z.object({
   firstname: z.string().min(1),
   middlename: z.string().optional().default(''),
@@ -246,24 +298,41 @@ router.post('/set-password', async (req, res, next) => {
 });
 
 /**
- * Sends the 6-digit password-reset OTP email via Brevo.
+ * Sends a 6-digit OTP email via Brevo.
+ *
+ * `purpose` picks the wording: `reset` drives the forgot-password flow, `login`
+ * is the second factor asked for right after a correct password.
  * Returns true on success, false (logged) on failure.
  */
-async function sendOtpEmail(opts: { email: string; fullName: string; otp: string }): Promise<boolean> {
+async function sendOtpEmail(opts: {
+  email: string;
+  fullName: string;
+  otp: string;
+  purpose: 'reset' | 'login';
+}): Promise<boolean> {
+  const isLogin = opts.purpose === 'login';
+  const heading = isLogin ? 'BawatPieza sign-in verification' : 'BawatPieza password reset';
+  const lead = isLogin
+    ? 'use the verification code below to finish signing in.'
+    : 'use the verification code below to reset your password.';
+  const footer = isLogin
+    ? 'If you did not try to sign in, someone may have your password. Change it right away.'
+    : 'If you did not request a password reset, you can safely ignore this email.';
+
   try {
     await sendMail({
       to: opts.email,
       subject: `Your BawatPieza verification code: ${opts.otp} (valid 5 minutes)`,
-      text: `Hi ${opts.fullName},\n\nYour password reset code is ${opts.otp}. It expires in 5 minutes.\nIf you did not request this, ignore this email.`,
+      text: `Hi ${opts.fullName},\n\nYour ${isLogin ? 'sign-in' : 'password reset'} code is ${opts.otp}. It expires in 5 minutes.\n${footer}`,
       html: `<div style="font-family:Arial,sans-serif;max-width:520px;margin:auto">
-        <h2 style="color:#0a2a4a">BawatPieza password reset</h2>
-        <p>Hi <b>${opts.fullName}</b>, use the verification code below to reset your password.</p>
+        <h2 style="color:#0a2a4a">${heading}</h2>
+        <p>Hi <b>${opts.fullName}</b>, ${lead}</p>
         <p style="font-size:34px;font-weight:800;letter-spacing:8px;color:#0a2a4a;background:#f6c44522;display:inline-block;padding:10px 22px;border-radius:12px">${opts.otp}</p>
         <p><b>This code expires in 5 minutes.</b> Never share it with anyone.</p>
-        <p style="color:#666;font-size:12px">If you did not request a password reset, you can safely ignore this email.</p>
+        <p style="color:#666;font-size:12px">${footer}</p>
       </div>`,
     });
-    console.log(`[accounts] OTP email sent to ${opts.email}`);
+    console.log(`[accounts] ${isLogin ? 'Login' : 'Reset'} OTP email sent to ${opts.email}`);
     return true;
   } catch (mailErr) {
     console.error('[accounts] OTP email failed:', (mailErr as Error).message);
@@ -316,7 +385,7 @@ router.post('/forgot-password', async (req, res, next) => {
     await redis.set(`fp:att:${email}`, '0', 'EX', OTP_TTL_SECONDS);
     await redis.set(`fp:cool:${email}`, '1', 'EX', OTP_SEND_COOLDOWN_SECONDS);
 
-    const sent = await sendOtpEmail({ email, fullName, otp });
+    const sent = await sendOtpEmail({ email, fullName, otp, purpose: 'reset' });
 
     res.json({
       ok: true,

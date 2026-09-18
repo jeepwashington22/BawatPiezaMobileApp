@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { View } from 'react-native';
 import { Slot } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import {
@@ -11,6 +12,7 @@ import {
 } from '@expo-google-fonts/poppins';
 
 import { ThemeProvider } from '../theme';
+import { NetworkBanner } from '../components/network-banner';
 import { supabase, flushPendingTermsAcceptance } from '../lib/supabase';
 import type { AuthChangeEvent } from '@supabase/supabase-js';
 
@@ -78,7 +80,10 @@ export default function RootLayout() {
 
   return (
     <ThemeProvider>
-      <Slot />
+      <View style={{ flex: 1 }}>
+        <NetworkBanner />
+        <Slot />
+      </View>
     </ThemeProvider>
   );
 }
