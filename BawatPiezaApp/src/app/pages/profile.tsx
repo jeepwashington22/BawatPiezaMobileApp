@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
-import { Alert, Image, Pressable, StyleSheet, Text, View, Modal } from 'react-native';
+import { ActivityIndicator, Alert, Image, Pressable, StyleSheet, Text, View, Modal } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import * as ImagePicker from 'expo-image-picker';
 import { useRouter, type Href } from 'expo-router';
 import { ScreenShell } from '../../components/screen-shell';
 import { TileLoader } from '../../components/tile-loader';
@@ -40,11 +41,16 @@ export default function ProfileScreen() {
   const OK = c.ok;
   const BAD = c.danger;
   const router = useRouter();
+  const [userId, setUserId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [email, setEmail] = useState<string | null>(null);
   const [fullName, setFullName] = useState<string | null>(null);
   const [role, setRole] = useState<string | null>(null);
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  // Photo picked in the image picker, waiting for the user to confirm in the
+  // save modal before it is uploaded.
+  const [pendingImage, setPendingImage] = useState<{ uri: string; mimeType?: string } | null>(null);
   const [showLogoutModal, setShowLogoutModal] = useState(false);
 
   useEffect(() => {
@@ -54,6 +60,7 @@ export default function ProfileScreen() {
         if (userErr) throw userErr;
         setEmail(userData.user?.email ?? null);
         setAvatarUrl(userData.user?.user_metadata?.avatar_url ?? null);
+        setUserId(userData.user?.id ?? null);
         if (userData.user) {
           const { data: rows, error: profErr } = await supabase
             .from('user_accounts')
@@ -74,6 +81,64 @@ export default function ProfileScreen() {
       }
     })();
   }, []);
+
+  /** Opens the device photo library; the chosen photo is previewed in the save modal. */
+  const handleAvatarPress = async () => {
+    try {
+      const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!perm.granted) {
+        Alert.alert('Permission needed', 'Allow photo library access to set a profile picture.');
+        return;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.8,
+      });
+      if (result.canceled || !result.assets?.length) return;
+      const asset = result.assets[0];
+      setPendingImage({ uri: asset.uri, mimeType: asset.mimeType });
+    } catch {
+      Alert.alert('Error', 'Could not open the photo library. Please try again.');
+    }
+  };
+
+  /** Uploads the confirmed photo to the "avatars" bucket and links it to the account. */
+  const handleAvatarSave = async () => {
+    if (!pendingImage || !userId) return;
+    setUploadingAvatar(true);
+    try {
+      const ext = pendingImage.uri.split('.').pop()?.split('?')[0] ?? 'jpg';
+      const path = `${userId}/avatar.${ext}`;
+      const res = await fetch(pendingImage.uri);
+      const blob = await res.blob();
+      const { error: upErr } = await supabase.storage
+        .from('avatars')
+        .upload(path, blob, { contentType: pendingImage.mimeType ?? 'image/jpeg', upsert: true });
+      if (upErr) throw upErr;
+      const { data: pub } = supabase.storage.from('avatars').getPublicUrl(path);
+      const url = `${pub.publicUrl}?t=${Date.now()}`; // bust cache
+      const { error: metaErr } = await supabase.auth.updateUser({ data: { avatar_url: url } });
+      if (metaErr) throw metaErr;
+      setAvatarUrl(url);
+      setPendingImage(null);
+      Alert.alert('Done', 'Profile picture updated.');
+    } catch (e) {
+      Alert.alert(
+        'Upload failed',
+        e instanceof Error
+          ? `${e.message} (Make sure a public "avatars" storage bucket exists in Supabase.)`
+          : 'Upload failed',
+      );
+    } finally {
+      setUploadingAvatar(false);
+    }
+  };
+
+  const handleAvatarCancel = () => {
+    if (!uploadingAvatar) setPendingImage(null);
+  };
 
   const handleLogoutConfirm = async () => {
     try {
@@ -112,13 +177,29 @@ export default function ProfileScreen() {
     <ScreenShell>
       {/* Hero */}
       <View style={styles.hero}>
-        {avatarUrl ? (
-          <Image source={{ uri: avatarUrl }} style={styles.avatarImage} />
-        ) : (
-          <View style={styles.avatar}>
-            <Text style={styles.avatarText}>{displayName.charAt(0).toUpperCase()}</Text>
+        <Pressable
+          onPress={handleAvatarPress}
+          disabled={uploadingAvatar}
+          style={({ pressed }) => [pressed && !uploadingAvatar && { opacity: 0.7 }]}
+          accessibilityRole="button"
+          accessibilityLabel="Change profile picture"
+        >
+          {avatarUrl ? (
+            <Image source={{ uri: avatarUrl }} style={styles.avatarImage} />
+          ) : (
+            <View style={styles.avatar}>
+              <Text style={styles.avatarText}>{displayName.charAt(0).toUpperCase()}</Text>
+            </View>
+          )}
+          <View style={styles.camBadge}>
+            <Ionicons
+              name={uploadingAvatar ? 'hourglass-outline' : 'camera-outline'}
+              size={14}
+              color={PRUSSIAN}
+            />
           </View>
-        )}
+        </Pressable>
+        <Text style={styles.tapHint}>{uploadingAvatar ? 'Uploading…' : 'Tap photo to change'}</Text>
         <Text style={styles.heroName}>{displayName}</Text>
         <Text style={styles.heroEmail}>{email ?? '—'}</Text>
         {role ? (
@@ -189,6 +270,63 @@ export default function ProfileScreen() {
           </View>
         </View>
       </Modal>
+
+      {/* Save-photo modal */}
+      <Modal
+        visible={pendingImage !== null}
+        transparent
+        animationType="fade"
+        onRequestClose={handleAvatarCancel}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={[styles.modalTitle, { color: PRUSSIAN }]}>Save profile picture?</Text>
+            <View style={styles.modalPreviewWrap}>
+              {pendingImage ? (
+                <Image source={{ uri: pendingImage.uri }} style={styles.modalPreview} />
+              ) : null}
+              {uploadingAvatar ? (
+                <View style={styles.modalPreviewBusy}>
+                  <ActivityIndicator color={PRUSSIAN} size="large" />
+                </View>
+              ) : null}
+            </View>
+            <Text style={[styles.modalText, { color: MUTED }]}>
+              {uploadingAvatar ? 'Uploading your photo…' : 'This will replace your current profile picture.'}
+            </Text>
+            <View style={styles.modalButtons}>
+              <Pressable
+                onPress={handleAvatarCancel}
+                disabled={uploadingAvatar}
+                style={({ pressed }) => [
+                  styles.cancelButton,
+                  pressed && !uploadingAvatar && { opacity: 0.7 },
+                ]}
+                accessibilityRole="button"
+                accessibilityLabel="Cancel profile picture change"
+              >
+                <Text style={styles.cancelText}>Cancel</Text>
+              </Pressable>
+              <Pressable
+                onPress={handleAvatarSave}
+                disabled={uploadingAvatar}
+                style={({ pressed }) => [
+                  styles.saveButton,
+                  pressed && !uploadingAvatar && { opacity: 0.85 },
+                ]}
+                accessibilityRole="button"
+                accessibilityLabel="Save profile picture"
+              >
+                {uploadingAvatar ? (
+                  <ActivityIndicator color={WHITE} size="small" />
+                ) : (
+                  <Text style={styles.saveText}>Save</Text>
+                )}
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </ScreenShell>
   );
 }
@@ -221,6 +359,20 @@ const makeStyles = (c: ThemeColors, f: any) => {
     borderColor: BUTTER,
   },
   avatarText: { color: PRUSSIAN, fontSize: 32, fontWeight: '900', fontFamily: f.extrabold },
+  camBadge: {
+    position: 'absolute',
+    right: 0,
+    bottom: 0,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: c.surface,
+    borderWidth: 1,
+    borderColor: 'rgba(10,42,74,0.15)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  tapHint: { color: MUTED, fontSize: 11, marginTop: 8 },
   heroName: { color: PRUSSIAN, fontSize: 19, fontWeight: '900', fontFamily: f.extrabold },
   heroEmail: { color: MUTED, fontSize: 12, marginTop: 2 },
   roleChip: {
@@ -324,6 +476,46 @@ const makeStyles = (c: ThemeColors, f: any) => {
     fontSize: 14,
     fontWeight: '600',
     color: '#FFFFFF',
+  },
+  /* Save-photo modal */
+  modalPreviewWrap: {
+    alignSelf: 'center',
+    marginBottom: 22,
+  },
+  modalPreview: {
+    width: 124,
+    height: 124,
+    borderRadius: 62,
+    borderWidth: 3,
+    borderColor: BUTTER,
+    backgroundColor: c.surfaceMuted,
+  },
+  modalPreviewBusy: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    borderRadius: 62,
+    backgroundColor: 'rgba(255,255,255,0.55)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  saveButton: {
+    flex: 1,
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 8,
+    backgroundColor: PRUSSIAN,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+  },
+  saveText: {
+    fontSize: 14,
+    fontWeight: '800',
+    fontFamily: f.extrabold,
+    color: WHITE,
   },
 });
 };
