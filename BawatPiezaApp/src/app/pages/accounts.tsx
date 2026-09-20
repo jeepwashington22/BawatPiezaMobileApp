@@ -136,7 +136,7 @@ const makeStyles = (c: ThemeColors) => {
   const WHITE = c.onAccent;
   return StyleSheet.create({
   loaderWrap: { alignItems: 'center', paddingVertical: 48 },
-  errorText: { color: '#B91C1C', fontSize: 14, fontWeight: '700', fontFamily: fonts.bold, marginBottom: 8 },
+  errorText: { color: DANGER, fontSize: 14, fontWeight: '700', fontFamily: fonts.bold, marginBottom: 8 },
   hint: { color: MUTED, fontSize: 12, lineHeight: 18 },
   row: {
     flexDirection: 'row',
@@ -155,7 +155,7 @@ const makeStyles = (c: ThemeColors) => {
   rowName: { color: PRUSSIAN, fontSize: 14, fontWeight: '800', fontFamily: fonts.extrabold },
   rowSub: { color: MUTED, fontSize: 11, marginTop: 1 },
   roleChip: {
-    backgroundColor: 'rgba(246, 196, 69, 0.25)',
+    backgroundColor: c.accentSoft,
     borderRadius: 999,
     paddingHorizontal: 10,
     paddingVertical: 4,

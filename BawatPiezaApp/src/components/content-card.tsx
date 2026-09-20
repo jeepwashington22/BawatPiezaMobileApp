@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { useTheme } from '../theme';
-import { Card, scale, GOLD } from './glass-ui';
+import { Card, brandAccent, scale } from './glass-ui';
 
 /**
  * ContentCard — premium navy-and-gold card wrapper shared by all pages.
@@ -24,8 +24,8 @@ export function ContentCard({ title, eyebrow, action, children, style }: Content
           <View style={styles.headerText}>
             {eyebrow ? (
               <View style={styles.eyebrowRow}>
-                <View style={styles.eyebrowTick} />
-                <Text style={[styles.eyebrow, { color: mode === 'dark' ? 'rgba(246,196,69,0.9)' : 'rgba(10,42,74,0.55)' }]}>
+                <View style={[styles.eyebrowTick, { backgroundColor: brandAccent(mode) }]} />
+                <Text style={[styles.eyebrow, { color: mode === 'dark' ? 'rgba(255,255,255,0.60)' : 'rgba(10,42,74,0.55)' }]}>
                   {eyebrow}
                 </Text>
               </View>
@@ -63,7 +63,6 @@ const styles = StyleSheet.create({
     width: scale(3),
     height: scale(11),
     borderRadius: 2,
-    backgroundColor: GOLD,
   },
   eyebrow: {
     fontSize: scale(9),

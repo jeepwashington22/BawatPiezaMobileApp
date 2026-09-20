@@ -14,7 +14,7 @@ import { supabase } from '../../lib/supabase';
 import { ScreenShell } from '../../components/screen-shell';
 import { TopBar } from '../../components/top-bar';
 import { LoadingScreen } from '../../components/loading-screen';
-import { Card, Toggle, SectionHead, AnimatedPressable, LiveDot, scale, GOLD, NAVY } from '../../components/glass-ui';
+import { Card, Toggle, SectionHead, AnimatedPressable, LiveDot, brandAccent, bandInk, scale, GOLD, NAVY } from '../../components/glass-ui';
 import { LinearGradient } from 'expo-linear-gradient';
 
 /* ------------------------------ demo data ------------------------------- */
@@ -27,9 +27,20 @@ const heatTiles: number[] = Array.from({ length: HEAT_ROWS * HEAT_COLS }, (_, i)
   return Math.min(1, Math.max(0.06, 0.45 + wave + ((i * 2654435761) % 100) / 500));
 });
 
-// Green â†’ yellow glow ramp (reference heatmap look)
-const heatColor = (v: number) => {
-  const stops = ['#EDF2EC', '#CBE7B4', '#8FCB62', '#4CA83E', '#DCE24B'];
+/**
+ * Foot-traffic ramp for the tile heat grid.
+ *
+ * Light mode keeps the green → yellow glow. Dark mode is a strict
+ * black-and-white theme, so the same ramp is expressed in greys — from a dim
+ * near-black up to bright white.
+ */
+const HEAT_STOPS: Record<Mode, string[]> = {
+  light: ['#EDF2EC', '#CBE7B4', '#8FCB62', '#4CA83E', '#DCE24B'],
+  dark: ['#151515', '#3A3A3A', '#616161', '#949494', '#FFFFFF'],
+};
+
+const heatColor = (v: number, mode: Mode) => {
+  const stops = HEAT_STOPS[mode];
   const idx = Math.min(stops.length - 1, Math.floor(v * stops.length));
   return stops[idx];
 };
@@ -76,11 +87,20 @@ function EnterView({
 export default function HomeScreen() {
   const { colors: c, mode } = useTheme();
   const router = useRouter();
+
+  /**
+   * Dark mode is a strict black-and-white theme, so every brand colour has a
+   * neutral twin: `accent()` is the house gold in light mode and pure white in
+   * dark mode, while `band()` is the ink that sits on the brand band (navy on
+   * gold in light mode, black on white in dark mode).
+   */
+  const accent = (alpha = 1) => brandAccent(mode, alpha);
+  const band = (alpha = 1) => bandInk(mode, alpha);
   const [checking, setChecking] = useState(true);
 
   const [zones, setZones] = useState([
     { id: '1', name: 'Light #1', source: 'Battery', detail: 'Auto-off in 22m', on: true },
-    { id: '2', name: 'Light #2', source: 'Grid', detail: 'Stable Â· 318 W', on: true },
+    { id: '2', name: 'Light #2', source: 'Grid', detail: 'Stable · 318 W', on: true },
     { id: '3', name: 'Light #3', source: 'Solar', detail: 'Panel charging', on: false },
   ]);
   const [activeTile, setActiveTile] = useState<number | null>(null);
@@ -112,21 +132,27 @@ export default function HomeScreen() {
 
   return (
     <ScreenShell>
-      <TopBar />
+      {/* Top nav — burger opens the navigation side panel. `gutter={0}` because
+          ScreenShell already applies the 18px screen gutter. */}
+      <TopBar gutter={0} />
       {/* ============ TOTAL CONSUMPTION â€” big, centered, no gradient card ============ */}
       <EnterView>
         <LinearGradient
-          colors={['#0A2A4A', '#123B66', '#1B4D8F']}
+          colors={
+            mode === 'dark'
+              ? ['#0A0A0A', '#121212', '#1B1B1B'] // flat greys — no navy in dark
+              : ['#0A2A4A', '#123B66', '#1B4D8F']
+          }
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 1 }}
-          style={[st.energyCard, { borderWidth: 1, borderColor: 'rgba(246,196,69,0.32)' }]}
+          style={[st.energyCard, { borderWidth: 1, borderColor: accent(0.32) }]}
         >
           {/* gold lux top trim */}
-          <View style={st.energyTrim} />
-          <Ionicons name="flash" size={scale(96)} color="rgba(246,196,69,0.10)" style={st.energyBolt} />
+          <View style={[st.energyTrim, { backgroundColor: accent() }]} />
+          <Ionicons name="flash" size={scale(96)} color={accent(0.10)} style={st.energyBolt} />
           <View style={st.totalPill}>
-            <View style={st.luxDot} />
-            <Text style={{ color: 'rgba(246,196,69,0.95)', fontSize: scale(8.5), letterSpacing: 2, fontFamily: fonts.extrabold }}>
+            <View style={[st.luxDot, { backgroundColor: accent(), shadowColor: accent() }]} />
+            <Text style={{ color: accent(0.95), fontSize: scale(8.5), letterSpacing: 2, fontFamily: fonts.extrabold }}>
               TOTAL CONSUMPTION · TODAY
             </Text>
           </View>
@@ -135,8 +161,8 @@ export default function HomeScreen() {
             <Text style={{ color: 'rgba(255,255,255,0.55)', fontSize: scale(16), fontFamily: fonts.extrabold, marginBottom: scale(9) }}>kWh</Text>
           </View>
           <View style={[st.savedPill, { backgroundColor: 'rgba(255,255,255,0.10)' }]}>
-            <Ionicons name="arrow-down" size={scale(11)} color="#6EE7A0" />
-            <Text style={{ color: '#6EE7A0', fontSize: scale(10), fontFamily: fonts.bold }}>₱86 saved this month</Text>
+            <Ionicons name="arrow-down" size={scale(11)} color={mode === 'dark' ? '#FFFFFF' : '#6EE7A0'} />
+            <Text style={{ color: mode === 'dark' ? '#FFFFFF' : '#6EE7A0', fontSize: scale(10), fontFamily: fonts.bold }}>₱86 saved this month</Text>
           </View>
 
           {/* volts / power / battery — translucent luxe strip */}
@@ -144,12 +170,12 @@ export default function HomeScreen() {
             <View style={st.statsRow}>
               {stats.map((s, i) => (
                 <View key={s.label} style={[st.statCell, i > 0 && { borderLeftWidth: 1, borderLeftColor: mode === 'dark' ? 'rgba(255,255,255,0.16)' : 'rgba(10,42,74,0.14)' }]}>
-                  <Text style={{ color: 'rgba(246,196,69,0.75)', fontSize: scale(7.5), letterSpacing: 1.2, fontFamily: fonts.bold }}>
+                  <Text style={{ color: accent(0.75), fontSize: scale(7.5), letterSpacing: 1.2, fontFamily: fonts.bold }}>
                     {s.label}
                   </Text>
                   <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 2, justifyContent: 'center' }}>
                     <Text style={{ color: '#FFFFFF', fontSize: scale(15), fontFamily: fonts.extrabold }}>{s.value}</Text>
-                    <Text style={{ color: GOLD, fontSize: scale(8.5), fontFamily: fonts.bold }}>{s.unit}</Text>
+                    <Text style={{ color: accent(), fontSize: scale(8.5), fontFamily: fonts.bold }}>{s.unit}</Text>
                   </View>
                 </View>
               ))}
@@ -159,15 +185,27 @@ export default function HomeScreen() {
       </EnterView>
 
       <EnterView delay={90} style={{ marginTop: scale(14) }}>
-        <LinearGradient colors={['#F6C445', '#E2A617']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={st.batteryBanner}>
-          <View style={st.batteryIcon}><Ionicons name="flash" size={scale(25)} color="#F6C445" /></View>
-          <View style={{ flex: 1 }}>
-            <Text style={st.batteryEyebrow}>POWERING VIA</Text>
-            <Text style={st.batteryTitle}>BATTERY</Text>
+        <LinearGradient
+          colors={mode === 'dark' ? ['#FFFFFF', '#E8E8E8'] : ['#F6C445', '#E2A617']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 0 }}
+          style={st.batteryBanner}
+        >
+          <View style={[st.batteryIcon, { backgroundColor: mode === 'dark' ? '#000000' : NAVY }]}>
+            <Ionicons name="flash" size={scale(25)} color={mode === 'dark' ? '#FFFFFF' : '#F6C445'} />
           </View>
-          <View style={st.batteryPct}>
-            <Text style={st.batteryPctText}>89%</Text>
-            <Ionicons name="battery-full" size={scale(25)} color="#0A2A4A" />
+          <View style={{ flex: 1 }}>
+            <Text style={[st.batteryEyebrow, { color: band() }]}>POWERING VIA</Text>
+            <Text style={[st.batteryTitle, { color: band() }]}>BATTERY</Text>
+          </View>
+          <View
+            style={[
+              st.batteryPct,
+              { backgroundColor: band(0.10), borderColor: band(0.35) },
+            ]}
+          >
+            <Text style={[st.batteryPctText, { color: band() }]}>89%</Text>
+            <Ionicons name="battery-full" size={scale(25)} color={band()} />
           </View>
         </LinearGradient>
       </EnterView>
@@ -179,24 +217,24 @@ export default function HomeScreen() {
             {/* progress ring (two-arc trick, no SVG) */}
             <View style={st.ringWrap}>
               <View style={[st.ringBg, { borderColor: mode === 'dark' ? 'rgba(255,255,255,0.12)' : 'rgba(10,42,74,0.1)' }]} />
-              <View style={[st.ringArc, { borderColor: GOLD, transform: [{ rotate: `${goalPct * 3.6}deg` }] }]} />
-              <View style={[st.ringMask, { backgroundColor: mode === 'dark' ? '#141E32' : '#FFFFFF' }]} />
+              <View style={[st.ringArc, { borderColor: accent(), transform: [{ rotate: `${goalPct * 3.6}deg` }] }]} />
+              <View style={[st.ringMask, { backgroundColor: mode === 'dark' ? '#0E0E0E' : '#FFFFFF' }]} />
               <Text style={{ position: 'absolute', color: c.text, fontSize: scale(10.5), fontFamily: fonts.extrabold }}>{goalPct}%</Text>
             </View>
             <View style={{ flex: 1, marginLeft: scale(13) }}>
               <Text style={{ color: c.text, fontSize: scale(13.5), fontFamily: fonts.extrabold }}>Today's goal</Text>
               <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: scale(4), marginTop: scale(2) }}>
                 <Text style={{ color: c.text, fontSize: scale(15), fontFamily: fonts.extrabold }}>4.82</Text>
-                <Text style={{ color: mode === 'dark' ? 'rgba(237,242,250,0.5)' : 'rgba(10,42,74,0.5)', fontSize: scale(9.5), fontFamily: fonts.semibold }}>
-                  of 7.8 kWh Â· on pace
+                <Text style={{ color: mode === 'dark' ? 'rgba(255,255,255,0.5)' : 'rgba(10,42,74,0.5)', fontSize: scale(9.5), fontFamily: fonts.semibold }}>
+                  of 7.8 kWh · on pace
                 </Text>
               </View>
               <View style={[st.goalTrack, { backgroundColor: mode === 'dark' ? 'rgba(255,255,255,0.1)' : 'rgba(10,42,74,0.08)' }]}>
-                <View style={[st.goalFill, { width: `${goalPct}%` }]} />
+                <View style={[st.goalFill, { width: `${goalPct}%`, backgroundColor: accent() }]} />
               </View>
             </View>
             <Pressable onPress={() => router.push('/pages/reports')} hitSlop={6}>
-              <Text style={{ color: GOLD, fontSize: scale(10), fontFamily: fonts.bold }}>Details</Text>
+              <Text style={{ color: accent(), fontSize: scale(10), fontFamily: fonts.bold }}>Details</Text>
             </Pressable>
           </View>
         </Card>
@@ -204,10 +242,10 @@ export default function HomeScreen() {
 
       {/* ============ MY ZONES â€” glass list with filter ============ */}
       <EnterView delay={270}>
-        <SectionHead title={`MY ZONES Â· ${zones.length}`} link="Manage all" onLink={() => router.push('/pages/schedule')} mode={mode} />
+        <SectionHead title={`MY ZONES · ${zones.length}`} link="Manage all" onLink={() => router.push('/pages/schedule')} mode={mode} />
         <Card mode={mode} style={{ borderRadius: scale(18) }}>
           {zones.length === 0 && (
-            <Text style={{ color: mode === 'dark' ? 'rgba(237,242,250,0.4)' : 'rgba(10,42,74,0.4)', fontSize: scale(10), fontFamily: fonts.medium, textAlign: 'center', paddingVertical: scale(16) }}>
+            <Text style={{ color: mode === 'dark' ? 'rgba(255,255,255,0.4)' : 'rgba(10,42,74,0.4)', fontSize: scale(10), fontFamily: fonts.medium, textAlign: 'center', paddingVertical: scale(16) }}>
               No zones yet
             </Text>
           )}
@@ -221,13 +259,22 @@ export default function HomeScreen() {
                 style={{ paddingVertical: scale(12), paddingHorizontal: scale(14) }}
               >
                 <View style={{ flexDirection: 'row', alignItems: 'center', alignSelf: 'stretch' }}>
-                  <View style={[st.zoneIcon, z.on && { backgroundColor: 'rgba(246,196,69,0.16)', borderColor: 'rgba(246,196,69,0.45)' }]}>
-                    <Ionicons name="bulb" size={scale(15)} color={z.on ? GOLD : mode === 'dark' ? 'rgba(237,242,250,0.35)' : 'rgba(10,42,74,0.3)'} />
+                  <View
+                    style={[
+                      st.zoneIcon,
+                      {
+                        backgroundColor:
+                          mode === 'dark' ? 'rgba(255,255,255,0.06)' : 'rgba(10,42,74,0.05)',
+                      },
+                      z.on && { backgroundColor: accent(0.16), borderColor: accent(0.45) },
+                    ]}
+                  >
+                    <Ionicons name="bulb" size={scale(15)} color={z.on ? accent() : mode === 'dark' ? 'rgba(255,255,255,0.35)' : 'rgba(10,42,74,0.3)'} />
                   </View>
                   <View style={{ flex: 1, marginLeft: scale(11) }}>
                     <Text style={{ color: c.text, fontSize: scale(12.5), fontFamily: fonts.bold }}>{z.name}</Text>
-                    <Text style={{ color: mode === 'dark' ? 'rgba(237,242,250,0.55)' : 'rgba(10,42,74,0.5)', fontSize: scale(9.5), fontFamily: fonts.medium, marginTop: 1 }}>
-                      {z.source} Â· {z.detail}
+                    <Text style={{ color: mode === 'dark' ? 'rgba(255,255,255,0.55)' : 'rgba(10,42,74,0.5)', fontSize: scale(9.5), fontFamily: fonts.medium, marginTop: 1 }}>
+                      {z.source} · {z.detail}
                     </Text>
                   </View>
                   <Toggle on={z.on} onToggle={() => setZones((zs) => zs.map((x) => (x.id === z.id ? { ...x, on: !x.on } : x)))} />
@@ -243,15 +290,30 @@ export default function HomeScreen() {
         <Card mode={mode} style={{ borderRadius: scale(16) }}>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: scale(14) }}>
             <View>
-              <Text style={st.microLabel}>SYSTEM STATUS</Text>
+              <Text
+                style={[
+                  st.microLabel,
+                  {
+                    color:
+                      mode === 'dark' ? 'rgba(255,255,255,0.45)' : 'rgba(120,130,150,0.9)',
+                  },
+                ]}
+              >
+                SYSTEM STATUS
+              </Text>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: scale(6), marginTop: scale(3) }}>
-                <LiveDot color="#4CA83E" />
+                <LiveDot color={mode === 'dark' ? '#FFFFFF' : '#4CA83E'} />
                 <Text style={{ color: c.text, fontSize: scale(13), fontFamily: fonts.extrabold }}>{accountStatus.status}</Text>
               </View>
             </View>
-            <View style={st.uptimePill}>
-              <Ionicons name="time-outline" size={scale(11)} color={GOLD} />
-              <Text style={{ color: GOLD, fontSize: scale(9.5), fontFamily: fonts.bold }}>{accountStatus.uptime} uptime</Text>
+            <View
+              style={[
+                st.uptimePill,
+                { backgroundColor: accent(0.12), borderColor: accent(0.3) },
+              ]}
+            >
+              <Ionicons name="time-outline" size={scale(11)} color={accent()} />
+              <Text style={{ color: accent(), fontSize: scale(9.5), fontFamily: fonts.bold }}>{accountStatus.uptime} uptime</Text>
             </View>
           </View>
         </Card>
@@ -263,23 +325,25 @@ export default function HomeScreen() {
         <Card mode={mode} style={{ borderRadius: scale(18), padding: scale(14) }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
             <View style={{ flex: 1 }}>
-              <Text style={{ color: c.text, fontSize: scale(12.5), fontFamily: fonts.extrabold }}>Gate Pathway Â· Live Tile Heat</Text>
-              <Text style={{ color: mode === 'dark' ? 'rgba(237,242,250,0.55)' : 'rgba(10,42,74,0.5)', fontSize: scale(9.5), fontFamily: fonts.medium, marginTop: 1 }}>
-                Brighter green = more foot traffic
+              <Text style={{ color: c.text, fontSize: scale(12.5), fontFamily: fonts.extrabold }}>Gate Pathway · Live Tile Heat</Text>
+              <Text style={{ color: mode === 'dark' ? 'rgba(255,255,255,0.55)' : 'rgba(10,42,74,0.5)', fontSize: scale(9.5), fontFamily: fonts.medium, marginTop: 1 }}>
+                {mode === 'dark' ? 'Brighter white = more foot traffic' : 'Brighter green = more foot traffic'}
               </Text>
             </View>
-            <View style={st.stepsPill}>
-              <Ionicons name="footsteps" size={scale(13)} color={NAVY} />
+            <View style={[st.stepsPill, { backgroundColor: accent(0.14), borderColor: accent(0.4) }]}>
+              <Ionicons name="footsteps" size={scale(13)} color={mode === 'dark' ? '#FFFFFF' : NAVY} />
               <Text style={[st.stepsPillText, { color: c.text }]}>1,248</Text>
             </View>
           </View>
 
-          <View style={st.kineticRow}>
-            <Ionicons name="footsteps" size={scale(14)} color="#B4771B" />
-            <Text style={[st.kineticText, { color: mode === 'dark' ? 'rgba(237,242,250,0.75)' : 'rgba(10,42,74,0.7)' }]}>
+          <View
+            style={[st.kineticRow, { borderColor: accent(0.35), backgroundColor: accent(0.10) }]}
+          >
+            <Ionicons name="footsteps" size={scale(14)} color={mode === 'dark' ? '#FFFFFF' : '#B4771B'} />
+            <Text style={[st.kineticText, { color: mode === 'dark' ? 'rgba(255,255,255,0.75)' : 'rgba(10,42,74,0.7)' }]}>
               Footsteps converted today
             </Text>
-            <Text style={{ color: '#4CA83E', fontSize: scale(11), fontFamily: fonts.extrabold }}>+0.34 kWh</Text>
+            <Text style={{ color: mode === 'dark' ? '#FFFFFF' : '#4CA83E', fontSize: scale(11), fontFamily: fonts.extrabold }}>+0.34 kWh</Text>
           </View>
 
           {/* strict 5 x 6 grid â€” rows flex evenly so it fits any dimension */}
@@ -296,8 +360,18 @@ export default function HomeScreen() {
                       onPress={() => setActiveTile(active ? null : i)}
                       style={[
                         st.heatTile,
-                        { backgroundColor: heatColor(v), shadowColor: '#4CA83E', shadowOpacity: v * 0.9, shadowRadius: scale(9) },
-                        active && st.heatTileActive,
+                        {
+                          backgroundColor: heatColor(v, mode),
+                          shadowColor: mode === 'dark' ? '#FFFFFF' : '#4CA83E',
+                          shadowOpacity: v * 0.9,
+                          shadowRadius: scale(9),
+                          borderWidth: mode === 'dark' ? 1 : 0,
+                          borderColor: 'rgba(255,255,255,0.10)',
+                        },
+                        active && [
+                          st.heatTileActive,
+                          { borderColor: mode === 'dark' ? '#FFFFFF' : '#4CA83E' },
+                        ],
                       ]}
                     >
                       {active && <Ionicons name="footsteps" size={scale(11)} color="#FFFFFF" />}
@@ -309,18 +383,18 @@ export default function HomeScreen() {
           </View>
 
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: scale(6), marginTop: scale(10) }}>
-            <Text style={[st.legendText, { color: mode === 'dark' ? 'rgba(237,242,250,0.5)' : 'rgba(10,42,74,0.5)' }]}>Less</Text>
+            <Text style={[st.legendText, { color: mode === 'dark' ? 'rgba(255,255,255,0.5)' : 'rgba(10,42,74,0.5)' }]}>Less</Text>
             <View style={{ flexDirection: 'row', gap: scale(3) }}>
               {[0.1, 0.35, 0.6, 0.82, 0.98].map((v, i) => (
-                <View key={i} style={[st.legendSwatch, { backgroundColor: heatColor(v) }]} />
+                <View key={i} style={[st.legendSwatch, { backgroundColor: heatColor(v, mode) }]} />
               ))}
             </View>
-            <Text style={[st.legendText, { color: mode === 'dark' ? 'rgba(237,242,250,0.5)' : 'rgba(10,42,74,0.5)' }]}>More</Text>
+            <Text style={[st.legendText, { color: mode === 'dark' ? 'rgba(255,255,255,0.5)' : 'rgba(10,42,74,0.5)' }]}>More</Text>
           </View>
 
           {activeTile !== null && (
-            <Text style={[st.tileInfo, { color: mode === 'dark' ? 'rgba(237,242,250,0.7)' : 'rgba(10,42,74,0.65)' }]}>
-              Tile #{activeTile + 1} â€” {Math.round(heatTiles[activeTile] * 480)} crossings today
+            <Text style={[st.tileInfo, { color: mode === 'dark' ? 'rgba(255,255,255,0.7)' : 'rgba(10,42,74,0.65)' }]}>
+              Tile #{activeTile + 1} — {Math.round(heatTiles[activeTile] * 480)} crossings today
             </Text>
           )}
         </Card>

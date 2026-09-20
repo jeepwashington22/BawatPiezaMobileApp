@@ -148,7 +148,7 @@ const makeStyles = (c: ThemeColors) => {
     width: 32,
     height: 32,
     borderRadius: 10,
-    backgroundColor: 'rgba(246, 196, 69, 0.22)',
+    backgroundColor: c.accentSoft,
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 12,
@@ -158,7 +158,7 @@ const makeStyles = (c: ThemeColors) => {
   sub: { color: MUTED, fontSize: 11, marginTop: 1 },
   value: { color: PRUSSIAN, fontSize: 13, fontWeight: '700', fontFamily: fonts.bold },
   dot: { width: 12, height: 12, borderRadius: 6 },
-  rerun: { color: BUTTER === '#F6C445' ? PRUSSIAN : PRUSSIAN, fontSize: 12, fontWeight: '800', fontFamily: fonts.extrabold },
+  rerun: { color: PRUSSIAN, fontSize: 12, fontWeight: '800', fontFamily: fonts.extrabold },
   });
 };
 

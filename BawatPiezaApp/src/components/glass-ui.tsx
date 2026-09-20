@@ -10,7 +10,7 @@ import Animated, {
   withSequence,
   withTiming,
 } from 'react-native-reanimated';
-import { fonts, type Mode } from '../theme';
+import { fonts, useTheme, type Mode } from '../theme';
 
 /* ------------------------------ design tokens ----------------------------- */
 
@@ -20,6 +20,28 @@ export const NAVY = '#0A2A4A';
 const { width: SCREEN_W } = Dimensions.get('window');
 const S = Math.min(1, Math.max(0.82, SCREEN_W / 412));
 export const scale = (v: number) => Math.round(v * S * 100) / 100;
+
+/* ------------------------- mode-aware brand colours ----------------------- */
+
+/**
+ * Brand accent. Light mode keeps the house gold; dark mode is a strict
+ * black-and-white theme, so the same accent resolves to pure white at the same
+ * opacity (a 30% gold hairline becomes a 30% white hairline).
+ *
+ * Use this anywhere the brand colour is mixed with transparency — plain
+ * `GOLD` / `NAVY` constants are light-mode values only.
+ */
+export function brandAccent(mode: Mode, alpha = 1): string {
+  return mode === 'dark' ? `rgba(255, 255, 255, ${alpha})` : `rgba(246, 196, 69, ${alpha})`;
+}
+
+/**
+ * Ink that sits on top of a brand band: navy on the gold band in light mode,
+ * black on the white band in dark mode.
+ */
+export function bandInk(mode: Mode, alpha = 1): string {
+  return mode === 'dark' ? `rgba(0, 0, 0, ${alpha})` : `rgba(10, 42, 74, ${alpha})`;
+}
 
 /* --------------------------- animated pressable --------------------------- */
 
@@ -94,9 +116,10 @@ export function Card({
       style={[
         {
           borderRadius: scale(18),
-          backgroundColor: mode === 'dark' ? '#141E32' : '#FFFFFF',
+          backgroundColor: mode === 'dark' ? '#0E0E0E' : '#FFFFFF',
           borderWidth: 1,
-          borderColor: mode === 'dark' ? 'rgba(255,255,255,0.10)' : 'rgba(10,42,74,0.08)',
+          // dark values mirror DarkTheme.surface / DarkTheme.line
+          borderColor: mode === 'dark' ? 'rgba(255,255,255,0.14)' : 'rgba(10,42,74,0.08)',
         },
         style,
       ]}
@@ -130,7 +153,7 @@ export function Glass({ mode, style, children }: { mode: Mode; style?: any; chil
       <View
         style={[
           StyleSheet.absoluteFill,
-          { backgroundColor: mode === 'dark' ? 'rgba(16, 26, 46, 0.72)' : 'rgba(255, 255, 255, 0.72)' },
+          { backgroundColor: mode === 'dark' ? 'rgba(10, 10, 10, 0.72)' : 'rgba(255, 255, 255, 0.72)' },
         ]}
       />
       <LinearGradient
@@ -149,34 +172,34 @@ export function Glass({ mode, style, children }: { mode: Mode; style?: any; chil
 /* ------------------------------ gold toggle ------------------------------- */
 
 export function Toggle({ on, onToggle }: { on: boolean; onToggle: () => void }) {
-  const pos = useSharedValue(on ? 1 : 0);
-  useEffect(() => {
-    pos.value = withSpring(on ? 1 : 0, { damping: 16, stiffness: 220 });
-  }, [on, pos]);
-  const knob = useAnimatedStyle(() => ({ transform: [{ translateX: pos.value * scale(20) }] }));
-  const bg = useAnimatedStyle(() => ({
-    backgroundColor: withTiming(on ? GOLD : 'rgba(150,160,175,0.35)', { duration: 180 }),
-  }));
+  const { mode } = useTheme();
   return (
     <Pressable onPress={onToggle} hitSlop={8}>
-      <Animated.View style={[bg, { width: scale(42), height: scale(23), borderRadius: 99, padding: scale(2), justifyContent: 'center' }]}>
-        <Animated.View
-          style={[
-            knob,
-            {
-              width: scale(19),
-              height: scale(19),
-              borderRadius: 99,
-              backgroundColor: '#FFFFFF',
-              shadowColor: '#000',
-              shadowOpacity: 0.25,
-              shadowRadius: 3,
-              shadowOffset: { width: 0, height: 1 },
-              elevation: 3,
-            },
-          ]}
+      <View
+        style={{
+          width: scale(42),
+          height: scale(23),
+          borderRadius: 99,
+          padding: scale(2),
+          justifyContent: 'center',
+          alignItems: on ? 'flex-end' : 'flex-start',
+          backgroundColor: on ? brandAccent(mode) : 'rgba(150,160,175,0.35)',
+        }}
+      >
+        <View
+          style={{
+            width: scale(19),
+            height: scale(19),
+            borderRadius: 99,
+            backgroundColor: '#FFFFFF',
+            shadowColor: '#000',
+            shadowOpacity: 0.25,
+            shadowRadius: 3,
+            shadowOffset: { width: 0, height: 1 },
+            elevation: 3,
+          }}
         />
-      </Animated.View>
+      </View>
     </Pressable>
   );
 }
@@ -206,10 +229,10 @@ export function SectionHead({
       }}
     >
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: scale(7) }}>
-        <View style={{ width: scale(3), height: scale(12), borderRadius: 2, backgroundColor: GOLD }} />
+        <View style={{ width: scale(3), height: scale(12), borderRadius: 2, backgroundColor: brandAccent(mode) }} />
         <Text
           style={{
-            color: mode === 'dark' ? 'rgba(237,242,250,0.75)' : 'rgba(10,42,74,0.62)',
+            color: mode === 'dark' ? 'rgba(255,255,255,0.75)' : 'rgba(10,42,74,0.62)',
             fontSize: scale(9.5),
             letterSpacing: 1.6,
             fontFamily: fonts.extrabold,
@@ -220,7 +243,7 @@ export function SectionHead({
       </View>
       {link && (
         <Pressable onPress={onLink} hitSlop={6}>
-          <Text style={{ color: GOLD, fontSize: scale(10.5), fontFamily: fonts.bold }}>{link}</Text>
+          <Text style={{ color: brandAccent(mode), fontSize: scale(10.5), fontFamily: fonts.bold }}>{link}</Text>
         </Pressable>
       )}
     </View>

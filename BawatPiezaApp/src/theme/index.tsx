@@ -61,24 +61,33 @@ export const LightTheme: ThemeColors = {
   tabBar: 'rgba(255, 255, 255, 0.97)',
 };
 
+/**
+ * Dark mode is a strict black-and-white theme.
+ *
+ * There is deliberately no navy, no gold and no semantic hue here: the canvas
+ * is pure black, surfaces are near-black, type is white and every accent is
+ * white. Emphasis comes from contrast, border weight and type weight instead of
+ * colour, which is why `danger` / `ok` / `orange` are neutral too — destructive
+ * and live states are marked by copy and iconography, not by red/green.
+ */
 export const DarkTheme: ThemeColors = {
-  bg: '#0B1220',
-  surface: '#141E32',
-  surfaceMuted: '#1B2740',
-  line: 'rgba(232, 238, 246, 0.14)',
-  text: '#EDF2FA',
-  textSoft: 'rgba(237, 242, 250, 0.82)',
-  muted: 'rgba(237, 242, 250, 0.60)',
-  accent: '#F6C445', // butter pops on dark; prussian would vanish
-  onAccent: '#0B1220',
-  accentSoft: 'rgba(246, 196, 69, 0.16)',
-  onAccentSoft: '#F6C445',
-  butter: '#F6C445',
-  orange: '#FB923C',
-  danger: '#F87171',
-  onDanger: '#0B1220',
-  ok: '#4ADE80',
-  tabBar: 'rgba(15, 23, 38, 0.97)',
+  bg: '#000000',
+  surface: '#0E0E0E',
+  surfaceMuted: '#161616',
+  line: 'rgba(255, 255, 255, 0.16)',
+  text: '#FFFFFF',
+  textSoft: 'rgba(255, 255, 255, 0.80)',
+  muted: 'rgba(255, 255, 255, 0.52)',
+  accent: '#FFFFFF', // white-on-black is the action colour in a B/W theme
+  onAccent: '#000000',
+  accentSoft: 'rgba(255, 255, 255, 0.12)',
+  onAccentSoft: '#FFFFFF',
+  butter: '#FFFFFF',
+  orange: '#E5E5E5',
+  danger: '#FFFFFF',
+  onDanger: '#000000',
+  ok: '#FFFFFF',
+  tabBar: 'rgba(8, 8, 8, 0.97)',
 };
 
 export type Mode = 'light' | 'dark';

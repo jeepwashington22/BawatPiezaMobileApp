@@ -31,7 +31,7 @@ const CENTER = { label: 'Energy', href: '/pages/energy' };
 export function BottomNav() {
   const router = useRouter();
   const pathname = usePathname();
-  const { colors: c, fonts: f } = useTheme();
+  const { colors: c, fonts: f, mode } = useTheme();
 
   const isActive = (href: string) =>
     href === '/home'
@@ -64,14 +64,22 @@ export function BottomNav() {
     <View style={[styles.wrap, { backgroundColor: c.tabBar, borderTopColor: c.line }]}>
       {LEFT.map(renderItem)}
 
-      {/* Raised center Energy button */}
+      {/* Raised center Energy button — white-on-black in the B/W dark theme */}
       <Pressable
         onPress={() => router.push(CENTER.href as Href)}
-        style={({ pressed }) => [styles.centerBtn, { borderColor: c.tabBar }, pressed && styles.centerBtnPressed]}
+        style={({ pressed }) => [
+          styles.centerBtn,
+          {
+            borderColor: c.tabBar,
+            backgroundColor: mode === 'dark' ? '#FFFFFF' : '#F97316',
+            shadowColor: mode === 'dark' ? '#000000' : '#EA580C',
+          },
+          pressed && styles.centerBtnPressed,
+        ]}
         accessibilityRole="button"
         accessibilityLabel={CENTER.label}
       >
-        <Ionicons name="flash" size={26} color="#FFFFFF" />
+        <Ionicons name="flash" size={26} color={mode === 'dark' ? '#000000' : '#FFFFFF'} />
       </Pressable>
 
       {RIGHT.map(renderItem)}

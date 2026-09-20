@@ -134,7 +134,7 @@ const makeStyles = (c: ThemeColors) => {
   monthNav: { flexDirection: 'row', gap: 8 },
   navBtn: {
     width: 30, height: 30, borderRadius: 9,
-    borderWidth: 1, borderColor: 'rgba(10, 42, 74, 0.14)',
+    borderWidth: 1, borderColor: LINE,
     alignItems: 'center', justifyContent: 'center',
   },
   navBtnText: { color: PRUSSIAN, fontSize: 18, fontWeight: '800', fontFamily: fonts.extrabold, lineHeight: 20 },
@@ -151,7 +151,7 @@ const makeStyles = (c: ThemeColors) => {
   calTextToday: { color: WHITE, fontWeight: '800', fontFamily: fonts.extrabold },
   dayToggle: {
     flex: 1, aspectRatio: 1, borderRadius: 12, maxWidth: 44,
-    borderWidth: 1, borderColor: 'rgba(10, 42, 74, 0.16)',
+    borderWidth: 1, borderColor: LINE,
     alignItems: 'center', justifyContent: 'center',
   },
   dayToggleOn: { backgroundColor: PRUSSIAN, borderColor: PRUSSIAN },

@@ -72,7 +72,7 @@ const makeStyles = (c: ThemeColors) => {
     alignItems: 'center',
     paddingVertical: 9,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(10, 42, 74, 0.08)',
+    borderBottomColor: LINE,
   },
   rowLast: { borderBottomWidth: 0 },
   label: { color: PRUSSIAN, fontSize: 13, fontWeight: '800', fontFamily: fonts.extrabold },

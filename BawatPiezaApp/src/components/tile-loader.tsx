@@ -2,6 +2,7 @@
 import { useEffect, useRef } from 'react';
 import { Animated, Easing, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { brandAccent } from './glass-ui';
 
 /**
  * TileLoader â€” a custom loading indicator styled as a grid of piezoelectric
@@ -11,11 +12,6 @@ import { Ionicons } from '@expo/vector-icons';
  * Use it for route transitions or inline data fetching:
  *   <TileLoader label="Loading sensor data..." size="md" />
  */
-
-const PRUSSIAN = '#0A2A4A';
-const BUTTER = '#F6C445';
-const LINE = 'rgba(10, 42, 74, 0.12)';
-const MUTED = 'rgba(10, 42, 74, 0.62)';
 
 const TILE_COUNT = 8; // 4 x 2 grid
 const COLUMNS = 4;
@@ -34,6 +30,7 @@ export type TileLoaderProps = {
 };
 
 export function TileLoader({ label = 'Harvesting energy...', size = 'md' }: TileLoaderProps) {
+  const { colors: c, mode } = useTheme();
   const dims = SIZES[size];
   const tileAnims = useRef(
     Array.from({ length: TILE_COUNT }, () => new Animated.Value(0)),
@@ -104,7 +101,12 @@ export function TileLoader({ label = 'Harvesting energy...', size = 'md' }: Tile
             key={i}
             style={[
               styles.tile,
-              { width: dims.tile, height: dims.tile },
+              {
+                width: dims.tile,
+                height: dims.tile,
+                backgroundColor: brandAccent(mode),
+                borderColor: mode === 'dark' ? 'rgba(0, 0, 0, 0.45)' : 'rgba(10, 42, 74, 0.12)',
+              },
               tileStyle(val),
             ]}
           />
@@ -114,14 +116,20 @@ export function TileLoader({ label = 'Harvesting energy...', size = 'md' }: Tile
       <Animated.View
         style={[
           styles.boltBox,
-          { width: dims.box, height: dims.box, opacity: boltAnim },
+          {
+            width: dims.box,
+            height: dims.box,
+            opacity: boltAnim,
+            backgroundColor: mode === 'dark' ? '#FFFFFF' : '#0A2A4A',
+            shadowColor: mode === 'dark' ? '#FFFFFF' : '#0A2A4A',
+          },
         ]}
       >
-        <Ionicons name="flash" size={dims.bolt} color={BUTTER} />
+        <Ionicons name="flash" size={dims.bolt} color={mode === 'dark' ? '#000000' : '#F6C445'} />
       </Animated.View>
 
       {label ? (
-        <Text style={[styles.label, { fontSize: dims.text }]}>{label}</Text>
+        <Text style={[styles.label, { fontSize: dims.text, color: c.muted }]}>{label}</Text>
       ) : null}
     </View>
   );
@@ -141,22 +149,17 @@ const styles = StyleSheet.create({
   tile: {
     borderRadius: 4,
     borderWidth: 1,
-    borderColor: LINE,
-    backgroundColor: BUTTER,
   },
   boltBox: {
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: 12,
-    backgroundColor: PRUSSIAN,
-    shadowColor: PRUSSIAN,
     shadowOpacity: 0.35,
     shadowRadius: 10,
     shadowOffset: { width: 0, height: 6 },
     elevation: 6,
   },
   label: {
-    color: MUTED,
     fontWeight: '600',
     letterSpacing: 0.4,
     textAlign: 'center',
