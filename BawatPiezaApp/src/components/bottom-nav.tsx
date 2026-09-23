@@ -20,7 +20,7 @@ type NavItem = {
 // Order matters: [left items…] center FAB [right items…]
 const LEFT: NavItem[] = [
   { label: 'Home', href: '/home', icon: 'home-outline', activeIcon: 'home' },
-  { label: 'Power Management', href: '/pages/power-management', icon: 'power-outline', activeIcon: 'power' },
+  { label: 'Power Management', href: '/pages/heatmap', icon: 'power-outline', activeIcon: 'power' },
 ];
 const RIGHT: NavItem[] = [
   { label: 'Reports', href: '/pages/reports', icon: 'bar-chart-outline', activeIcon: 'bar-chart' },
