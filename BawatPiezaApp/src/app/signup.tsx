@@ -75,7 +75,7 @@ export default function SignupScreen() {
         if (session?.user) {
           // User is already authenticated - redirect to home
           console.log('SignupScreen: Existing session found, redirecting to home');
-          router.replace('/home');
+          router.replace('/provisioning');
           return;
         }
 
@@ -87,7 +87,7 @@ export default function SignupScreen() {
             sendWelcomeEmailIfNew();
             // Small delay to ensure everything is ready
             setTimeout(() => {
-              router.replace('/home');
+              router.replace('/provisioning');
             }, 200);
           }
         }).data.subscription;
@@ -161,7 +161,7 @@ export default function SignupScreen() {
 
       if (data.session) {
         // Session was created immediately (email verification disabled).
-        router.replace('/home');
+        router.replace('/provisioning');
       } else {
         // Email confirmation is enabled — prompt the user to verify.
         setInfo(
@@ -198,7 +198,7 @@ export default function SignupScreen() {
       if (session?.user) {
         await flushPendingTermsAcceptance();
         sendWelcomeEmailIfNew();
-        router.replace('/home');
+        router.replace('/provisioning');
       } else {
         setError('Sign-up finished, but no session was created. Please try again.');
       }

@@ -84,7 +84,7 @@ export default function LoginScreen() {
         if (session?.user) {
           // User is already authenticated - redirect to home
           console.log('LoginScreen: Existing session found, redirecting to home');
-          router.replace('/home');
+          router.replace('/provisioning');
           return;
         }
 
@@ -96,7 +96,7 @@ export default function LoginScreen() {
             sendWelcomeEmailIfNew();
             // Small delay to ensure everything is ready
             setTimeout(() => {
-              router.replace('/home');
+              router.replace('/provisioning');
             }, 200);
           }
         }).data.subscription;
@@ -144,7 +144,7 @@ export default function LoginScreen() {
     // The password has served its purpose - drop it from memory.
     setPassword('');
     setOtp('');
-    router.replace('/home');
+    router.replace('/provisioning');
   };
 
   const handleLogin = async () => {
@@ -371,7 +371,7 @@ export default function LoginScreen() {
       const { data: { session } } = await supabase.auth.getSession();
       if (session?.user) {
         sendWelcomeEmailIfNew();
-        router.replace('/home');
+        router.replace('/provisioning');
       } else {
         setError('Sign-in finished, but no session was created. Please try again.');
       }
