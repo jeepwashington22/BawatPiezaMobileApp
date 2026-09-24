@@ -27,7 +27,7 @@ export default function PreferencesScreen() {
     setPrefs((prev) => prev.map((p) => (p.key === key ? { ...p, value: !p.value } : p)));
 
   return (
-    <ScreenShell>
+    <ScreenShell title="Preferences" showBack>
       {/* Theme */}
       <ContentCard eyebrow="Theme">
         <View style={styles.modeRow}>

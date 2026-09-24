@@ -66,7 +66,7 @@ export default function ScheduleScreen() {
   }
 
   return (
-    <ScreenShell>
+    <ScreenShell title="Schedule" showBack>
       <ContentCard
         title={monthLabel}
         eyebrow="Availability Calendar"

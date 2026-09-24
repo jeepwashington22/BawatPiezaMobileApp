@@ -23,7 +23,6 @@ import {
 } from '../lib/validation';
 import {
   fetchWithTimeout,
-  isOnline,
   issueForHttpStatus,
   classifyNetworkError,
   NETWORK_ISSUE_INFO,
@@ -162,15 +161,6 @@ export default function LoginScreen() {
     setError(null);
     setInfo(null);
     setNetIssue(null);
-
-    // Offline check — fail fast with a clear indication instead of a vague
-    // "network request failed" after a long hang.
-    if (!(await isOnline())) {
-      setNetIssue('offline');
-      setError(NETWORK_ISSUE_INFO.offline.message);
-      setSubmitting(false);
-      return;
-    }
 
     try {
       // Step 1 of two-factor sign-in: the API verifies the credentials, emails

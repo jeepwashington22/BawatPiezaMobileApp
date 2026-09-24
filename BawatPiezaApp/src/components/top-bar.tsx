@@ -29,6 +29,8 @@ import { MenuButton, SideMenu } from './side-menu';
  */
 export type TopBarProps = {
   gutter?: number;
+  title?: string;
+  showBack?: boolean;
 };
 
 function greeting(): string {
@@ -38,7 +40,7 @@ function greeting(): string {
   return 'Good evening';
 }
 
-export function TopBar({ gutter = 18 }: TopBarProps) {
+export function TopBar({ gutter = 18, title, showBack = false }: TopBarProps) {
   const router = useRouter();
   const { colors: c, fonts: f } = useTheme();
 
@@ -78,63 +80,118 @@ export function TopBar({ gutter = 18 }: TopBarProps) {
   }, []);
 
   const firstName = name ? name.trim().split(' ')[0] : null;
+  const titleText = title ?? (firstName ? `${greeting()}, ${firstName}` : greeting());
 
   return (
     <>
       <View style={[styles.wrap, { paddingHorizontal: gutter }]}>
-        {/* row 1 — burger on the left, quick actions on the right */}
-        <View style={styles.topRow}>
-          <MenuButton open={menuOpen} onPress={() => setMenuOpen(true)} />
-
-          <View style={styles.spacer} />
-
-          <View style={styles.actions}>
-            {/* Notification bell */}
-            <Pressable
-              style={({ pressed }) => [
-                styles.iconButton,
-                { backgroundColor: c.surface, borderColor: c.line },
-                pressed && { opacity: 0.7 },
-              ]}
-              onPress={() => router.push('/pages/reports')}
-              accessibilityRole="button"
-              accessibilityLabel="Notifications"
-            >
-              <Ionicons name="notifications-outline" size={20} color={c.text} />
-              {hasNotifications && (
-                <View style={[styles.badge, { backgroundColor: c.orange, borderColor: c.surface }]} />
+        {title || showBack ? (
+          <View style={styles.pageHeaderRow}>
+            <View style={styles.pageHeaderLeft}>
+              {showBack && (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Go back"
+                  onPress={() => router.back()}
+                  style={({ pressed }) => [styles.backButton, { opacity: pressed ? 0.7 : 1 }]}
+                >
+                  <Ionicons name="arrow-back" size={20} color={c.text} />
+                </Pressable>
               )}
-            </Pressable>
 
-            {/* Profile avatar */}
-            <Pressable
-              style={({ pressed }) => [pressed && { opacity: 0.7 }]}
-              onPress={() => router.push('/pages/profile')}
-              accessibilityRole="button"
-              accessibilityLabel="Profile"
-            >
-              {avatarUrl ? (
-                <Image source={{ uri: avatarUrl }} style={[styles.avatar, { borderColor: c.accent }]} />
-              ) : (
-                <View style={[styles.avatar, { backgroundColor: c.accentSoft, borderColor: c.accent }]}>
-                  <Text style={[styles.avatarText, { color: c.onAccentSoft, fontFamily: f.bold }]}>
-                    {(firstName ?? 'U').charAt(0).toUpperCase()}
-                  </Text>
-                </View>
-              )}
-            </Pressable>
+              <Text numberOfLines={1} style={[styles.pageTitle, { color: c.text, fontFamily: f.extrabold }]}>
+                {titleText}
+              </Text>
+            </View>
+
+            <View style={styles.actions}>
+              <Pressable
+                style={({ pressed }) => [
+                  styles.iconButton,
+                  { backgroundColor: c.surface, borderColor: c.line },
+                  pressed && { opacity: 0.7 },
+                ]}
+                onPress={() => router.push('/pages/reports')}
+                accessibilityRole="button"
+                accessibilityLabel="Notifications"
+              >
+                <Ionicons name="notifications-outline" size={20} color={c.text} />
+                {hasNotifications && (
+                  <View style={[styles.badge, { backgroundColor: c.orange, borderColor: c.surface }]} />
+                )}
+              </Pressable>
+
+              <Pressable
+                style={({ pressed }) => [pressed && { opacity: 0.7 }]}
+                onPress={() => router.push('/pages/profile')}
+                accessibilityRole="button"
+                accessibilityLabel="Profile"
+              >
+                {avatarUrl ? (
+                  <Image source={{ uri: avatarUrl }} style={[styles.avatar, { borderColor: c.accent }]} />
+                ) : (
+                  <View style={[styles.avatar, { backgroundColor: c.accentSoft, borderColor: c.accent }]}>
+                    <Text style={[styles.avatarText, { color: c.onAccentSoft, fontFamily: f.bold }]}>
+                      {(firstName ?? 'U').charAt(0).toUpperCase()}
+                    </Text>
+                  </View>
+                )}
+              </Pressable>
+            </View>
           </View>
-        </View>
+        ) : (
+          <>
+            <View style={styles.topRow}>
+              <MenuButton open={menuOpen} onPress={() => setMenuOpen(true)} />
 
-        {/* row 2 — greeting */}
-        <View style={styles.greetRow}>
-          <Text
-            numberOfLines={1}
-            style={[styles.greeting, { color: c.text, fontFamily: f.extrabold }]}
-          >
-            {firstName ? `${greeting()}, ${firstName}` : greeting()}
-          </Text>
-        </View>
+              <View style={styles.spacer} />
+
+              <View style={styles.actions}>
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.iconButton,
+                    { backgroundColor: c.surface, borderColor: c.line },
+                    pressed && { opacity: 0.7 },
+                  ]}
+                  onPress={() => router.push('/pages/reports')}
+                  accessibilityRole="button"
+                  accessibilityLabel="Notifications"
+                >
+                  <Ionicons name="notifications-outline" size={20} color={c.text} />
+                  {hasNotifications && (
+                    <View style={[styles.badge, { backgroundColor: c.orange, borderColor: c.surface }]} />
+                  )}
+                </Pressable>
+
+                <Pressable
+                  style={({ pressed }) => [pressed && { opacity: 0.7 }]}
+                  onPress={() => router.push('/pages/profile')}
+                  accessibilityRole="button"
+                  accessibilityLabel="Profile"
+                >
+                  {avatarUrl ? (
+                    <Image source={{ uri: avatarUrl }} style={[styles.avatar, { borderColor: c.accent }]} />
+                  ) : (
+                    <View style={[styles.avatar, { backgroundColor: c.accentSoft, borderColor: c.accent }]}>
+                      <Text style={[styles.avatarText, { color: c.onAccentSoft, fontFamily: f.bold }]}>
+                        {(firstName ?? 'U').charAt(0).toUpperCase()}
+                      </Text>
+                    </View>
+                  )}
+                </Pressable>
+              </View>
+            </View>
+
+            <View style={styles.greetRow}>
+              <Text
+                numberOfLines={1}
+                style={[styles.greeting, { color: c.text, fontFamily: f.extrabold }]}
+              >
+                {firstName ? `${greeting()}, ${firstName}` : greeting()}
+              </Text>
+            </View>
+          </>
+        )}
       </View>
 
       {/* navigation side panel */}
@@ -199,6 +256,29 @@ const styles = StyleSheet.create({
   greeting: {
     fontSize: scale(20),
     letterSpacing: -0.5,
+  },
+  pageHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: scale(12),
+  },
+  pageHeaderLeft: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: scale(8),
+  },
+  backButton: {
+    width: scale(32),
+    height: scale(32),
+    borderRadius: scale(10),
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  pageTitle: {
+    fontSize: scale(22),
+    letterSpacing: -0.6,
   },
 });
 

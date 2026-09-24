@@ -163,7 +163,7 @@ export default function ProfileScreen() {
 
   if (loading) {
     return (
-      <ScreenShell>
+      <ScreenShell title="Profile" showBack>
         <View style={styles.loaderWrap}>
           <TileLoader label="Loading profile" size="lg" />
         </View>
@@ -174,7 +174,7 @@ export default function ProfileScreen() {
   const displayName = fullName ?? email ?? 'Signed-in user';
 
   return (
-    <ScreenShell>
+    <ScreenShell title="Profile" showBack>
       {/* Hero */}
       <View style={styles.hero}>
         <Pressable

@@ -53,7 +53,7 @@ export default function EnergyScreen() {
   }
 
   return (
-    <ScreenShell>
+    <ScreenShell title="Energy" showBack>
       {STATS.map((s) => (
         <View key={s.label} style={[styles.statCard, { backgroundColor: s.bg }]}>
           <Text style={[styles.statValue, s.bg === BUTTER ? { color: PRUSSIAN } : null]}>

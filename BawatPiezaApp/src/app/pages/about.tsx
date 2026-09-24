@@ -18,7 +18,7 @@ export default function AboutScreen() {
   const OK = c.ok;
   const BAD = c.danger;
   return (
-    <ScreenShell>
+    <ScreenShell title="About Pieza" showBack>
       <View style={styles.hero}>
         <Image source={require('../../../assets/images/LOGO3.png')} style={styles.logo} resizeMode="contain" />
         <Text style={styles.tagline}>Waste Into Watts, Ions</Text>

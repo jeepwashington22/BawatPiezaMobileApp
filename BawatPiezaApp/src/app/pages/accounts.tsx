@@ -82,7 +82,7 @@ export default function AccountsScreen() {
   }
 
   return (
-    <ScreenShell>
+    <ScreenShell title="Accounts" showBack>
       <Pressable style={styles.addBtn} onPress={() => router.push('/signup')}>
         <Text style={styles.addBtnText}>＋ Add member</Text>
       </Pressable>

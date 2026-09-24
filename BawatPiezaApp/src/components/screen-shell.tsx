@@ -3,6 +3,7 @@ import { ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { BottomNav } from './bottom-nav';
+import { TopBar } from './top-bar';
 import { useTheme } from '../theme';
 
 /**
@@ -17,17 +18,23 @@ import { useTheme } from '../theme';
 export type ScreenShellProps = {
   children: ReactNode;
   scroll?: boolean;
+  title?: string;
+  showBack?: boolean;
 };
 
-export function ScreenShell({ children, scroll = true }: ScreenShellProps) {
+export function ScreenShell({ children, scroll = true, title, showBack = false }: ScreenShellProps) {
   const { colors: c } = useTheme();
 
   const content = scroll ? (
     <ScrollView contentContainerStyle={[styles.scrollContent, { paddingBottom: 110 }]} showsVerticalScrollIndicator={false}>
+      {title || showBack ? <TopBar gutter={0} title={title} showBack={showBack} /> : null}
       {children}
     </ScrollView>
   ) : (
-    <View style={[styles.flexContent, { paddingBottom: 110 }]}>{children}</View>
+    <View style={[styles.flexContent, { paddingBottom: 110 }]}>
+      {title || showBack ? <TopBar gutter={0} title={title} showBack={showBack} /> : null}
+      {children}
+    </View>
   );
 
   return (

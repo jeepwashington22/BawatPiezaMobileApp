@@ -151,7 +151,7 @@ export default function EditProfileScreen() {
 
   if (loading) {
     return (
-      <ScreenShell>
+      <ScreenShell title="Edit Profile" showBack>
         <View style={styles.loaderWrap}>
           <TileLoader label="Loading account" size="lg" />
         </View>
@@ -160,7 +160,7 @@ export default function EditProfileScreen() {
   }
 
   return (
-    <ScreenShell>
+    <ScreenShell title="Edit Profile" showBack>
       {/* Avatar + upload */}
       <View style={styles.hero}>
         <TouchableOpacity onPress={pickAvatar} disabled={uploading} activeOpacity={0.8}>

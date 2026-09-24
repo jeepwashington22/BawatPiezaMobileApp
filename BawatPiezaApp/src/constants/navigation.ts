@@ -31,7 +31,7 @@ export const NAV_SECTIONS: NavSection[] = [
     items: [
       { label: 'Home', href: '/home', icon: 'home-outline', activeIcon: 'home' },
       { label: 'Energy', href: '/pages/energy', icon: 'flash-outline', activeIcon: 'flash' },
-      { label: 'Power Management', href: '/pages/heatmap', icon: 'power-outline', activeIcon: 'power' },
+      { label: 'Power Management', href: '/pages/power-management', icon: 'power-outline', activeIcon: 'power' },
       { label: 'Schedule', href: '/pages/schedule', icon: 'calendar-outline', activeIcon: 'calendar' },
       { label: 'Reports', href: '/pages/reports', icon: 'bar-chart-outline', activeIcon: 'bar-chart' },
     ],

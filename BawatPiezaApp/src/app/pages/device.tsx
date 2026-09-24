@@ -74,7 +74,7 @@ export default function DeviceScreen() {
   }, [runDiagnostics]);
 
   return (
-    <ScreenShell>
+    <ScreenShell title="Device" showBack>
       <ContentCard eyebrow="Connected hardware">
         <Row icon="hardware-chip-outline" label="Zone" value="Bldg 4 · 1F Hallway A" last={false} />
         <Row icon="grid-outline" label="Tiles" value="30 (6 × 5)" last={false} />

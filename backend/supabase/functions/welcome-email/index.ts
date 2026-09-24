@@ -58,7 +58,7 @@ serve(async (req) => {
                 If you have any questions, feel free to reach out to our support team.
               </p>
               <p style="color:#ffffff;font-size:14px;margin:12px auto 0;max-width:460px">
-                Happy exploring! 🚀
+                Happy exploring! 
               </p>
             </td>
           </tr>
