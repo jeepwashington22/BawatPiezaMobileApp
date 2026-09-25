@@ -12,12 +12,11 @@ import { ScreenShell } from '../../components/screen-shell';
 import { TileLoader } from '../../components/tile-loader';
 import { ContentCard } from '../../components/content-card';
 import { supabase } from '../../lib/supabase';
+import { apiFetch, describeApiBase } from '../../lib/api';
+import { describeApiFailure } from '../../lib/network';
 
 const MUTED = 'rgba(10, 42, 74, 0.62)';
 const LINE = 'rgba(10, 42, 74, 0.1)';
-
-// Same backend the web frontend uses (now hosted in BawatPiezaMobileApp/backend)
-const API_URL = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:4000';
 
 type Account = {
   id: string;
@@ -54,14 +53,14 @@ export default function AccountsScreen() {
       if (!token) throw new Error('Not signed in');
 
       // Same call as web reports page: GET /accounts with Bearer token
-      const res = await fetch(`${API_URL}/accounts`, {
+      const res = await apiFetch('/accounts', {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!res.ok) throw new Error(`Backend responded ${res.status}`);
       const json = (await res.json()) as { accounts?: Account[] } | Account[];
       setAccounts(Array.isArray(json) ? json : (json.accounts ?? []));
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to load accounts');
+      setError(describeApiFailure(e, 'Failed to load accounts'));
     } finally {
       setLoading(false);
     }
@@ -91,8 +90,9 @@ export default function AccountsScreen() {
         <ContentCard eyebrow="Error">
           <Text style={styles.errorText}>{error}</Text>
           <Text style={styles.hint}>
-            Start the backend in BawatPiezaMobileApp/backend (port 4000) and make sure
-            EXPO_PUBLIC_API_URL points to it. On a physical device use your PC&apos;s LAN IP instead of localhost.
+            Start the backend in BawatPiezaMobileApp/backend (port 4000), keep this phone on
+            the same Wi-Fi as that PC, and allow port 4000 through its firewall
+            (npm run allow-lan-api). Right now the app is calling {describeApiBase()}.
           </Text>
         </ContentCard>
       ) : accounts.length === 0 ? (

@@ -63,8 +63,8 @@ export default function RootLayout() {
         // Attach a Terms & Conditions acceptance that was parked while the
         // OAuth redirect was in flight (Google Sign-In).
         void flushPendingTermsAcceptance();
-        // Dispatch custom event for any listener
-        if (typeof window !== 'undefined') {
+        // CustomEvent is available in the browser but not in React Native.
+        if (typeof window !== 'undefined' && typeof CustomEvent !== 'undefined') {
           window.dispatchEvent(new CustomEvent('supabase:signedIn'));
         }
       }

@@ -4,11 +4,11 @@ import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { ScreenShell } from '../../components/screen-shell';
 import { ContentCard } from '../../components/content-card';
+import { checkApiHealth, describeApiBase } from '../../lib/api';
+import { describeApiFailure } from '../../lib/network';
 
 const MUTED = 'rgba(10, 42, 74, 0.62)';
 const LINE = 'rgba(10, 42, 74, 0.1)';
-
-const API_URL = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:4000';
 
 type Service = { name: string; icon: keyof typeof Ionicons.glyphMap; status: 'pending' | 'ok' | 'fail'; detail: string };
 
@@ -24,7 +24,7 @@ export default function DeviceScreen() {
   const OK = c.ok;
   const BAD = c.danger;
   const [services, setServices] = useState<Service[]>([
-    { name: 'Backend API', icon: 'server-outline', status: 'pending', detail: `Checking ${API_URL}…` },
+    { name: 'Backend API', icon: 'server-outline', status: 'pending', detail: `Checking ${describeApiBase()}…` },
     { name: 'Supabase', icon: 'cloud-outline', status: 'pending', detail: 'Waiting for backend…' },
     { name: 'Redis', icon: 'flash-outline', status: 'pending', detail: 'Waiting for backend…' },
   ]);
@@ -34,17 +34,17 @@ export default function DeviceScreen() {
   const runDiagnostics = useCallback(async () => {
     setRunning(true);
     setServices((prev) => prev.map((s) => ({ ...s, status: 'pending', detail: 'Checking…' })));
-    const start = Date.now();
     try {
-      const res = await fetch(`${API_URL}/health`, { headers: { Accept: 'application/json' } });
-      setLatency(Date.now() - start);
-      const json = await res.json();
+      // apiFetch walks every candidate address, so this also confirms which URL
+      // the phone can actually reach (the message below names it).
+      const { ms, json } = await checkApiHealth();
+      setLatency(ms);
       setServices([
         {
           name: 'Backend API',
           icon: 'server-outline',
-          status: res.ok ? 'ok' : 'fail',
-          detail: `${res.ok ? 'Reachable' : `HTTP ${res.status}`} · ${Date.now() - start} ms · ${API_URL}`,
+          status: 'ok',
+          detail: `Reachable · ${ms} ms · ${describeApiBase()}`,
         },
         {
           name: 'Supabase',
@@ -59,11 +59,10 @@ export default function DeviceScreen() {
           detail: json?.redis === 'ok' ? 'Connected' : 'Unreachable',
         },
       ]);
-    } catch {
+    } catch (err) {
       setLatency(null);
-      setServices((prev) =>
-        prev.map((s) => ({ ...s, status: 'fail', detail: 'Unreachable — is the backend running?' })),
-      );
+      const failure = describeApiFailure(err, 'Unreachable — is the backend running?');
+      setServices((prev) => prev.map((s) => ({ ...s, status: 'fail', detail: failure })));
     } finally {
       setRunning(false);
     }

@@ -14,6 +14,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { fonts } from '../theme';
 import { Ionicons } from '@expo/vector-icons';
+import { apiFetch } from '../lib/api';
+import { describeApiFailure } from '../lib/network';
 
 const PRUSSIAN = '#0A2A4A';
 const PRUSSIAN_SOFT = '#345271';
@@ -22,7 +24,7 @@ const MUTED = 'rgba(255, 255, 255, 0.72)';
 const LINE = 'rgba(255, 255, 255, 0.12)';
 const INPUT_BG = 'rgba(255, 255, 255, 0.05)';
 
-const API_URL = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:4000';
+const NETWORK_FALLBACK = 'Unable to reach the server. Check your connection and try again.';
 
 type Step = 'email' | 'otp' | 'reset' | 'done';
 
@@ -46,7 +48,7 @@ export default function ForgotPasswordScreen() {
     }
     setBusy(true);
     try {
-      const res = await fetch(`${API_URL}/accounts/forgot-password`, {
+      const res = await apiFetch('/accounts/forgot-password', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: email.trim() }),
@@ -56,7 +58,7 @@ export default function ForgotPasswordScreen() {
       setInfo(json?.message ?? 'Verification code sent.');
       setStep('otp');
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Network error. Is the backend running?');
+      setError(describeApiFailure(e, NETWORK_FALLBACK));
     } finally {
       setBusy(false);
     }
@@ -70,7 +72,7 @@ export default function ForgotPasswordScreen() {
     }
     setBusy(true);
     try {
-      const res = await fetch(`${API_URL}/accounts/verify-otp`, {
+      const res = await apiFetch('/accounts/verify-otp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: email.trim(), otp: otp.trim() }),
@@ -81,7 +83,7 @@ export default function ForgotPasswordScreen() {
       setInfo('Code verified. Choose a new password.');
       setStep('reset');
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Network error. Is the backend running?');
+      setError(describeApiFailure(e, NETWORK_FALLBACK));
     } finally {
       setBusy(false);
     }
@@ -99,7 +101,7 @@ export default function ForgotPasswordScreen() {
     }
     setBusy(true);
     try {
-      const res = await fetch(`${API_URL}/accounts/reset-password`, {
+      const res = await apiFetch('/accounts/reset-password', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ resetToken, password }),
@@ -109,7 +111,7 @@ export default function ForgotPasswordScreen() {
       setInfo('Password updated. You can now sign in.');
       setStep('done');
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Network error. Is the backend running?');
+      setError(describeApiFailure(e, NETWORK_FALLBACK));
     } finally {
       setBusy(false);
     }

@@ -11,15 +11,77 @@ Quick fixes for the problems that actually happen in this repo.
 `BawatPiezaApp/.env`. Create the file, then **restart `expo start`** —
 `EXPO_PUBLIC_*` values are inlined at build time, hot reload will not pick them up.
 
-## Login says the backend is unreachable / "Request timed out"
+## Login says "Cannot reach BawatPieza server" / "Request timed out"
 
-- Is the backend running? `cd backend && npm run dev` →
-  check `http://localhost:4000/health` in a browser.
-- **Physical device:** `localhost` in `EXPO_PUBLIC_API_URL` points at the phone.
-  Use your PC's LAN IP (`http://192.168.1.x:4000`) and same Wi-Fi.
-- Windows Firewall may block inbound port 4000 — allow Node.js on private networks.
-- Profile → **Device** runs the built-in diagnostic that pings `/health` and
-  shows latency for Backend API, Supabase, and Redis.
+The message now ends with **`Tried http://<host>:4000/...`**, so the first thing
+to read is the address the app actually used.
+
+1. **Is the backend running?** `cd backend && npm run dev`, then check
+   `http://localhost:4000/health` in a browser on the PC.
+2. **Works in a browser, fails in the app — or fails only on the phone?**
+   Traffic from the PC to itself never passes the firewall, so the browser can
+   succeed while the phone is blocked. Allow the port once, from an
+   **elevated** PowerShell:
+
+   ```bash
+   cd BawatPiezaApp
+   npm run allow-lan-api            # adds the "BawatPieza API (TCP 4000)" rule
+   npm run allow-lan-api:check      # report only: rule, port 4000, LAN URLs
+   ```
+
+   Then open `http://<PC-LAN-IP>:4000/health` **in the phone's browser**. JSON
+   back means the phone can reach the API and the app will work too.
+3. **The app finds the address itself.** `src/lib/api.ts` uses
+   `EXPO_PUBLIC_API_URL` when it points at a real host, and otherwise reuses the
+   host Metro served the bundle from (`--lan` → the PC's LAN IP), so a stale IP
+   in `.env` is no longer fatal. If you *did* set a wrong host there, fix `.env`
+   and **restart Metro** (`EXPO_PUBLIC_*` values are inlined at start).
+4. **The phone must be on the same Wi-Fi.** Guest Wi-Fi, AP isolation and a VPN
+   on the phone all block device-to-PC traffic. `npm run expo-go:tunnel` tunnels
+   **only** Metro — the phone still has to reach the API, so either share the
+   network or host the API over HTTPS and point `EXPO_PUBLIC_API_URL` at it.
+5. **Native builds (APK / EAS / dev client), not Expo Go.** Android 9+ and iOS
+   block plain `http://` by default. `app.json` handles this: the
+   `expo-build-properties` plugin sets `android.usesCleartextTraffic` and
+   `ios.infoPlist.NSAppTransportSecurity` allows local HTTP. Those are **native**
+   settings — they need a fresh build (`npx expo prebuild --clean` / `eas build`),
+   reloading JS is not enough. Expo Go already allows local HTTP.
+6. Profile → **Device** runs the built-in diagnostic (`/health`) and prints the
+   resolved address plus latency for Backend API, Supabase, and Redis.
+
+## `npm run android` fails: "Failed to resolve the Android SDK path" / `'adb' is not recognized`
+
+`expo start --android` launches a device through `adb`, so it needs the Android
+SDK. Expo Go does not: the Expo Go app runs on the phone and downloads the bundle
+from Metro over Wi-Fi. Pick one:
+
+- **Expo Go (installs nothing on the PC):** `npm run expo-go` or `npm start`,
+  then scan the QR code.
+- **Android SDK:** install Android Studio → SDK Manager / Device Manager, then
+  persist the path with `setx ANDROID_HOME "%LOCALAPPDATA%\Android\Sdk"` and open
+  a **new** shell — already-open terminals keep the old environment.
+
+`npm run expo-go:check` reports which of the two is active, plus `.env`, LAN IP
+and port checks.
+
+## Expo Go can't connect to the dev server
+
+- Phone and PC on the same Wi-Fi, and the network must allow device-to-device
+  traffic — guest Wi-Fi, AP isolation and VPNs all block it.
+- Windows Firewall must allow Node.js inbound on private networks (Metro listens
+  on 8081).
+- Manual entry instead of the QR code: `exp://<PC-LAN-IP>:8081`
+  (Expo Go → *Enter URL manually*).
+- Still nothing: `npm run expo-go:tunnel` (Metro through ngrok). That tunnels
+  **only Metro** — `EXPO_PUBLIC_API_URL` must still be reachable from the phone,
+  otherwise the login screen times out.
+
+## Expo Go refuses to open the project (SDK mismatch)
+
+The store build of Expo Go only serves the SDK version it ships with, and this
+project is SDK 57 (React Native 0.86). Update Expo Go from the store, then run
+`npx expo install --check` to list packages whose versions drifted from the SDK
+(`npx expo install --fix` aligns them).
 
 ## "The sign-in service is temporarily unavailable" (502)
 
@@ -53,9 +115,9 @@ data browser → delete).
 
 ## `email_registered` check always returns null
 
-The app logs `[auth] Email check unavailable` and falls back to the combined
-"no account found, or the password is incorrect" message. Migration
-`006_email_registered.sql` has not been applied to the Supabase project.
+The app quietly falls back to the combined "no account found, or the password
+is incorrect" message. Apply migration `006_email_registered.sql` to the
+connected Supabase project to enable the optional email availability check.
 
 ## Shared Users page shows a connection hint
 
@@ -73,6 +135,11 @@ via the admin invite flow.
   (including the Expo web origin and `bawatpiezaapp://oauth`).
 - Web relies on `detectSessionInUrl` with the implicit flow — make sure the
   redirect lands on the same origin the app is served from.
+- `@react-native-google-signin/google-signin` sits in `package.json` but is
+  imported nowhere: sign-in goes through Supabase OAuth +
+  `WebBrowser.openAuthSessionAsync` (`src/lib/supabase.ts`). Metro only bundles
+  imported modules, so it cannot break Expo Go — it is unused weight worth
+  removing.
 
 ## Avatars won't upload
 

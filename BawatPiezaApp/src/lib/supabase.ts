@@ -5,6 +5,7 @@ import * as Linking from 'expo-linking';
 import { createClient } from '@supabase/supabase-js';
 import type { SupportedStorage } from '@supabase/supabase-js';
 import { TERMS_VERSION } from '../constants/terms';
+import { apiFetch } from './api';
 
 const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL;
 const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
@@ -191,8 +192,6 @@ export async function isUserSignedIn(): Promise<boolean> {
   return session !== null;
 }
 
-const API_URL = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:4000';
-
 /**
  * Sends the "Welcome to BawatPieza" email when a brand-new account is created
  * (e.g., first-time Google Sign-In). It only fires once per user by checking
@@ -218,10 +217,11 @@ export async function sendWelcomeEmailIfNew(): Promise<boolean> {
       undefined;
     const firstName = (meta?.firstname as string) ?? fullName?.split(' ')[0];
 
-    const res = await fetch(`${API_URL}/accounts/welcome-email`, {
+    const res = await apiFetch('/accounts/welcome-email', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email: user.email, fullName, firstName }),
+      timeoutMs: 10_000,
     });
     if (!res.ok) {
       console.warn('[welcome-email] Backend returned', res.status);
@@ -311,14 +311,24 @@ export async function flushPendingTermsAcceptance(): Promise<void> {
  * NOTE: see the migration header for the account-enumeration trade-off, and
  * pair this with rate limiting.
  */
+let emailRegisteredRpcUnavailable = false;
+
 export async function isEmailRegistered(email: string): Promise<boolean | null> {
   const value = email.trim().toLowerCase();
   if (!value) return null;
 
+  // This RPC is an optional UX enhancement. Keep signup/login quiet when the
+  // migration has not been applied to the connected Supabase project.
+  if (emailRegisteredRpcUnavailable) return null;
+
   try {
     const { data, error } = await supabase.rpc('email_registered', { check_email: value });
     if (error) {
-      console.warn('[auth] Email check unavailable:', error.message);
+      if (error.code === 'PGRST202' || error.message.includes('email_registered')) {
+        emailRegisteredRpcUnavailable = true;
+      } else {
+        console.warn('[auth] Email check unavailable:', error.message);
+      }
       return null;
     }
     return data === true;

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   View,
   Image,
@@ -7,6 +7,7 @@ import {
   TouchableOpacity,
   StyleSheet,
   KeyboardAvoidingView,
+  ScrollView,
   Platform,
   Alert,
   ActivityIndicator,
@@ -21,8 +22,8 @@ import {
   validateEmail,
   validateLoginPassword,
 } from '../lib/validation';
+import { apiFetch } from '../lib/api';
 import {
-  fetchWithTimeout,
   issueForHttpStatus,
   classifyNetworkError,
   NETWORK_ISSUE_INFO,
@@ -37,14 +38,18 @@ const LINE = 'rgba(255, 255, 255, 0.12)';
 const SURFACE = 'rgba(15, 23, 36, 0.72)';
 const INPUT_BG = 'rgba(255, 255, 255, 0.05)';
 
-/** Express API that brokers the two-factor sign-in (see backend/src/routes/twoFactor.ts). */
-const API_URL = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:4000';
+/**
+ * Requests go through `apiFetch` (`lib/api.ts`), which resolves the API address
+ * at runtime: `EXPO_PUBLIC_API_URL` when it names a real host, otherwise the LAN
+ * address this bundle was served from. Android, iOS and web therefore keep
+ * working when the PC's IP changes, or when `.env` still says `localhost`.
+ */
 
 /** Best-effort device description sent to the backend for security alerts. */
 function deviceInfoHeader(): string {
   const os = Platform.OS === 'android' ? 'Android' : Platform.OS === 'ios' ? 'iOS' : 'Web';
   const version = Platform.Version ? ` ${Platform.Version}` : '';
-  return `${os}${version} · BawatPieza App`;
+  return `${os}${version} - BawatPieza App`;
 }
 
 export default function LoginScreen() {
@@ -67,6 +72,7 @@ export default function LoginScreen() {
   const [info, setInfo] = useState<string | null>(null);
   const [otpError, setOtpError] = useState<string | null>(null);
   const [resendIn, setResendIn] = useState(0);
+  const otpInputs = useRef<Array<TextInput | null>>([]);
   // Structured network problems (offline / unstable / rate limit / timeout)
   // rendered as an icon + headline + explanation instead of a bare message.
   const [netIssue, setNetIssue] = useState<NetworkIssue | null>(null);
@@ -166,7 +172,7 @@ export default function LoginScreen() {
       // Step 1 of two-factor sign-in: the API verifies the credentials, emails
       // a 6-digit code, and parks the session server-side. No session exists
       // in the app until the code is verified (see handleVerifyOtp).
-      const res = await fetchWithTimeout(`${API_URL}/accounts/2fa/login`, {
+      const res = await apiFetch('/accounts/2fa/login', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -254,7 +260,7 @@ export default function LoginScreen() {
     try {
       // Step 2 of two-factor sign-in: exchange the verified code for the
       // session the API parked when the password was accepted.
-      const res = await fetchWithTimeout(`${API_URL}/accounts/2fa/verify`, {
+      const res = await apiFetch('/accounts/2fa/verify', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ challengeId, otp: code }),
@@ -303,7 +309,7 @@ export default function LoginScreen() {
     setOtpError(null);
 
     try {
-      const res = await fetchWithTimeout(`${API_URL}/accounts/2fa/resend`, {
+      const res = await apiFetch('/accounts/2fa/resend', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ challengeId }),
@@ -397,13 +403,18 @@ export default function LoginScreen() {
       </View>
 
       <SafeAreaView style={styles.safeArea}>
-        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.flex}>
-          <View style={styles.brandWrap}>
-            <Image source={require('../../assets/images/LOGO3.png')} style={styles.logo} resizeMode="contain" />
-            <Text style={styles.brandSubtitle}>Piezo Technology - Kinetic Energy to Electricity</Text>
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.flex}>
+          <ScrollView
+            contentContainerStyle={[styles.scrollContent, step === 'otp' && styles.otpScrollContent]}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+          >
+          <View style={[styles.brandWrap, step === 'otp' && styles.otpBrandWrap]}>
+            <Image source={require('../../assets/images/LOGO3.png')} style={[styles.logo, step === 'otp' && styles.otpLogo]} resizeMode="contain" />
+            <Text style={[styles.brandSubtitle, step === 'otp' && styles.otpBrandSubtitle]}>Piezo Technology - Kinetic Energy to Electricity</Text>
           </View>
 
-          <View style={styles.card}>
+          <View style={[styles.card, step === 'otp' && styles.otpCard]}>
             <Text style={styles.title}>{step === 'credentials' ? 'Welcome back' : 'Two-factor check'}</Text>
             <Text style={styles.subtitle}>
               {step === 'credentials'
@@ -437,21 +448,42 @@ export default function LoginScreen() {
                 ) : null}
 
                 <Text style={styles.label}>6-digit code (expires in 5 minutes)</Text>
-                <View style={styles.inputBox}>
-                  <Ionicons name="keypad-outline" size={18} color="rgba(255,255,255,0.45)" style={styles.inputIcon} />
-                  <TextInput
-                    style={[styles.input, styles.otpInput]}
-                    placeholder="000000"
-                    placeholderTextColor="rgba(255,255,255,0.45)"
-                    value={otp}
-                    onChangeText={(text) => setOtp(text.replace(/[^0-9]/g, '').slice(0, 6))}
-                    keyboardType="number-pad"
-                    textContentType="oneTimeCode"
-                    autoComplete="sms-otp"
-                    maxLength={6}
-                    autoFocus
-                    onSubmitEditing={handleVerifyOtp}
-                  />
+                <View style={styles.otpBoxes}>
+                  {Array.from({ length: 6 }, (_, index) => (
+                    <TextInput
+                      key={index}
+                      ref={(input) => { otpInputs.current[index] = input; }}
+                      style={[styles.otpBox, otp[index] && styles.otpBoxFilled]}
+                      value={otp[index] ?? ''}
+                      onChangeText={(value) => {
+                        const digits = value.replace(/[^0-9]/g, '');
+                        if (!digits) {
+                          setOtp((current) => index > 0 ? `${current.slice(0, index - 1)}${current.slice(index)}` : current.slice(1));
+                          return;
+                        }
+                        const next = otp.split('');
+                        digits.slice(0, 6 - index).split('').forEach((digit, offset) => {
+                          next[index + offset] = digit;
+                        });
+                        const updated = next.join('').slice(0, 6);
+                        setOtp(updated);
+                        const nextIndex = Math.min(index + digits.length, 5);
+                        otpInputs.current[nextIndex]?.focus();
+                      }}
+                      onKeyPress={({ nativeEvent }) => {
+                        if (nativeEvent.key === 'Backspace' && !otp[index] && index > 0) {
+                          otpInputs.current[index - 1]?.focus();
+                        }
+                      }}
+                      keyboardType="number-pad"
+                      textContentType={index === 0 ? 'oneTimeCode' : 'none'}
+                      autoComplete={index === 0 ? 'sms-otp' : 'off'}
+                      maxLength={6}
+                      autoFocus={index === 0}
+                      selectTextOnFocus
+                      onSubmitEditing={index === 5 ? handleVerifyOtp : undefined}
+                    />
+                  ))}
                 </View>
 
                 <TouchableOpacity style={styles.primaryButton} onPress={handleVerifyOtp} activeOpacity={0.9} disabled={verifying}>
@@ -584,6 +616,7 @@ export default function LoginScreen() {
               </>
             )}
           </View>
+          </ScrollView>
         </KeyboardAvoidingView>
       </SafeAreaView>
     </View>
@@ -600,10 +633,17 @@ const styles = StyleSheet.create({
   },
   flex: {
     flex: 1,
+  },
+  scrollContent: {
+    flexGrow: 1,
     justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: 20,
-    paddingVertical: 24,
+    paddingVertical: 16,
+  },
+  otpScrollContent: {
+    paddingTop: 8,
+    paddingBottom: 24,
   },
   bgOrb1: {
     position: 'absolute',
@@ -665,10 +705,22 @@ const styles = StyleSheet.create({
   },
   brandWrap: {
     alignItems: 'center',
-    marginBottom: 24,
+    marginBottom: 14,
     zIndex: 1,
   },
-  logo: { width: 270, height: 150, marginBottom: 2 },
+  otpBrandWrap: {
+    marginBottom: 6,
+  },
+  otpLogo: {
+    width: 170,
+    height: 76,
+  },
+  otpBrandSubtitle: {
+    marginTop: 4,
+    fontSize: 9,
+    letterSpacing: 1.2,
+  },
+  logo: { width: 220, height: 112, marginBottom: 0 },
   brandSubtitle: {
     marginTop: 10,
     color: MUTED,
@@ -682,28 +734,31 @@ const styles = StyleSheet.create({
     width: '100%',
     maxWidth: 420,
     backgroundColor: SURFACE,
-    borderRadius: 28,
+    borderRadius: 20,
     borderWidth: 1,
     borderColor: LINE,
-    paddingVertical: 26,
-    paddingHorizontal: 24,
+    paddingVertical: 20,
+    paddingHorizontal: 20,
     shadowColor: '#000000',
     shadowOpacity: 0.45,
     shadowRadius: 30,
     shadowOffset: { width: 0, height: 20 },
     zIndex: 1,
   },
+  otpCard: {
+    paddingVertical: 16,
+  },
   title: {
-    fontSize: 30,
+    fontSize: 26,
     fontWeight: '800', fontFamily: fonts.extrabold,
     color: '#FFFFFF',
     letterSpacing: -0.8,
-    marginBottom: 8,
+    marginBottom: 6,
   },
   subtitle: {
-    fontSize: 14,
+    fontSize: 13,
     color: MUTED,
-    marginBottom: 20,
+    marginBottom: 16,
   },
   label: {
     color: 'rgba(255,255,255,0.82)',
@@ -715,12 +770,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: INPUT_BG,
-    borderRadius: 14,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: LINE,
     paddingHorizontal: 14,
-    paddingVertical: 12,
-    marginBottom: 14,
+    paddingVertical: 10,
+    marginBottom: 12,
   },
   inputIcon: { marginRight: 10 },
   input: {
@@ -791,15 +846,15 @@ const styles = StyleSheet.create({
     lineHeight: 17,
   },
   primaryButton: {
-    borderRadius: 14,
+    borderRadius: 12,
     overflow: 'hidden',
-    marginBottom: 20,
+    marginBottom: 16,
   },
   primaryButtonInner: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 16,
+    paddingVertical: 13,
   },
   primaryButtonText: {
     color: '#FFFFFF',
@@ -826,13 +881,13 @@ const styles = StyleSheet.create({
   },
   otpIconBadge: {
     alignSelf: 'center',
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: 'rgba(246, 196, 69, 0.12)',
-    marginBottom: 14,
+    marginBottom: 10,
   },
   otpInfoBox: {
     flexDirection: 'row',
@@ -842,8 +897,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderRadius: 12,
     paddingHorizontal: 12,
-    paddingVertical: 10,
-    marginBottom: 12,
+    paddingVertical: 8,
+    marginBottom: 10,
   },
   otpInfoText: {
     flex: 1,
@@ -860,8 +915,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderRadius: 12,
     paddingHorizontal: 12,
-    paddingVertical: 10,
-    marginBottom: 12,
+    paddingVertical: 8,
+    marginBottom: 10,
   },
   otpErrorText: {
     flex: 1,
@@ -870,11 +925,30 @@ const styles = StyleSheet.create({
     fontWeight: '600', fontFamily: fonts.semibold,
     lineHeight: 17,
   },
-  otpInput: {
-    letterSpacing: 10,
-    fontSize: 20,
-    textAlign: 'center',
+  otpBoxes: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 6,
+    marginBottom: 14,
+  },
+  otpBox: {
+    flex: 1,
+    maxWidth: 46,
+    minWidth: 34,
+    height: 44,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: LINE,
+    backgroundColor: INPUT_BG,
+    color: '#FFFFFF',
+    fontSize: 19,
     fontFamily: fonts.extrabold,
+    textAlign: 'center',
+    paddingVertical: 0,
+  },
+  otpBoxFilled: {
+    borderColor: 'rgba(246, 196, 69, 0.7)',
+    backgroundColor: 'rgba(246, 196, 69, 0.08)',
   },
   otpActionsRow: {
     flexDirection: 'row',
@@ -889,11 +963,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: 14,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.12)',
     backgroundColor: 'rgba(255,255,255,0.04)',
-    paddingVertical: 14,
+    paddingVertical: 12,
   },
   googleButtonText: {
     color: '#FFFFFF',

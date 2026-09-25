@@ -69,6 +69,7 @@ function EnterView({
   children: React.ReactNode;
 }) {
   const v = useSharedValue(0);
+  const enterOffset = scale(16);
 
   useEffect(() => {
     v.value = withDelay(delay, withTiming(1, { duration: 460, easing: Easing.out(Easing.cubic) }));
@@ -76,7 +77,7 @@ function EnterView({
 
   const anim = useAnimatedStyle(() => ({
     opacity: v.value,
-    transform: [{ translateY: (1 - v.value) * scale(16) }],
+    transform: [{ translateY: (1 - v.value) * enterOffset }],
   }));
 
   return <Animated.View style={[anim, style]}>{children}</Animated.View>;

@@ -70,11 +70,43 @@ reach the app bundle.
 | --- | --- | --- |
 | `EXPO_PUBLIC_SUPABASE_URL` | ✅ | Supabase project URL — the app throws at startup without it |
 | `EXPO_PUBLIC_SUPABASE_ANON_KEY` | ✅ | Supabase anon key (safe to expose; RLS protects data) |
-| `EXPO_PUBLIC_API_URL` | recommended | Backend base URL. Defaults to `http://localhost:4000` |
+| `EXPO_PUBLIC_API_URL` | recommended | Backend base URL for devices (LAN IP, or a public HTTPS URL) |
+| `EXPO_PUBLIC_API_PORT` | optional | Backend port used when the app derives the host itself. Defaults to `4000` |
 
-> **Physical device tip:** replace `localhost` with your PC's LAN IP
-> (e.g. `http://192.168.1.20:4000`) — the phone resolves `localhost` to itself.
-> Restart `expo start` after any `.env` change: values are inlined at build time.
+### How the app finds the API
+
+`BawatPiezaApp/src/lib/api.ts` resolves the base URL **at runtime**, in this order:
+
+1. `EXPO_PUBLIC_API_URL`, when its host is not `localhost` / `127.0.0.1`.
+2. The host the bundle was served from — the browser origin on web, the Metro
+   dev-server host on native (`expo start --lan` → the PC's LAN IP) — with port
+   `4000`. This is why a stale LAN IP in `.env` no longer breaks the app.
+3. `10.0.2.2:4000` on an Android emulator, otherwise `localhost:4000`.
+
+Each request also retries the remaining candidates, and a failure message names
+every URL that was tried. `resolveApiBase()`, `apiUrl()` and `apiFetch()` are the
+only API entry points screens should use.
+
+> **Physical device tip:** set `EXPO_PUBLIC_API_URL=http://<PC-LAN-IP>:4000` as a
+> fallback, keep the phone on the same Wi-Fi, and allow inbound TCP 4000 once with
+> `npm run allow-lan-api` (elevated PowerShell). Restart `expo start` after any
+> `.env` change: values are inlined at build time.
+
+### Cleartext HTTP on Android / iOS
+
+Plain `http://` is blocked by default on Android 9+ and by iOS App Transport
+Security. `app.json` configures both, and the settings are **native** — they only
+apply after a new prebuild/build, not on a JS reload:
+
+- `expo-build-properties` → `android.usesCleartextTraffic: true`
+  (`android.usesCleartextTraffic` at the `expo.android` level is **not** a
+  supported app-config key and is silently ignored).
+- `ios.infoPlist.NSAppTransportSecurity` → `NSAllowsArbitraryLoads` +
+  `NSAllowsLocalNetworking`, so a LAN address such as `http://192.168.1.9:4000`
+  is allowed on iOS.
+
+For anything beyond local development, serve the API over HTTPS and drop
+`NSAllowsArbitraryLoads` — an App Store review may ask why it is set.
 
 ---
 
@@ -83,7 +115,7 @@ reach the app bundle.
 | Value | Read by |
 | --- | --- |
 | `EXPO_PUBLIC_SUPABASE_URL/ANON_KEY` | `BawatPiezaApp/src/lib/supabase.ts` (single client) |
-| `EXPO_PUBLIC_API_URL` | `login.tsx`, `signup.tsx`, `forgot-password.tsx`, `pages/accounts.tsx`, `pages/device.tsx`, `lib/supabase.ts` (welcome e-mail) |
+| `EXPO_PUBLIC_API_URL` | `src/lib/api.ts` (resolver) → `login.tsx`, `forgot-password.tsx`, `pages/accounts.tsx`, `pages/device.tsx`, `lib/supabase.ts` (welcome e-mail) |
 | `SUPABASE_SERVICE_ROLE_KEY` | `backend/src/lib/supabase.ts` (all admin routes) |
 | `SUPABASE_ANON_KEY` | `backend/src/lib/supabaseAuth.ts` (2FA step 1 password check) |
 | Redis vars | `backend/src/lib/redis.ts` (OTP/challenge storage) |

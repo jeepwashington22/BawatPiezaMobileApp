@@ -23,15 +23,18 @@ import {
   sendWelcomeEmailIfNew,
   markTermsAcceptancePending,
   flushPendingTermsAcceptance,
+  isEmailRegistered,
   termsAcceptanceMetadata,
 } from '../lib/supabase';
 import { TermsModal } from '../components/terms-modal';
 import {
   PASSWORD_MIN_LENGTH,
   describeAuthError,
+  validateContactNumber,
   validateEmail,
-  validateFullName,
+  validateNamePart,
   validateNewPassword,
+  validatePasswordStrength,
 } from '../lib/validation';
 
 const PRUSSIAN = '#0A2A4A';
@@ -40,12 +43,80 @@ const MUTED = 'rgba(10, 42, 74, 0.62)';
 const OK = '#15803D';
 const LINE = 'rgba(10, 42, 74, 0.12)';
 
+function normalizePhilippineContact(value: string): string {
+  let digits = value.replace(/\D/g, '');
+  if (!digits) return '';
+  if (digits.startsWith('63')) digits = digits.slice(2);
+  if (digits.startsWith('0')) digits = digits.slice(1);
+  return `+63${digits.slice(0, 10)}`;
+}
+
+type FieldProps = {
+  icon: keyof typeof Ionicons.glyphMap;
+  placeholder: string;
+  value: string;
+  onChangeText: (value: string) => void;
+  onBlur?: () => void;
+  onSubmitEditing?: () => void;
+  error?: string | null;
+  rightIcon?: keyof typeof Ionicons.glyphMap;
+  onRightPress?: () => void;
+  secureTextEntry?: boolean;
+  autoCapitalize?: 'none' | 'sentences' | 'words' | 'characters';
+  autoCorrect?: boolean;
+  keyboardType?: 'default' | 'email-address' | 'phone-pad';
+};
+
+function Field({
+  icon,
+  placeholder,
+  value,
+  onChangeText,
+  onBlur,
+  onSubmitEditing,
+  error,
+  rightIcon,
+  onRightPress,
+  ...inputProps
+}: FieldProps) {
+  return (
+    <View style={styles.fieldGroup}>
+      <View style={[styles.inputBox, error && styles.inputBoxError]}>
+        <Ionicons name={icon} size={18} color={error ? '#B91C1C' : MUTED} style={styles.inputIcon} />
+        <TextInput
+          style={styles.input}
+          placeholder={placeholder}
+          placeholderTextColor={MUTED}
+          value={value}
+          onChangeText={onChangeText}
+          onBlur={onBlur}
+          onSubmitEditing={onSubmitEditing}
+          {...inputProps}
+        />
+        {rightIcon && onRightPress ? (
+          <TouchableOpacity onPress={onRightPress} hitSlop={8}>
+            <Ionicons name={rightIcon} size={18} color={MUTED} />
+          </TouchableOpacity>
+        ) : null}
+      </View>
+      {error ? <Text style={styles.fieldError}>{error}</Text> : null}
+    </View>
+  );
+}
+
 export default function SignupScreen() {
   const router = useRouter();
-  const [fullName, setFullName] = useState('');
+  const [firstName, setFirstName] = useState('');
+  const [middleName, setMiddleName] = useState('');
+  const [lastName, setLastName] = useState('');
   const [email, setEmail] = useState('');
+  const [contactNo, setContactNo] = useState('');
+  const [emailAvailable, setEmailAvailable] = useState<boolean | null>(null);
+  const [emailChecking, setEmailChecking] = useState(false);
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [step, setStep] = useState<1 | 2 | 3>(1);
+  const [touched, setTouched] = useState<Record<string, boolean>>({});
   const [submitting, setSubmitting] = useState(false);
   const [googleSigningIn, setGoogleSigningIn] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -62,6 +133,30 @@ export default function SignupScreen() {
   const [termsError, setTermsError] = useState<string | null>(null);
   /** Which sign-up path opened the policy, so agreeing can resume it. */
   const [pendingAction, setPendingAction] = useState<'email' | 'google' | null>(null);
+
+  useEffect(() => {
+    const normalized = email.trim().toLowerCase();
+    if (validateEmail(normalized)) {
+      setEmailAvailable(null);
+      setEmailChecking(false);
+      return undefined;
+    }
+
+    let active = true;
+    setEmailChecking(true);
+    const timer = setTimeout(() => {
+      void isEmailRegistered(normalized).then((registered) => {
+        if (!active) return;
+        setEmailAvailable(registered === true ? false : registered === false ? true : null);
+        setEmailChecking(false);
+      });
+    }, 500);
+
+    return () => {
+      active = false;
+      clearTimeout(timer);
+    };
+  }, [email]);
 
   // Handle OAuth redirect and check for existing session
   useEffect(() => {
@@ -106,11 +201,34 @@ export default function SignupScreen() {
     };
   }, [router]);
 
-  /** Returns a message when the manual sign-up form is not submittable yet. */
+  const fullName = [firstName, middleName, lastName].filter(Boolean).join(' ');
+  const fieldErrors = {
+    firstName: validateNamePart(firstName, 'First name'),
+    lastName: validateNamePart(lastName, 'Last name'),
+    email: validateEmail(email),
+    contactNo: validateContactNumber(contactNo),
+    password: validateNewPassword(password, confirmPassword),
+  };
+
+  const markTouched = (field: string) => setTouched((current) => ({ ...current, [field]: true }));
+  const visibleError = (field: keyof typeof fieldErrors) => touched[field] ? fieldErrors[field] : null;
+  const emailAvailabilityError = emailAvailable === false ? 'This email is already registered.' : null;
+  const passwordError = validatePasswordStrength(password);
+
+  const validateStep = (target: 1 | 2 | 3): string | null => {
+    if (target === 1) return validateNamePart(firstName, 'First name') ?? validateNamePart(lastName, 'Last name');
+    if (target === 2) return validateEmail(email) ?? emailAvailabilityError ?? validateContactNumber(contactNo);
+    return validateEmail(email) ?? validateNewPassword(password, confirmPassword);
+  };
+
+  const goNext = () => {
+    const fields = step === 1 ? ['firstName', 'lastName'] : ['email', 'contactNo'];
+    setTouched((current) => ({ ...current, ...Object.fromEntries(fields.map((field) => [field, true])) }));
+    if (!validateStep(step)) setStep((current) => (current + 1) as 1 | 2 | 3);
+  };
+
   const validateEmailForm = (): string | null =>
-    validateFullName(fullName) ??
-    validateEmail(email) ??
-    validateNewPassword(password, confirmPassword);
+    validateStep(1) ?? (emailAvailable === false ? 'This email is already registered.' : null) ?? validateStep(2) ?? validateStep(3);
 
   // Manual registration (email + password) — no admin required.
   const submitEmailSignUp = async (acceptedAt: string) => {
@@ -131,6 +249,10 @@ export default function SignupScreen() {
         options: {
           data: {
             full_name: fullName.trim(),
+              firstname: firstName.trim(),
+              middlename: middleName.trim(),
+              lastname: lastName.trim(),
+              contactNo: contactNo.trim(),
             // Proof of consent captured by the Terms & Conditions gate.
             ...termsAcceptanceMetadata(acceptedAt),
           },
@@ -253,6 +375,7 @@ export default function SignupScreen() {
   const handleSignUp = () => {
     // Validate the form first so the policy is only withheld for a form that can
     // actually be submitted.
+    setTouched((current) => ({ ...current, email: true, password: true, contactNo: true }));
     const validationError = validateEmailForm();
     if (validationError) {
       setError(validationError);
@@ -290,7 +413,7 @@ export default function SignupScreen() {
       <LinearGradient colors={['#F4F4F4', '#EAF1F7', '#F4F4F4']} style={StyleSheet.absoluteFill} />
 
       <SafeAreaView style={styles.safeArea}>
-        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.keyboard}>
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.keyboard}>
           <ScrollView
             style={styles.scroll}
             contentContainerStyle={styles.scrollContent}
@@ -304,131 +427,145 @@ export default function SignupScreen() {
           </View>
 
           <View style={styles.card}>
-            <Text style={styles.title}>Join BawatPieza</Text>
-            <Text style={styles.subtitle}>Create your account to get started</Text>
-
-            <View style={styles.inputBox}>
-              <Ionicons name="person-outline" size={18} color={MUTED} style={styles.inputIcon} />
-              <TextInput
-                style={styles.input}
-                placeholder="Full name"
-                placeholderTextColor={MUTED}
-                value={fullName}
-                onChangeText={setFullName}
-              />
+            <View style={styles.stepHeader}>
+              <View>
+                <Text style={styles.title}>Join BawatPieza</Text>
+                <Text style={styles.subtitle}>Create your account in three quick steps</Text>
+              </View>
+              <Text style={styles.stepCount}>{step} / 3</Text>
             </View>
-
-            <View style={styles.inputBox}>
-              <Ionicons name="mail-outline" size={18} color={MUTED} style={styles.inputIcon} />
-              <TextInput
-                style={styles.input}
-                placeholder="Work email"
-                placeholderTextColor={MUTED}
-                value={email}
-                onChangeText={setEmail}
-                autoCapitalize="none"
-                keyboardType="email-address"
-                autoCorrect={false}
-              />
+            <View style={styles.progressTrack}>
+              <View style={[styles.progressFill, { width: `${(step / 3) * 100}%` }]} />
             </View>
+            <Text style={styles.stepTitle}>
+              {step === 1 ? 'Tell us about yourself' : step === 2 ? 'How can we reach you?' : 'Secure your account'}
+            </Text>
 
-            <View style={styles.inputBox}>
-              <Ionicons name="lock-closed-outline" size={18} color={MUTED} style={styles.inputIcon} />
-              <TextInput
-                style={styles.input}
-                placeholder={`Password (min. ${PASSWORD_MIN_LENGTH} characters)`}
-                placeholderTextColor={MUTED}
-                value={password}
-                onChangeText={setPassword}
-                secureTextEntry={!showPassword}
-                autoCapitalize="none"
-                autoCorrect={false}
-              />
-              <TouchableOpacity onPress={() => setShowPassword(!showPassword)}>
-                <Ionicons name={showPassword ? 'eye-off-outline' : 'eye-outline'} size={18} color={MUTED} />
-              </TouchableOpacity>
-            </View>
-
-            <View style={styles.inputBox}>
-              <Ionicons name="lock-closed-outline" size={18} color={MUTED} style={styles.inputIcon} />
-              <TextInput
-                style={styles.input}
-                placeholder={`Confirm password`}
-                placeholderTextColor={MUTED}
-                value={confirmPassword}
-                onChangeText={setConfirmPassword}
-                secureTextEntry={!showConfirmPassword}
-                autoCapitalize="none"
-                autoCorrect={false}
-              />
-              <TouchableOpacity onPress={() => setShowConfirmPassword(!showConfirmPassword)}>
-                <Ionicons name={showConfirmPassword ? 'eye-off-outline' : 'eye-outline'} size={18} color={MUTED} />
-              </TouchableOpacity>
-            </View>
-
-
-            <TouchableOpacity
-              style={styles.termsLink}
-              onPress={openTerms}
-              activeOpacity={0.7}
-              accessibilityRole="button"
-              accessibilityLabel="Read the Terms and Conditions"
-            >
-              <Ionicons
-                name={termsAgreed ? 'checkmark-circle' : 'document-text-outline'}
-                size={15}
-                color={termsAgreed ? OK : MUTED}
-              />
-              <Text style={[styles.termsLinkText, termsAgreed && styles.termsLinkTextDone]}>
-                {termsAgreed
-                  ? 'Terms & Conditions accepted'
-                  : 'Read and accept the Terms & Conditions (required)'}
-              </Text>
-              {termsAgreed ? null : <Ionicons name="chevron-forward" size={13} color={MUTED} />}
-            </TouchableOpacity>
+            {step === 1 ? (
+              <>
+                <Field
+                  icon="person-outline"
+                  placeholder="First name"
+                  value={firstName}
+                  onChangeText={setFirstName}
+                  onBlur={() => markTouched('firstName')}
+                  error={visibleError('firstName')}
+                  autoCapitalize="words"
+                />
+                <Field
+                  icon="person-outline"
+                  placeholder="Middle name (optional)"
+                  value={middleName}
+                  onChangeText={setMiddleName}
+                  autoCapitalize="words"
+                />
+                <Field
+                  icon="person-outline"
+                  placeholder="Last name"
+                  value={lastName}
+                  onChangeText={setLastName}
+                  onBlur={() => markTouched('lastName')}
+                  error={visibleError('lastName')}
+                  autoCapitalize="words"
+                  onSubmitEditing={goNext}
+                />
+              </>
+            ) : step === 2 ? (
+              <>
+                <Field
+                  icon="mail-outline"
+                  placeholder="Email address"
+                  value={email}
+                  onChangeText={(value) => { setEmail(value); markTouched('email'); }}
+                  onBlur={() => markTouched('email')}
+                  error={visibleError('email') ?? emailAvailabilityError}
+                  autoCapitalize="none"
+                  keyboardType="email-address"
+                  autoCorrect={false}
+                />
+                <Field
+                  icon="call-outline"
+                  placeholder="+63 9XXXXXXXXX"
+                  value={contactNo}
+                  onChangeText={(value) => { setContactNo(normalizePhilippineContact(value)); markTouched('contactNo'); }}
+                  onBlur={() => markTouched('contactNo')}
+                  error={visibleError('contactNo')}
+                  keyboardType="phone-pad"
+                  onSubmitEditing={goNext}
+                />
+              </>
+            ) : (
+              <>
+                <Field
+                  icon="lock-closed-outline"
+                  placeholder={`Password (min. ${PASSWORD_MIN_LENGTH} characters)`}
+                  value={password}
+                  onChangeText={(value) => { setPassword(value); markTouched('password'); }}
+                  onBlur={() => markTouched('password')}
+                  error={touched.password ? passwordError : null}
+                  secureTextEntry={!showPassword}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  rightIcon={showPassword ? 'eye-off-outline' : 'eye-outline'}
+                  onRightPress={() => setShowPassword((value) => !value)}
+                />
+                <Field
+                  icon="lock-closed-outline"
+                  placeholder="Confirm password"
+                  value={confirmPassword}
+                  onChangeText={setConfirmPassword}
+                  onBlur={() => markTouched('password')}
+                  error={touched.password && confirmPassword && password !== confirmPassword ? 'Passwords do not match.' : null}
+                  secureTextEntry={!showConfirmPassword}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  rightIcon={showConfirmPassword ? 'eye-off-outline' : 'eye-outline'}
+                  onRightPress={() => setShowConfirmPassword((value) => !value)}
+                />
+                <TouchableOpacity
+                  style={styles.termsLink}
+                  onPress={openTerms}
+                  activeOpacity={0.7}
+                  accessibilityRole="button"
+                  accessibilityLabel="Read the Terms and Conditions"
+                >
+                  <Ionicons name={termsAgreed ? 'checkmark-circle' : 'document-text-outline'} size={15} color={termsAgreed ? OK : MUTED} />
+                  <Text style={[styles.termsLinkText, termsAgreed && styles.termsLinkTextDone]}>
+                    {termsAgreed ? 'Terms & Conditions accepted' : 'Read and accept the Terms & Conditions (required)'}
+                  </Text>
+                  {termsAgreed ? null : <Ionicons name="chevron-forward" size={13} color={MUTED} />}
+                </TouchableOpacity>
+              </>
+            )}
 
             {error ? <Text style={styles.errorText}>{error}</Text> : null}
             {info ? <Text style={styles.infoText}>{info}</Text> : null}
 
-            <TouchableOpacity style={styles.primaryButton} onPress={handleSignUp} activeOpacity={0.9} disabled={submitting}>
-              <LinearGradient
-                colors={[PRUSSIAN, PRUSSIAN_SOFT]}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
-                style={styles.primaryButtonInner}
-              >
-                {submitting ? (
-                  <ActivityIndicator color="#FFFFFF" size="small" />
-                ) : (
-                  <>
-                    <Text style={styles.primaryButtonText}>Create Account</Text>
-                    <Ionicons name="arrow-forward" size={16} color="#FFFFFF" />
-                  </>
-                )}
-              </LinearGradient>
-            </TouchableOpacity>
-
-            <View style={styles.dividerRow}>
-              <View style={styles.divider} />
-              <Text style={styles.dividerText}>or continue with</Text>
-              <View style={styles.divider} />
+            <View style={styles.stepActions}>
+              {step > 1 ? (
+                <TouchableOpacity style={styles.backButton} onPress={() => setStep((current) => (current - 1) as 1 | 2 | 3)} disabled={submitting}>
+                  <Ionicons name="arrow-back" size={16} color={PRUSSIAN} />
+                  <Text style={styles.backButtonText}>Back</Text>
+                </TouchableOpacity>
+              ) : <View />}
+              <TouchableOpacity style={styles.primaryButton} onPress={step === 3 ? handleSignUp : goNext} activeOpacity={0.9} disabled={submitting}>
+                <LinearGradient colors={[PRUSSIAN, PRUSSIAN_SOFT]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.primaryButtonInner}>
+                  {submitting ? <ActivityIndicator color="#FFFFFF" size="small" /> : <>
+                    <Text style={styles.primaryButtonText}>{step === 3 ? 'Create Account' : 'Continue'}</Text>
+                    <Ionicons name={step === 3 ? 'checkmark' : 'arrow-forward'} size={16} color="#FFFFFF" />
+                  </>}
+                </LinearGradient>
+              </TouchableOpacity>
             </View>
 
-            <TouchableOpacity
-              style={styles.googleButton}
-              onPress={handleGoogleSignIn}
-              activeOpacity={0.9}
-              disabled={googleSigningIn}
-            >
-              {googleSigningIn ? (
-                <ActivityIndicator color={PRUSSIAN} size="small" />
-              ) : (
-                <>
-                  <Ionicons name="logo-google" size={20} color="#EA4335" style={styles.googleIcon} />
-                  <Text style={styles.googleButtonText}>Sign up with Google</Text>
-                </>
-              )}
-            </TouchableOpacity>
+            {step === 1 ? (
+              <>
+                <View style={styles.dividerRow}><View style={styles.divider} /><Text style={styles.dividerText}>or continue with</Text><View style={styles.divider} /></View>
+                <TouchableOpacity style={styles.googleButton} onPress={handleGoogleSignIn} activeOpacity={0.9} disabled={googleSigningIn}>
+                  {googleSigningIn ? <ActivityIndicator color={PRUSSIAN} size="small" /> : <><Ionicons name="logo-google" size={20} color="#EA4335" style={styles.googleIcon} /><Text style={styles.googleButtonText}>Sign up with Google</Text></>}
+                </TouchableOpacity>
+              </>
+            ) : null}
           </View>
 
           <View style={styles.footerRow}>
@@ -464,16 +601,16 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: 20,
-    paddingVertical: 24,
+    paddingVertical: 16,
   },
-  header: { alignItems: 'center', marginBottom: 28 },
-  logo: { width: 230, height: 128, marginBottom: 10 },
-  brandTitle: { color: PRUSSIAN, fontSize: 32, fontWeight: '800', fontFamily: fonts.extrabold, letterSpacing: -0.8 },
+  header: { alignItems: 'center', marginBottom: 14 },
+  logo: { width: 180, height: 90, marginBottom: 4 },
+  brandTitle: { color: PRUSSIAN, fontSize: 26, fontWeight: '800', fontFamily: fonts.extrabold, letterSpacing: -0.6 },
   brandSubtitle: {
-    marginTop: 8,
+    marginTop: 5,
     color: MUTED,
-    fontSize: 12,
-    letterSpacing: 1.5,
+    fontSize: 10,
+    letterSpacing: 1.2,
     textTransform: 'uppercase',
     fontWeight: '700', fontFamily: fonts.bold,
   },
@@ -481,37 +618,48 @@ const styles = StyleSheet.create({
     width: '100%',
     maxWidth: 420,
     backgroundColor: 'rgba(255,255,255,0.72)',
-    borderRadius: 28,
+    borderRadius: 20,
     borderWidth: 1,
     borderColor: LINE,
-    padding: 24,
+    padding: 18,
     shadowColor: '#0A2A4A',
     shadowOpacity: 0.08,
     shadowRadius: 20,
     shadowOffset: { width: 0, height: 10 },
   },
-  title: { fontSize: 28, fontWeight: '800', fontFamily: fonts.extrabold, color: PRUSSIAN, marginBottom: 8 },
-  subtitle: { color: MUTED, fontSize: 14, marginBottom: 20 },
+  stepHeader: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between' },
+  stepCount: { color: PRUSSIAN, fontSize: 11, fontFamily: fonts.bold, marginTop: 4 },
+  progressTrack: { height: 4, borderRadius: 3, backgroundColor: 'rgba(10,42,74,0.10)', overflow: 'hidden', marginBottom: 14 },
+  progressFill: { height: '100%', borderRadius: 3, backgroundColor: PRUSSIAN },
+  stepTitle: { color: PRUSSIAN, fontSize: 15, fontFamily: fonts.extrabold, marginBottom: 11 },
+  title: { fontSize: 25, fontWeight: '800', fontFamily: fonts.extrabold, color: PRUSSIAN, marginBottom: 5 },
+  subtitle: { color: MUTED, fontSize: 12, marginBottom: 14 },
+  fieldGroup: { width: '100%' },
   inputBox: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#FFFFFF',
-    borderRadius: 16,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: LINE,
     paddingHorizontal: 14,
-    paddingVertical: 12,
-    marginBottom: 14,
+    paddingVertical: 10,
+    marginBottom: 5,
   },
+  inputBoxError: { borderColor: 'rgba(185, 28, 28, 0.55)' },
   inputIcon: { marginRight: 10 },
   input: { flex: 1, fontSize: 15, color: PRUSSIAN, paddingVertical: 2 },
-  primaryButton: { borderRadius: 16, overflow: 'hidden', marginTop: 8 },
+  fieldError: { color: '#B91C1C', fontSize: 11, fontFamily: fonts.medium, marginBottom: 8, marginLeft: 4 },
+  stepActions: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginTop: 8 },
+  backButton: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 14, paddingHorizontal: 4 },
+  backButtonText: { color: PRUSSIAN, fontSize: 13, fontFamily: fonts.bold },
+  primaryButton: { borderRadius: 12, overflow: 'hidden', marginTop: 6, flex: 1 },
   primaryButtonInner: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
-    paddingVertical: 16,
+    paddingVertical: 13,
   },
   primaryButtonText: { color: '#FFFFFF', fontSize: 15, fontWeight: '800', fontFamily: fonts.extrabold },
   errorText: {
@@ -542,7 +690,7 @@ const styles = StyleSheet.create({
   dividerRow: { flexDirection: 'row', alignItems: 'center', marginVertical: 18 },
   divider: { flex: 1, height: 1, backgroundColor: 'rgba(10, 42, 74, 0.14)' },
   dividerText: { color: MUTED, fontSize: 11, marginHorizontal: 12, textTransform: 'uppercase', letterSpacing: 1.2, fontWeight: '700', fontFamily: fonts.bold },
-  footerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginTop: 18 },
+  footerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginTop: 12 },
   footerText: { color: MUTED, fontSize: 13 },
   footerLink: { color: PRUSSIAN, fontSize: 13, fontWeight: '800', fontFamily: fonts.extrabold, marginLeft: 4 },
   googleButton: {
@@ -551,9 +699,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: '#FFFFFF',
     borderRadius: 12,
-    paddingVertical: 14,
+    paddingVertical: 11,
     paddingHorizontal: 20,
-    marginTop: 16,
+    marginTop: 12,
     shadowColor: '#0A2A4A',
     shadowOpacity: 0.1,
     shadowRadius: 10,

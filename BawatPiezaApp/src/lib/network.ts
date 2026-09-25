@@ -18,6 +18,7 @@ export type IoniconName = NonNullable<ComponentProps<typeof Ionicons>['name']>;
 
 export type NetworkIssue =
   | 'offline'      // No internet connection
+  | 'serverUnavailable' // The app cannot reach the BawatPieza API
   | 'unstable'     // Unstable network / high latency
   | 'rateLimited'  // Too many requests
   | 'timeout';     // Timeouts & asynchronous failures
@@ -38,6 +39,13 @@ export const NETWORK_ISSUE_INFO: Record<NetworkIssue, NetworkIssueInfo> = {
     title: 'No internet connection',
     message: "You're offline. Connect to Wi-Fi or mobile data and try again.",
     icon: 'cloud-offline-outline',
+  },
+  serverUnavailable: {
+    issue: 'serverUnavailable',
+    title: 'Cannot reach BawatPieza server',
+    message:
+      "The app could not open a connection to the API on this network. Check that the backend is still running (npm run dev in backend/) and that the phone is on the same Wi-Fi as the PC.",
+    icon: 'server-outline',
   },
   unstable: {
     issue: 'unstable',
@@ -61,22 +69,67 @@ export const NETWORK_ISSUE_INFO: Record<NetworkIssue, NetworkIssueInfo> = {
 
 /** Network-ish JS error texts (React Native / fetch) mapped to a bucket. */
 const TRANSPORT_PATTERNS: Array<[RegExp, NetworkIssue]> = [
-  [/network request failed/i, 'offline'],
-  [/failed to fetch/i, 'offline'],
+  [/network request failed/i, 'serverUnavailable'],
+  [/failed to fetch/i, 'serverUnavailable'],
   [/internet connection/i, 'offline'],
   [/aborted/i, 'timeout'],
   [/timeout/i, 'timeout'],
   [/timed?\s?out/i, 'timeout'],
 ];
 
-/** Turns a thrown JS error into one of the four buckets (default: unstable). */
-export function classifyNetworkError(err: unknown): NetworkIssueInfo {
+/**
+ * URLs an `ApiUnreachableError` (see `lib/api.ts`) recorded, without importing
+ * that module here — this keeps `lib/network.ts` free of app-level dependencies.
+ */
+function attemptedUrls(err: unknown): string[] {
+  if (!err || typeof err !== 'object' || !('tried' in err)) return [];
+  const tried = (err as { tried?: unknown }).tried;
+  if (!Array.isArray(tried)) return [];
+  return tried.filter((value): value is string => typeof value === 'string');
+}
+
+/**
+ * Turns a thrown JS error into one of the four buckets.
+ *
+ * `requestUrl` (and, when present, the URL list a failed API request tried) is
+ * appended to the message, so the person reading it sees the address the app
+ * actually used instead of having to guess.
+ */
+export function classifyNetworkError(err: unknown, requestUrl?: string): NetworkIssueInfo {
   const text = err instanceof Error ? err.message : String(err ?? '');
+  const tried = attemptedUrls(err);
+  const urls = tried.length ? tried : requestUrl ? [requestUrl] : [];
+  const withTarget = (info: NetworkIssueInfo): NetworkIssueInfo =>
+    urls.length ? { ...info, message: `${info.message} Tried ${urls.join(', then ')}.` } : info;
+
   for (const [pattern, issue] of TRANSPORT_PATTERNS) {
-    if (pattern.test(text)) return NETWORK_ISSUE_INFO[issue];
+    if (pattern.test(text)) return withTarget(NETWORK_ISSUE_INFO[issue]);
   }
-  // Unrecognised transport failure — most likely a flaky link, not a real outage.
-  return NETWORK_ISSUE_INFO.unstable;
+  // API calls use this function only after fetch failed without an HTTP
+  // response. Treating that as server-unreachable is more accurate than
+  // blaming the user's credentials or internet quality.
+  return withTarget(NETWORK_ISSUE_INFO.serverUnavailable);
+}
+
+/** True when `err` is a transport failure — fetch never reached a server. */
+export function isTransportError(err: unknown): boolean {
+  if (attemptedUrls(err).length > 0) return true;
+  const text = (err instanceof Error ? err.message : String(err ?? '')).toLowerCase();
+  return TRANSPORT_PATTERNS.some(([pattern]) => pattern.test(text));
+}
+
+/**
+ * User-facing one-liner for a failed API call: a transport failure becomes a
+ * network problem (naming the addresses we tried), while an error the API sent
+ * back keeps its own wording.
+ */
+export function describeApiFailure(err: unknown, fallback: string): string {
+  if (isTransportError(err)) {
+    const info = classifyNetworkError(err);
+    return `${info.title}. ${info.message}`;
+  }
+  if (err instanceof Error && err.message.trim()) return err.message;
+  return fallback;
 }
 
 /** Maps an HTTP status from our API/Supabase onto a user-facing bucket. */

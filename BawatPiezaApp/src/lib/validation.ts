@@ -33,6 +33,37 @@ export function validateFullName(name: string): FieldError {
   return null;
 }
 
+export function validateNamePart(value: string, label: string): FieldError {
+  const name = value.trim();
+  if (!name) return `${label} is required.`;
+  if (name.length < 2) return `${label} must be at least 2 characters.`;
+  if (!/^[\p{L}][\p{L}\s'’-]*$/u.test(name)) {
+    return `${label} can only contain letters, spaces, apostrophes, or hyphens.`;
+  }
+  return null;
+}
+
+export function validateContactNumber(value: string): FieldError {
+  const contact = value.trim();
+  if (!contact) return 'Contact number is required.';
+  if (!/^\+639\d{9}$/.test(contact)) {
+    return 'Use a Philippine number in this format: +639XXXXXXXXX.';
+  }
+  return null;
+}
+
+export function validatePasswordStrength(password: string): FieldError {
+  if (!password) return 'Password is required.';
+  if (password.length < PASSWORD_MIN_LENGTH) {
+    return `Use at least ${PASSWORD_MIN_LENGTH} characters.`;
+  }
+  if (!/[A-Z]/.test(password)) return 'Add at least one uppercase letter.';
+  if (!/[a-z]/.test(password)) return 'Add at least one lowercase letter.';
+  if (!/\d/.test(password)) return 'Add at least one number.';
+  if (!/[^A-Za-z0-9]/.test(password)) return 'Add at least one special character.';
+  return null;
+}
+
 /** Login only needs the field present — never lecture on length when signing in. */
 export function validateLoginPassword(password: string): FieldError {
   if (!password) return 'Password is required.';
@@ -43,10 +74,8 @@ export function validateLoginPassword(password: string): FieldError {
 }
 
 export function validateNewPassword(password: string, confirm: string): FieldError {
-  if (!password) return 'Password is required.';
-  if (password.length < PASSWORD_MIN_LENGTH) {
-    return `Password is too short. Use at least ${PASSWORD_MIN_LENGTH} characters.`;
-  }
+  const strengthError = validatePasswordStrength(password);
+  if (strengthError) return strengthError;
   if (!confirm) return 'Please confirm your password.';
   if (password !== confirm) return 'Password does not match. Please re-enter both passwords.';
   return null;
