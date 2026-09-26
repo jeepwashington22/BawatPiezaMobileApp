@@ -1,16 +1,8 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { Pressable, StyleSheet, Text, View, type LayoutChangeEvent } from 'react-native';
+import { useMemo, useState, type ReactNode } from 'react';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
-import Animated, {
-  Easing,
-  useAnimatedStyle,
-  useSharedValue,
-  withDelay,
-  withRepeat,
-  withSpring,
-  withTiming,
-} from 'react-native-reanimated';
+import Svg, { Defs, LinearGradient as SvgGradient, Path, Line, Stop, Polygon } from 'react-native-svg';
 
 import { ScreenShell } from '../../components/screen-shell';
 import { Card, LiveDot, SectionHead, scale } from '../../components/glass-ui';
@@ -61,15 +53,7 @@ const REMINDERS = [
 /* --------------------------------- entrance ------------------------------- */
 
 function FadeIn({ delay = 0, children, style }: { delay?: number; children: ReactNode; style?: any }) {
-  const v = useSharedValue(0);
-  useEffect(() => {
-    v.value = withDelay(delay, withTiming(1, { duration: 480, easing: Easing.out(Easing.cubic) }));
-  }, [delay, v]);
-  const animated = useAnimatedStyle(() => ({
-    opacity: v.value,
-    transform: [{ translateY: (1 - v.value) * scale(16) }],
-  }));
-  return <Animated.View style={[animated, style]}>{children}</Animated.View>;
+  return <View style={style}>{children}</View>;
 }
 
 /* ----------------------------- segmented control -------------------------- */
@@ -82,16 +66,6 @@ function Segmented({
   onChange: (v: ViewMode) => void;
 }) {
   const { colors: c, mode } = useTheme();
-  const [width, setWidth] = useState(0);
-  const pos = useSharedValue(value === 'diagnostic' ? 1 : 0);
-
-  useEffect(() => {
-    pos.value = withSpring(value === 'diagnostic' ? 1 : 0, { damping: 18, stiffness: 210 });
-  }, [value, pos]);
-
-  const onLayout = (event: LayoutChangeEvent) => setWidth(event.nativeEvent.layout.width);
-  const segment = Math.max(0, (width - scale(8)) / 2);
-  const pill = useAnimatedStyle(() => ({ transform: [{ translateX: pos.value * segment }] }));
 
   const items: { key: ViewMode; label: string; icon: IconName }[] = [
     { key: 'view', label: 'View Only', icon: 'grid-outline' },
@@ -100,19 +74,8 @@ function Segmented({
 
   return (
     <View
-      onLayout={onLayout}
       style={[styles.segWrap, { backgroundColor: mode === 'dark' ? c.surfaceMuted : '#E9EEF5' }]}
     >
-      {width > 0 ? (
-        <Animated.View style={[styles.segPill, pill, { width: segment }]}>
-          <LinearGradient
-            colors={['#FBA94C', '#F97316']}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={StyleSheet.absoluteFill}
-          />
-        </Animated.View>
-      ) : null}
       <View style={styles.segRow}>
         {items.map((item) => {
           const active = value === item.key;
@@ -120,11 +83,12 @@ function Segmented({
             <Pressable
               key={item.key}
               onPress={() => onChange(item.key)}
-              style={styles.segItem}
               accessibilityRole="button"
               accessibilityState={{ selected: active }}
               accessibilityLabel={item.label}
+              style={[styles.segItem, active && styles.segItemActive]}
             >
+              {active && <LinearGradient colors={['#FBA94C', '#F97316']} style={StyleSheet.absoluteFill} />}
               <Ionicons
                 name={item.icon}
                 size={scale(14)}
@@ -153,10 +117,10 @@ function getTileColor(traffic: number): string {
 function HeatTile({ tile, viewMode }: { tile: TileDatum; viewMode: ViewMode }) {
   const { mode } = useTheme();
   const flagged = tile.traffic >= FLAG_THRESHOLD;
-  const bg = viewMode === 'diagnostic' && flagged ? TILE_ORANGE : getTileColor(tile.traffic);
+  const bg = viewMode === 'diagnostic' && flagged ? TILE_ORANGE : 'rgba(23,69,127,0.72)';
 
   return (
-    <Card mode={mode} style={[styles.tileCard, { backgroundColor: bg }]}>
+    <Card mode={mode} style={[styles.tileCard, { backgroundColor: bg, borderColor: viewMode === 'diagnostic' && flagged ? '#F97316' : 'rgba(255,255,255,0.16)' }]}>
       <View style={styles.tileInner}>
         <Text style={[styles.tileLabel, { color: '#FFFFFF' }]}>{tile.label}</Text>
         <Text style={[styles.tileTraffic, { color: '#FFFFFF' }]}>
@@ -170,6 +134,38 @@ function HeatTile({ tile, viewMode }: { tile: TileDatum; viewMode: ViewMode }) {
         )}
       </View>
     </Card>
+  );
+}
+
+function HeatSurface({ children }: { children: ReactNode }) {
+  return (
+    <View style={styles.heatSurface}>
+      <Svg viewBox="0 0 360 360" width="100%" height="100%" style={StyleSheet.absoluteFill}>
+        <Defs>
+          <SvgGradient id="royalSurface" x1="0" y1="0" x2="1" y2="1">
+            <Stop offset="0" stopColor="#235EA5" />
+            <Stop offset="0.52" stopColor="#17457F" />
+            <Stop offset="1" stopColor="#0B2E63" />
+          </SvgGradient>
+        </Defs>
+        <Path d="M0 0H360V360H0Z" fill="url(#royalSurface)" />
+        <Line x1="-30" y1="120" x2="390" y2="-30" stroke="#F7C948" strokeOpacity="0.22" strokeWidth="2" />
+        <Line x1="-30" y1="240" x2="390" y2="90" stroke="#F7C948" strokeOpacity="0.22" strokeWidth="2" />
+        <Line x1="-30" y1="360" x2="390" y2="210" stroke="#F7C948" strokeOpacity="0.22" strokeWidth="2" />
+        <Line x1="30" y1="390" x2="390" y2="30" stroke="#F7C948" strokeOpacity="0.13" strokeWidth="1" />
+        <Line x1="150" y1="390" x2="390" y2="150" stroke="#F7C948" strokeOpacity="0.13" strokeWidth="1" />
+        <Path d="M42 100 C42 73 78 69 91 94 C104 69 140 73 140 100 C140 128 91 155 91 155 C91 155 42 128 42 100Z" fill="none" stroke="#F7C948" strokeOpacity="0.30" strokeWidth="2" />
+        <Path d="M220 255 C220 228 256 224 269 249 C282 224 318 228 318 255 C318 283 269 310 269 310 C269 310 220 283 220 255Z" fill="none" stroke="#F7C948" strokeOpacity="0.30" strokeWidth="2" />
+        <Polygon points="180,20 340,180 180,340 20,180" fill="none" stroke="#FFFFFF" strokeOpacity="0.06" strokeWidth="1" />
+      </Svg>
+      <View pointerEvents="none" style={styles.heatGlow}>
+        <Svg viewBox="0 0 360 360" width="100%" height="100%">
+          <Line x1="-30" y1="240" x2="390" y2="90" stroke="#FFE27A" strokeWidth="3" />
+          <Line x1="30" y1="390" x2="390" y2="30" stroke="#FFE27A" strokeWidth="2" />
+        </Svg>
+      </View>
+      <View style={styles.heatGridContent}>{children}</View>
+    </View>
   );
 }
 
@@ -242,15 +238,17 @@ export default function HeatmapScreen() {
 
       {/* ===== 3 x 3 tile grid ===== */}
       <FadeIn delay={160}>
-        <View style={styles.grid}>
-          {gridRows.map((row, ri) => (
-            <View key={ri} style={styles.gridRow}>
-              {row.map((tile) => (
-                <HeatTile key={tile.id} tile={tile} viewMode={viewMode} />
-              ))}
-            </View>
-          ))}
-        </View>
+        <HeatSurface>
+          <View style={styles.grid}>
+            {gridRows.map((row, ri) => (
+              <View key={ri} style={styles.gridRow}>
+                {row.map((tile) => (
+                  <HeatTile key={tile.id} tile={tile} viewMode={viewMode} />
+                ))}
+              </View>
+            ))}
+          </View>
+        </HeatSurface>
       </FadeIn>
 
       {/* ===== diagnostic summary ===== */}
@@ -420,6 +418,10 @@ const styles = StyleSheet.create({
     gap: scale(5),
     paddingVertical: scale(9),
   },
+  segItemActive: {
+    borderRadius: scale(22),
+    overflow: 'hidden',
+  },
   segText: {
     fontSize: scale(12),
     fontFamily: fonts.extrabold,
@@ -447,6 +449,31 @@ const styles = StyleSheet.create({
   grid: {
     marginTop: scale(10),
   },
+  heatSurface: {
+    position: 'relative',
+    overflow: 'hidden',
+    minHeight: scale(360),
+    borderRadius: scale(22),
+    padding: scale(12),
+    backgroundColor: '#17457F',
+    borderWidth: 1,
+    borderColor: 'rgba(247,201,72,0.34)',
+    shadowColor: '#0B2E63',
+    shadowOpacity: 0.28,
+    shadowRadius: scale(14),
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 6,
+  },
+  heatGlow: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+  },
+  heatGridContent: {
+    position: 'relative',
+  },
   gridRow: {
     flexDirection: 'row',
     gap: scale(8),
@@ -458,6 +485,11 @@ const styles = StyleSheet.create({
     borderRadius: scale(14),
     padding: scale(10),
     overflow: 'hidden',
+    borderWidth: 1,
+    shadowColor: '#F7C948',
+    shadowOpacity: 0.12,
+    shadowRadius: scale(5),
+    shadowOffset: { width: 0, height: 0 },
   },
   tileInner: {
     flex: 1,

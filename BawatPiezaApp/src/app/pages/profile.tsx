@@ -46,7 +46,10 @@ const SECTIONS: HubSection[] = [
   },
   {
     title: 'APP SETTINGS',
-    items: [{ icon: 'person-circle-outline', label: 'Profile', sub: 'Edit account', href: '/pages/edit-profile', accent: '#F97316' }],
+    items: [
+      { icon: 'person-circle-outline', label: 'Profile', sub: 'Edit account', href: '/pages/edit-profile', accent: '#F97316' },
+      { icon: 'information-circle-outline', label: 'About', sub: 'App version, credits & legal', href: '/pages/about' as Href, accent: '#F97316' },
+    ],
   },
 ];
 

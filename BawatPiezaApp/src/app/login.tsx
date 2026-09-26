@@ -52,6 +52,17 @@ function deviceInfoHeader(): string {
   return `${os}${version} - BawatPieza App`;
 }
 
+function GmailMark() {
+  return (
+    <View style={{ width: 20, height: 16, position: 'relative', marginRight: 2 }} accessibilityLabel="Gmail">
+      <View style={{ position: 'absolute', left: 0, top: 2, width: 4, height: 14, backgroundColor: '#4285F4', borderRadius: 1 }} />
+      <View style={{ position: 'absolute', left: 3, top: 0, width: 9, height: 4, backgroundColor: '#EA4335', transform: [{ rotate: '28deg' }], borderRadius: 1 }} />
+      <View style={{ position: 'absolute', right: 3, top: 0, width: 9, height: 4, backgroundColor: '#FBBC04', transform: [{ rotate: '-28deg' }], borderRadius: 1 }} />
+      <View style={{ position: 'absolute', right: 0, top: 2, width: 4, height: 14, backgroundColor: '#34A853', borderRadius: 1 }} />
+    </View>
+  );
+}
+
 export default function LoginScreen() {
   const router = useRouter();
   const [email, setEmail] = useState('');
@@ -601,7 +612,7 @@ export default function LoginScreen() {
                 <ActivityIndicator color="#FFFFFF" size="small" />
               ) : (
                 <>
-                  <Ionicons name="logo-google" size={18} color="#EA4335" />
+                  <GmailMark />
                   <Text style={styles.googleButtonText}>Continue with Google</Text>
                 </>
               )}

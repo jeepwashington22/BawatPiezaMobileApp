@@ -39,6 +39,17 @@ import {
 
 const PRUSSIAN = '#0A2A4A';
 const PRUSSIAN_SOFT = '#3B5B7A';
+
+function GmailMark() {
+  return (
+    <View style={{ width: 20, height: 16, position: 'relative', marginRight: 2 }} accessibilityLabel="Gmail">
+      <View style={{ position: 'absolute', left: 0, top: 2, width: 4, height: 14, backgroundColor: '#4285F4', borderRadius: 1 }} />
+      <View style={{ position: 'absolute', left: 3, top: 0, width: 9, height: 4, backgroundColor: '#EA4335', transform: [{ rotate: '28deg' }], borderRadius: 1 }} />
+      <View style={{ position: 'absolute', right: 3, top: 0, width: 9, height: 4, backgroundColor: '#FBBC04', transform: [{ rotate: '-28deg' }], borderRadius: 1 }} />
+      <View style={{ position: 'absolute', right: 0, top: 2, width: 4, height: 14, backgroundColor: '#34A853', borderRadius: 1 }} />
+    </View>
+  );
+}
 const MUTED = 'rgba(10, 42, 74, 0.62)';
 const OK = '#15803D';
 const LINE = 'rgba(10, 42, 74, 0.12)';
@@ -562,7 +573,7 @@ export default function SignupScreen() {
               <>
                 <View style={styles.dividerRow}><View style={styles.divider} /><Text style={styles.dividerText}>or continue with</Text><View style={styles.divider} /></View>
                 <TouchableOpacity style={styles.googleButton} onPress={handleGoogleSignIn} activeOpacity={0.9} disabled={googleSigningIn}>
-                  {googleSigningIn ? <ActivityIndicator color={PRUSSIAN} size="small" /> : <><Ionicons name="logo-google" size={20} color="#EA4335" style={styles.googleIcon} /><Text style={styles.googleButtonText}>Sign up with Google</Text></>}
+                  {googleSigningIn ? <ActivityIndicator color={PRUSSIAN} size="small" /> : <><GmailMark /><Text style={styles.googleButtonText}>Sign up with Google</Text></>}
                 </TouchableOpacity>
               </>
             ) : null}
