@@ -14,7 +14,7 @@ export function PowerManagementScreen() {
   const [tab, setTab] = useState<Tab>('monitor');
 
   return (
-    <ScreenShell scroll title="Power Management" showBack>
+    <ScreenShell scroll title="Power Management">
       <View style={styles.header}>
         <Text style={[styles.subtitle, { color: c.muted }]}>Manage allocation</Text>
       </View>

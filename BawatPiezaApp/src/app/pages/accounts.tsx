@@ -72,7 +72,7 @@ export default function AccountsScreen() {
 
   if (loading) {
     return (
-      <ScreenShell>
+      <ScreenShell title="Accounts" showBack>
         <View style={styles.loaderWrap}>
           <TileLoader label="Loading accounts" size="lg" />
         </View>
@@ -135,7 +135,7 @@ const makeStyles = (c: ThemeColors) => {
   const DANGER = c.danger;
   const WHITE = c.onAccent;
   return StyleSheet.create({
-  loaderWrap: { alignItems: 'center', paddingVertical: 48 },
+  loaderWrap: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   errorText: { color: DANGER, fontSize: 14, fontWeight: '700', fontFamily: fonts.bold, marginBottom: 8 },
   hint: { color: MUTED, fontSize: 12, lineHeight: 18 },
   row: {

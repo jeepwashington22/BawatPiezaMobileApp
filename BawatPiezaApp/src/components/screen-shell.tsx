@@ -26,7 +26,7 @@ export function ScreenShell({ children, scroll = true, title, showBack = false }
   const { colors: c } = useTheme();
 
   const content = scroll ? (
-    <ScrollView contentContainerStyle={[styles.scrollContent, { paddingBottom: 110 }]} showsVerticalScrollIndicator={false}>
+    <ScrollView contentContainerStyle={[styles.scrollContent, { paddingBottom: 150 }]} showsVerticalScrollIndicator={false}>
       {title || showBack ? <TopBar gutter={0} title={title} showBack={showBack} /> : null}
       {children}
     </ScrollView>

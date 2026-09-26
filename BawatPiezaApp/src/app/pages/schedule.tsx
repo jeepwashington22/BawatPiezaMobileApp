@@ -45,7 +45,7 @@ export default function ScheduleScreen() {
 
   if (loading) {
     return (
-      <ScreenShell>
+      <ScreenShell title="Schedule" showBack>
         <View style={styles.loaderWrap}>
           <TileLoader label="Loading schedule" size="lg" />
         </View>
@@ -130,7 +130,7 @@ const makeStyles = (c: ThemeColors) => {
   const DANGER = c.danger;
   const WHITE = c.onAccent;
   return StyleSheet.create({
-  loaderWrap: { alignItems: 'center', paddingVertical: 48 },
+  loaderWrap: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   monthNav: { flexDirection: 'row', gap: 8 },
   navBtn: {
     width: 30, height: 30, borderRadius: 9,

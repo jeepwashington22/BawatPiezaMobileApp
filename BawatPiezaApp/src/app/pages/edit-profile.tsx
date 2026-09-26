@@ -230,7 +230,7 @@ const makeStyles = (c: ThemeColors) => {
   const DANGER = c.danger;
   const WHITE = c.onAccent;
   return StyleSheet.create({
-  loaderWrap: { alignItems: 'center', paddingVertical: 48 },
+  loaderWrap: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   hero: { alignItems: 'center', marginBottom: 18 },
   avatar: {
     width: 96,

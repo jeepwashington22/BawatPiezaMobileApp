@@ -1,11 +1,14 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
+import React from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { usePathname, useRouter, type Href } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../theme';
+import { QuickOverridesModal } from './quick-overrides-modal';
 
 /**
- * BottomNav — 5 destinations: Home, Power Management, Energy (raised center bolt),
- * Reports and Profile. Theme-aware (light/dark) with Poppins labels.
+ * BottomNav — four destinations with a raised center Quick Overrides action.
+ * Theme-aware (light/dark) with Poppins labels.
  */
 
 type IconName = keyof typeof Ionicons.glyphMap;
@@ -17,21 +20,23 @@ type NavItem = {
   activeIcon: IconName;
 };
 
-// Order matters: [left items…] center FAB [right items…]
+// Order matters: [left items…] center action [right items…]
 const LEFT: NavItem[] = [
   { label: 'Home', href: '/home', icon: 'home-outline', activeIcon: 'home' },
-  { label: 'Power Management', href: '/pages/power-management', icon: 'power-outline', activeIcon: 'power' },
+  { label: 'Power', href: '/pages/power-management', icon: 'power-outline', activeIcon: 'power' },
 ];
 const RIGHT: NavItem[] = [
   { label: 'Reports', href: '/pages/reports', icon: 'bar-chart-outline', activeIcon: 'bar-chart' },
   { label: 'Profile', href: '/pages/profile', icon: 'person-outline', activeIcon: 'person' },
 ];
-const CENTER = { label: 'Energy', href: '/pages/energy' };
+const CENTER = { label: 'Quick overrides' };
 
 export function BottomNav() {
   const router = useRouter();
   const pathname = usePathname();
   const { colors: c, fonts: f, mode } = useTheme();
+  const insets = useSafeAreaInsets();
+  const [showOverrides, setShowOverrides] = React.useState(false);
 
   const isActive = (href: string) =>
     href === '/home'
@@ -61,12 +66,23 @@ export function BottomNav() {
   };
 
   return (
-    <View style={[styles.wrap, { backgroundColor: c.tabBar, borderTopColor: c.line }]}>
+    <View
+      style={[
+        styles.wrap,
+        {
+          bottom: 0,
+          paddingTop: 4,
+          paddingBottom: Math.max(insets.bottom - 1, 6),
+          backgroundColor: c.tabBar,
+          borderTopColor: c.line,
+        },
+      ]}
+    >
       {LEFT.map(renderItem)}
 
-      {/* Raised center Energy button — white-on-black in the B/W dark theme */}
+      {/* Raised center Quick Overrides button — no active navigation tab */}
       <Pressable
-        onPress={() => router.push(CENTER.href as Href)}
+        onPress={() => setShowOverrides(true)}
         style={({ pressed }) => [
           styles.centerBtn,
           {
@@ -83,6 +99,7 @@ export function BottomNav() {
       </Pressable>
 
       {RIGHT.map(renderItem)}
+      <QuickOverridesModal visible={showOverrides} onClose={() => setShowOverrides(false)} />
     </View>
   );
 }
@@ -97,8 +114,8 @@ const styles = StyleSheet.create({
     alignItems: 'flex-end',
     justifyContent: 'space-around',
     borderTopWidth: 1,
-    paddingTop: 10,
-    paddingBottom: 10,
+    paddingTop: 2,
+    paddingBottom: 2,
     shadowColor: '#000000',
     shadowOpacity: 0.08,
     shadowRadius: 16,
@@ -113,7 +130,7 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
   },
   label: {
-    fontSize: 11,
+    fontSize: 8,
     textAlign: 'center',
   },
   centerBtn: {

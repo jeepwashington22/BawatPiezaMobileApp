@@ -44,7 +44,7 @@ export default function EnergyScreen() {
 
   if (loading) {
     return (
-      <ScreenShell>
+      <ScreenShell title="Energy" showBack>
         <View style={styles.loaderWrap}>
           <TileLoader label="Loading energy data" size="lg" />
         </View>
@@ -101,7 +101,7 @@ export default function EnergyScreen() {
           <ActivityIndicator color={PRUSSIAN} size="small" />
         </View>
       </ContentCard>
-    </ScreenShell>
+      </ScreenShell>
   );
 }
 
@@ -112,7 +112,7 @@ const makeStyles = (c: ThemeColors) => {
   const BUTTER = c.butter;
   const DANGER = c.danger;
   return StyleSheet.create({
-  loaderWrap: { alignItems: 'center', paddingVertical: 48 },
+  loaderWrap: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   statCard: {
     borderRadius: 22,
     padding: 20,

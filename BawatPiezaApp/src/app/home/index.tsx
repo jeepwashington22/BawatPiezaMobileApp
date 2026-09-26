@@ -2,7 +2,7 @@ import { fonts, useTheme, type Mode } from '../../theme';
 import React, { useEffect, useMemo, useState } from 'react';
 import { View, Text, StyleSheet, Pressable, type StyleProp, type ViewStyle } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { useRouter, type Href } from 'expo-router';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -45,20 +45,6 @@ const heatColor = (v: number, mode: Mode) => {
   return stops[idx];
 };
 
-/* --------------------------- entrance animation -------------------------- */
-
-/**
- * Fades + lifts its children when it mounts.
- *
- * Why a component instead of a hook loop inside `HomeScreen`: the previous
- * implementation built its shared values with
- * `[0, 1, 2, 3, 4, 5].map(i => { useSharedValue(); useEffect(); useAnimatedStyle(); })`,
- * which makes the parent's hook count depend on how many sections that literal
- * listed. Adding or removing a section therefore changed the hook order and
- * React threw "Should have a queue. You are likely calling Hooks conditionally".
- * Owning the three hooks here keeps every call unconditional and in a fixed
- * order, and gives each section its own independent delay.
- */
 function EnterView({
   delay = 0,
   style,
@@ -133,20 +119,21 @@ export default function HomeScreen() {
 
   return (
     <ScreenShell>
-      {/* Top nav — burger opens the navigation side panel. `gutter={0}` because
-          ScreenShell already applies the 18px screen gutter. */}
-      <TopBar gutter={0} />
-      {/* ============ TOTAL CONSUMPTION â€” big, centered, no gradient card ============ */}
-      <EnterView>
+        {/* Top nav — `gutter={0}` because ScreenShell already applies the 18px screen gutter. */}
+      <View style={st.topBarBleed}>
+        <TopBar gutter={0} title="Dashboard" showTitleChevron />
+      </View>
+      {/* ============ TOTAL CONSUMPTION â€” full-width hero band ============ */}
+      <EnterView style={st.heroBleed}>
         <LinearGradient
           colors={
             mode === 'dark'
               ? ['#0A0A0A', '#121212', '#1B1B1B'] // flat greys — no navy in dark
-              : ['#0A2A4A', '#123B66', '#1B4D8F']
+              : ['#F97316', '#F59E0B', '#F6C445']
           }
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 1 }}
-          style={[st.energyCard, { borderWidth: 1, borderColor: accent(0.32) }]}
+          style={[st.energyCard, { borderWidth: 1, borderColor: mode === 'dark' ? accent(0.32) : 'rgba(255,255,255,0.24)' }]}
         >
           {/* gold lux top trim */}
           <View style={[st.energyTrim, { backgroundColor: accent() }]} />
@@ -167,7 +154,7 @@ export default function HomeScreen() {
           </View>
 
           {/* volts / power / battery — translucent luxe strip */}
-          <View style={[st.statsCard, { backgroundColor: mode === 'dark' ? 'rgba(255,255,255,0.06)' : 'rgba(255,255,255,0.5)' }]}>
+          <View style={[st.statsCard, { backgroundColor: mode === 'dark' ? 'rgba(255,255,255,0.06)' : 'rgba(255,255,255,0.22)' }]}>
             <View style={st.statsRow}>
               {stats.map((s, i) => (
                 <View key={s.label} style={[st.statCell, i > 0 && { borderLeftWidth: 1, borderLeftColor: mode === 'dark' ? 'rgba(255,255,255,0.16)' : 'rgba(10,42,74,0.14)' }]}>
@@ -185,31 +172,33 @@ export default function HomeScreen() {
         </LinearGradient>
       </EnterView>
 
-      <EnterView delay={90} style={{ marginTop: scale(14) }}>
+      <EnterView delay={90} style={st.batterySection}>
         <LinearGradient
-          colors={mode === 'dark' ? ['#FFFFFF', '#E8E8E8'] : ['#F6C445', '#E2A617']}
+          colors={mode === 'dark' ? ['#111111', '#050505'] : ['#0A2A4A', '#123B66']}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 0 }}
           style={st.batteryBanner}
         >
           <View style={[st.batteryIcon, { backgroundColor: mode === 'dark' ? '#000000' : NAVY }]}>
-            <Ionicons name="flash" size={scale(25)} color={mode === 'dark' ? '#FFFFFF' : '#F6C445'} />
+            <Ionicons name="flash" size={scale(25)} color="#FFFFFF" />
           </View>
           <View style={{ flex: 1 }}>
-            <Text style={[st.batteryEyebrow, { color: band() }]}>POWERING VIA</Text>
-            <Text style={[st.batteryTitle, { color: band() }]}>BATTERY</Text>
+            <Text style={[st.batteryEyebrow, { color: '#BFD7F2' }]}>POWERING VIA</Text>
+            <Text style={[st.batteryTitle, { color: '#FFFFFF' }]}>BATTERY</Text>
           </View>
           <View
             style={[
               st.batteryPct,
-              { backgroundColor: band(0.10), borderColor: band(0.35) },
+              { backgroundColor: 'rgba(255,255,255,0.12)', borderColor: 'rgba(255,255,255,0.35)' },
             ]}
           >
-            <Text style={[st.batteryPctText, { color: band() }]}>89%</Text>
-            <Ionicons name="battery-full" size={scale(25)} color={band()} />
+            <Text style={[st.batteryPctText, { color: '#FFFFFF' }]}>89%</Text>
+            <Ionicons name="battery-full" size={scale(25)} color="#FFFFFF" />
           </View>
         </LinearGradient>
       </EnterView>
+
+      <View style={st.sectionDivider} />
 
       {/* ============ TODAY'S GOAL â€” ring card ============ */}
       <EnterView delay={180} style={{ marginTop: scale(18) }}>
@@ -256,7 +245,7 @@ export default function HomeScreen() {
                 <View style={{ height: 1, backgroundColor: mode === 'dark' ? 'rgba(255,255,255,0.07)' : 'rgba(10,42,74,0.07)', marginLeft: scale(56) }} />
               )}
               <AnimatedPressable
-                onPress={() => setZones((zs) => zs.map((x) => (x.id === z.id ? { ...x, on: !x.on } : x)))}
+                onPress={() => router.push(`/pages/zones/${z.id}?name=${encodeURIComponent(z.name)}&source=${encodeURIComponent(z.source)}&detail=${encodeURIComponent(z.detail)}&on=${z.on}` as Href)}
                 style={{ paddingVertical: scale(12), paddingHorizontal: scale(14) }}
               >
                 <View style={{ flexDirection: 'row', alignItems: 'center', alignSelf: 'stretch' }}>
@@ -409,12 +398,23 @@ export default function HomeScreen() {
 /* ------------------------------- styles ---------------------------------- */
 
 const st = StyleSheet.create({
+  topBarBleed: {
+    marginHorizontal: -18,
+    paddingHorizontal: 18,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(10,42,74,0.10)',
+  },
+  heroBleed: {
+    marginHorizontal: -18,
+  },
   energyCard: {
     position: 'relative',
     overflow: 'hidden',
-    borderRadius: scale(28),
-    padding: scale(18),
-    paddingBottom: scale(14),
+    borderBottomLeftRadius: scale(24),
+    borderBottomRightRadius: scale(24),
+    paddingHorizontal: scale(22),
+    paddingTop: scale(16),
+    paddingBottom: scale(16),
     shadowColor: 'rgba(10,42,74,0.35)',
     shadowOpacity: 0.4,
     shadowRadius: scale(14),
@@ -448,11 +448,16 @@ const st = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: scale(12),
-    borderRadius: scale(20),
+    minHeight: scale(112),
+    borderTopLeftRadius: scale(74),
+    borderTopRightRadius: scale(74),
+    borderBottomLeftRadius: scale(22),
+    borderBottomRightRadius: scale(22),
     borderWidth: 1,
-    borderColor: 'rgba(10,42,74,0.16)',
-    paddingHorizontal: scale(14),
-    paddingVertical: scale(11),
+    borderColor: 'rgba(255,255,255,0.18)',
+    paddingHorizontal: scale(20),
+    paddingTop: scale(28),
+    paddingBottom: scale(14),
     shadowColor: 'rgba(10,42,74,0.3)',
     shadowOpacity: 0.25,
     shadowRadius: scale(10),
@@ -465,7 +470,9 @@ const st = StyleSheet.create({
     borderRadius: scale(21),
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: NAVY,
+    backgroundColor: 'rgba(255,255,255,0.16)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.26)',
   },
   batteryEyebrow: {
     color: NAVY,
@@ -512,8 +519,12 @@ const st = StyleSheet.create({
   },
   statsCard: {
     alignSelf: 'stretch',
-    marginTop: scale(16),
-    paddingVertical: scale(12),
+    marginTop: scale(14),
+    borderRadius: scale(14),
+    paddingVertical: scale(8),
+    paddingHorizontal: scale(6),
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.20)',
   },
   statsRow: {
     flexDirection: 'row',
@@ -521,7 +532,16 @@ const st = StyleSheet.create({
   statCell: {
     flex: 1,
     alignItems: 'center',
-    gap: scale(3),
+    gap: scale(2),
+  },
+  batterySection: {
+    marginTop: scale(10),
+  },
+  sectionDivider: {
+    height: 1,
+    backgroundColor: 'rgba(10,42,74,0.12)',
+    marginTop: scale(16),
+    marginBottom: scale(2),
   },
   ringWrap: {
     width: scale(52),

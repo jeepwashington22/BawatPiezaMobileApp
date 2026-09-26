@@ -62,7 +62,7 @@ export function AnimatedPressable({
         onPress={onPress}
         onPressIn={() => (press.value = withSpring(0.965, { damping: 18 }))}
         onPressOut={() => (press.value = withSpring(1, { damping: 14 }))}
-        style={{ width: '100%', height: '100%', alignItems: 'center', justifyContent: 'center' }}
+        style={{ width: '100%', alignItems: 'center', justifyContent: 'center' }}
       >
         {children}
       </Pressable>

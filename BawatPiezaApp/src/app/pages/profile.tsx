@@ -21,12 +21,33 @@ type HubButton = {
   accent?: string;
 };
 
-const BUTTONS: HubButton[] = [
-  { icon: 'person-circle-outline', label: 'My Account', sub: 'Info, photo & password', href: '/pages/edit-profile', accent: '#0A2A4A' },
-  { icon: 'options-outline', label: 'Preferences', sub: 'Notifications & sync', href: '/pages/preferences', accent: '#0A2A4A' },
-  { icon: 'hardware-chip-outline', label: 'Device', sub: 'Hardware & diagnostics', href: '/pages/device', accent: '#0A2A4A' },
-  { icon: 'people-outline', label: 'Shared Users', sub: 'Team members & invites', href: '/pages/accounts', accent: '#0A2A4A' },
-  { icon: 'information-circle-outline', label: 'About Pieza', sub: 'App version & credits', href: '/pages/about', accent: '#0A2A4A' },
+type HubSection = { title: string; items: HubButton[] };
+
+const SECTIONS: HubSection[] = [
+  {
+    title: 'AUDIT TRAIL',
+    items: [{ icon: 'flash-outline', label: 'History/Activity Log', sub: 'Action timestamps', href: '/pages/activity' as Href, accent: '#F97316' }],
+  },
+  {
+    title: 'DEVICE MANAGEMENT',
+    items: [
+      { icon: 'wifi-outline', label: 'Connections', sub: '2 devices paired', href: '/pages/device', accent: '#F97316' },
+      { icon: 'flash-outline', label: 'Connection', sub: 'Online', href: '/pages/device', accent: '#F97316' },
+      { icon: 'people-outline', label: 'Manage Access', sub: '2 invited · 1 pending', href: '/pages/accounts', accent: '#F97316' },
+      { icon: 'options-outline', label: 'System Thresholds', sub: 'Tile floor, degradation & watch list rules', href: '/pages/preferences', accent: '#F97316' },
+    ],
+  },
+  {
+    title: 'UTILITY & RATES',
+    items: [
+      { icon: 'wifi-outline', label: 'Meralco', sub: 'Current Provider', href: '/pages/preferences', accent: '#F97316' },
+      { icon: 'flash-outline', label: 'Electricity Rate', sub: 'Auto-synced from database', href: '/pages/energy', accent: '#F97316' },
+    ],
+  },
+  {
+    title: 'APP SETTINGS',
+    items: [{ icon: 'person-circle-outline', label: 'Profile', sub: 'Edit account', href: '/pages/edit-profile', accent: '#F97316' }],
+  },
 ];
 
 export default function ProfileScreen() {
@@ -163,7 +184,7 @@ export default function ProfileScreen() {
 
   if (loading) {
     return (
-      <ScreenShell title="Profile" showBack>
+      <ScreenShell title="Profile">
         <View style={styles.loaderWrap}>
           <TileLoader label="Loading profile" size="lg" />
         </View>
@@ -174,9 +195,8 @@ export default function ProfileScreen() {
   const displayName = fullName ?? email ?? 'Signed-in user';
 
   return (
-    <ScreenShell title="Profile" showBack>
-      {/* Hero */}
-      <View style={styles.hero}>
+    <ScreenShell title="Profile">
+      <View style={styles.profileHeader}>
         <Pressable
           onPress={handleAvatarPress}
           disabled={uploadingAvatar}
@@ -185,48 +205,46 @@ export default function ProfileScreen() {
           accessibilityLabel="Change profile picture"
         >
           {avatarUrl ? (
-            <Image source={{ uri: avatarUrl }} style={styles.avatarImage} />
+            <Image source={{ uri: avatarUrl }} style={styles.profileAvatar} />
           ) : (
-            <View style={styles.avatar}>
-              <Text style={styles.avatarText}>{displayName.charAt(0).toUpperCase()}</Text>
+            <View style={styles.profileAvatarPlaceholder}>
+              <Text style={styles.profileAvatarText}>{displayName.charAt(0).toUpperCase()}</Text>
             </View>
           )}
-          <View style={styles.camBadge}>
-            <Ionicons
-              name={uploadingAvatar ? 'hourglass-outline' : 'camera-outline'}
-              size={14}
-              color={PRUSSIAN}
-            />
+          <View style={styles.profileCameraBadge}>
+            <Ionicons name={uploadingAvatar ? 'hourglass-outline' : 'camera-outline'} size={12} color={PRUSSIAN} />
           </View>
         </Pressable>
-        <Text style={styles.tapHint}>{uploadingAvatar ? 'Uploading…' : 'Tap photo to change'}</Text>
-        <Text style={styles.heroName}>{displayName}</Text>
-        <Text style={styles.heroEmail}>{email ?? '—'}</Text>
-        {role ? (
-          <View style={styles.roleChip}>
-            <Text style={styles.roleChipText}>{role}</Text>
-          </View>
-        ) : null}
+        <Text style={styles.profileHeaderName}>{displayName}</Text>
+        <Text style={styles.profileHeaderEmail}>{email ?? '—'}</Text>
       </View>
 
-      {/* Button navigation */}
-      {BUTTONS.map((b) => (
-        <Pressable
-          key={b.label}
-          onPress={() => router.push(b.href)}
-          style={({ pressed }) => [styles.hubBtn, pressed && { opacity: 0.7 }]}
-          accessibilityRole="button"
-          accessibilityLabel={b.label}
-        >
-          <View style={styles.hubIcon}>
-            <Ionicons name={b.icon} size={20} color={b.accent ?? PRUSSIAN} />
-          </View>
-          <View style={styles.hubText}>
-            <Text style={styles.hubLabel}>{b.label}</Text>
-            <Text style={styles.hubSub}>{b.sub}</Text>
-          </View>
-          <Ionicons name="chevron-forward" size={17} color={MUTED} />
-        </Pressable>
+      {SECTIONS.map((section) => (
+        <View key={section.title} style={styles.section}>
+          <Text style={styles.sectionTitle}>{section.title}</Text>
+          {section.items.map((b) => (
+            <Pressable
+              key={b.label}
+              onPress={() => router.push(b.href)}
+              style={({ pressed }) => [styles.hubBtn, pressed && { opacity: 0.7 }]}
+              accessibilityRole="button"
+              accessibilityLabel={b.label}
+            >
+              <View style={styles.hubIcon}>
+                <Ionicons name={b.icon} size={18} color={b.accent ?? PRUSSIAN} />
+              </View>
+              <View style={styles.hubText}>
+                <Text style={styles.hubLabel}>{b.label}</Text>
+                <Text style={styles.hubSub}>{b.sub}</Text>
+              </View>
+              {b.label === 'Connection' ? (
+                <View style={styles.onlineState}><View style={styles.onlineDot} /><Text style={styles.onlineText}>Online</Text></View>
+              ) : b.label === 'Electricity Rate' ? (
+                <View style={styles.rateState}><Text style={styles.rateValue}>₱9.25 / kWh</Text><Text style={styles.rateActive}>ACTIVE</Text></View>
+              ) : <Ionicons name="chevron-forward" size={17} color={MUTED} />}
+            </Pressable>
+          ))}
+        </View>
       ))}
 
       {/* Logout button */}
@@ -339,7 +357,16 @@ const makeStyles = (c: ThemeColors, f: any) => {
   const DANGER = c.danger;
   const WHITE = c.onAccent;
   return StyleSheet.create({
-  loaderWrap: { alignItems: 'center', paddingVertical: 48 },
+  loaderWrap: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  profileHeader: { alignItems: 'center', marginBottom: 8 },
+  profileAvatar: { width: 62, height: 62, borderRadius: 31, borderWidth: 2, borderColor: BUTTER },
+  profileAvatarPlaceholder: { width: 62, height: 62, borderRadius: 31, backgroundColor: BUTTER, alignItems: 'center', justifyContent: 'center' },
+  profileAvatarText: { color: PRUSSIAN, fontSize: 24, fontFamily: f.extrabold },
+  profileCameraBadge: { position: 'absolute', right: -2, bottom: -2, width: 22, height: 22, borderRadius: 11, backgroundColor: c.surface, borderWidth: 1, borderColor: LINE, alignItems: 'center', justifyContent: 'center' },
+  profileHeaderName: { color: PRUSSIAN, fontSize: 15, fontFamily: f.extrabold, marginTop: 7 },
+  profileHeaderEmail: { color: MUTED, fontSize: 10, fontFamily: f.medium, marginTop: 2 },
+  section: { marginBottom: 2 },
+  sectionTitle: { color: MUTED, fontSize: 11, letterSpacing: 1.2, fontWeight: '800', fontFamily: f.extrabold, marginTop: 10, marginBottom: 8 },
   hero: { alignItems: 'center', marginBottom: 20 },
   avatar: {
     width: 84,
@@ -390,21 +417,29 @@ const makeStyles = (c: ThemeColors, f: any) => {
     borderRadius: 16,
     borderWidth: 1,
     borderColor: LINE,
-    padding: 14,
-    marginBottom: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+    marginBottom: 8,
+    minHeight: 62,
   },
   hubIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 13,
-    backgroundColor: 'rgba(246, 196, 69, 0.22)',
+    width: 30,
+    height: 30,
+    borderRadius: 10,
+    backgroundColor: 'rgba(249, 115, 22, 0.12)',
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 12,
+    marginRight: 10,
   },
   hubText: { flex: 1 },
-  hubLabel: { color: PRUSSIAN, fontSize: 15, fontWeight: '800', fontFamily: f.extrabold },
-  hubSub: { color: MUTED, fontSize: 11, marginTop: 1 },
+  hubLabel: { color: PRUSSIAN, fontSize: 12, fontWeight: '800', fontFamily: f.extrabold },
+  hubSub: { color: MUTED, fontSize: 10, marginTop: 2 },
+  onlineState: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  onlineDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: '#1764B0' },
+  onlineText: { color: PRUSSIAN, fontSize: 10, fontFamily: f.bold },
+  rateState: { alignItems: 'flex-end' },
+  rateValue: { color: PRUSSIAN, fontSize: 12, fontFamily: f.extrabold },
+  rateActive: { color: '#1764B0', fontSize: 8, letterSpacing: 0.8, fontFamily: f.extrabold, marginTop: 2 },
   logoutBtn: {
     backgroundColor: DANGER,
     borderRadius: 14,
@@ -412,8 +447,8 @@ const makeStyles = (c: ThemeColors, f: any) => {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: 8,
-    marginBottom: 8,
+    marginTop: 14,
+    marginBottom: 12,
   },
   logoutText: { color: WHITE, fontSize: 14, fontWeight: '800', fontFamily: f.extrabold },
   modalOverlay: {

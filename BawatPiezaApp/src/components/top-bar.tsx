@@ -6,31 +6,13 @@ import { useRouter } from 'expo-router';
 import { supabase } from '../lib/supabase';
 import { useTheme } from '../theme';
 import { scale } from './glass-ui';
-import { MenuButton, SideMenu } from './side-menu';
 
-/**
- * TopBar — top navigation for authenticated screens.
- *
- * Two stacked rows so the burger never competes with the greeting:
- *   row 1   [☰]                                     🔔  (avatar)
- *   row 2   Good morning, Jeff
- *
- * Deliberately no wordmark, no LIVE badge and no "live overview" caption: the
- * side panel carries the brand, and the greeting is the only thing worth
- * reading on the first line of the page.
- *
- * The burger opens `SideMenu`, the slide-in navigation drawer. TopBar owns the
- * drawer state and passes down the identity it already loaded, so opening the
- * menu costs no extra session requests.
- *
- * `gutter` keeps the bar aligned with whatever horizontal padding its parent
- * supplies — `ScreenShell` already insets its content by 18px, so screens that
- * use the shell pass `gutter={0}` and standalone usages keep the default.
- */
 export type TopBarProps = {
   gutter?: number;
   title?: string;
+  subtitle?: string;
   showBack?: boolean;
+  showTitleChevron?: boolean;
 };
 
 function greeting(): string {
@@ -40,7 +22,7 @@ function greeting(): string {
   return 'Good evening';
 }
 
-export function TopBar({ gutter = 18, title, showBack = false }: TopBarProps) {
+export function TopBar({ gutter = 18, title, subtitle, showBack = false, showTitleChevron = false }: TopBarProps) {
   const router = useRouter();
   const { colors: c, fonts: f } = useTheme();
 
@@ -48,7 +30,6 @@ export function TopBar({ gutter = 18, title, showBack = false }: TopBarProps) {
   const [email, setEmail] = useState<string | null>(null);
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [hasNotifications, setHasNotifications] = useState(true); // demo badge
-  const [menuOpen, setMenuOpen] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -88,20 +69,26 @@ export function TopBar({ gutter = 18, title, showBack = false }: TopBarProps) {
         {title || showBack ? (
           <View style={styles.pageHeaderRow}>
             <View style={styles.pageHeaderLeft}>
-              {showBack && (
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel="Go back"
-                  onPress={() => router.back()}
-                  style={({ pressed }) => [styles.backButton, { opacity: pressed ? 0.7 : 1 }]}
-                >
-                  <Ionicons name="arrow-back" size={20} color={c.text} />
-                </Pressable>
-              )}
+                {showBack && (
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel="Go back"
+                    onPress={() => router.back()}
+                    style={({ pressed }) => [styles.backButton, { opacity: pressed ? 0.7 : 1 }]}
+                  >
+                    <Ionicons name="arrow-back" size={20} color={c.text} />
+                  </Pressable>
+                )}
 
-              <Text numberOfLines={1} style={[styles.pageTitle, { color: c.text, fontFamily: f.extrabold }]}>
-                {titleText}
-              </Text>
+              <View style={styles.titleBlock}>
+                <View style={styles.titleLine}>
+                  <Text numberOfLines={1} style={[styles.pageTitle, { color: c.text, fontFamily: f.extrabold }]}>
+                    {titleText}
+                  </Text>
+                  {showTitleChevron && <Ionicons name="chevron-down" size={scale(18)} color={c.text} />}
+                </View>
+                {subtitle ? <Text style={[styles.pageSubtitle, { color: c.muted }]}>{subtitle}</Text> : null}
+              </View>
             </View>
 
             <View style={styles.actions}>
@@ -142,7 +129,9 @@ export function TopBar({ gutter = 18, title, showBack = false }: TopBarProps) {
         ) : (
           <>
             <View style={styles.topRow}>
-              <MenuButton open={menuOpen} onPress={() => setMenuOpen(true)} />
+              <Text numberOfLines={1} style={[styles.pageTitle, { color: c.text, fontFamily: f.extrabold }]}>
+                {titleText}
+              </Text>
 
               <View style={styles.spacer} />
 
@@ -182,26 +171,10 @@ export function TopBar({ gutter = 18, title, showBack = false }: TopBarProps) {
               </View>
             </View>
 
-            <View style={styles.greetRow}>
-              <Text
-                numberOfLines={1}
-                style={[styles.greeting, { color: c.text, fontFamily: f.extrabold }]}
-              >
-                {firstName ? `${greeting()}, ${firstName}` : greeting()}
-              </Text>
-            </View>
           </>
         )}
       </View>
 
-      {/* navigation side panel */}
-      <SideMenu
-        visible={menuOpen}
-        onClose={() => setMenuOpen(false)}
-        name={name}
-        email={email}
-        avatarUrl={avatarUrl}
-      />
     </>
   );
 }
@@ -250,13 +223,6 @@ const styles = StyleSheet.create({
   avatarText: {
     fontSize: scale(17),
   },
-  greetRow: {
-    marginTop: scale(11),
-  },
-  greeting: {
-    fontSize: scale(20),
-    letterSpacing: -0.5,
-  },
   pageHeaderRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -269,6 +235,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: scale(8),
   },
+  titleBlock: { flex: 1 },
+  titleLine: { flexDirection: 'row', alignItems: 'center', gap: scale(4) },
   backButton: {
     width: scale(32),
     height: scale(32),
@@ -280,5 +248,6 @@ const styles = StyleSheet.create({
     fontSize: scale(22),
     letterSpacing: -0.6,
   },
+  pageSubtitle: { fontSize: scale(11), marginTop: scale(2) },
 });
 

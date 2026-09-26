@@ -19,12 +19,8 @@ export function ReportsRedesign() {
 
   return (
     <ScreenShell scroll>
-      <TopBar gutter={0} />
-      <View style={styles.headingRow}>
-        <View>
-          <Text style={[styles.pageTitle, { color: c.text }]}>Reports</Text>
-          <Text style={[styles.pageSubtitle, { color: c.muted }]}>Generation, savings &amp; impact</Text>
-        </View>
+      <TopBar gutter={0} title="Reports" subtitle="Generation, savings & impact" />
+      <View style={styles.filterRow}>
         <Pressable style={[styles.filterButton, { backgroundColor: c.surface }]} accessibilityLabel="Choose report range">
           <Ionicons name="calendar-outline" size={scale(16)} color={c.text} />
         </Pressable>
@@ -60,7 +56,7 @@ function Metric({ value, label, note, color, c }: { value: string; label: string
 function Legend({ color, label, c }: { color: string; label: string; c: ThemeColors }) { return <View style={styles.legendItem}><View style={[styles.legendDot, { backgroundColor: color }]} /><Text style={[styles.legendText, { color: c.muted }]}>{label}</Text></View>; }
 
 const styles = StyleSheet.create({
-  headingRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: scale(12) }, pageTitle: { fontSize: scale(22), fontFamily: fonts.extrabold }, pageSubtitle: { fontSize: scale(11), fontFamily: fonts.medium, marginTop: scale(2) }, filterButton: { width: scale(38), height: scale(38), borderRadius: scale(12), alignItems: 'center', justifyContent: 'center' },
+  filterRow: { alignItems: 'flex-end', marginBottom: scale(12) }, filterButton: { width: scale(38), height: scale(38), borderRadius: scale(12), alignItems: 'center', justifyContent: 'center' },
   forecastCard: { padding: scale(14), borderRadius: scale(18), marginBottom: scale(10) }, titleRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }, cardTitle: { fontSize: scale(12), fontFamily: fonts.bold }, cardSubtitle: { fontSize: scale(9), fontFamily: fonts.medium, marginTop: scale(2) }, todayBadge: { color: '#C17D17', backgroundColor: '#FFF1D8', borderRadius: scale(10), paddingHorizontal: scale(8), paddingVertical: scale(4), fontSize: scale(8), fontFamily: fonts.bold }, statusPill: { alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: scale(5), backgroundColor: '#E7E8F0', borderRadius: scale(10), paddingHorizontal: scale(8), paddingVertical: scale(5), marginTop: scale(9) }, statusDot: { width: scale(6), height: scale(6), borderRadius: scale(3), backgroundColor: '#0B63B7' }, statusText: { color: '#26385E', fontSize: scale(8), fontFamily: fonts.bold },
   forecastChart: { flexDirection: 'row', height: scale(123), marginTop: scale(10) },
  yAxis: { justifyContent: 'space-between', paddingBottom: scale(20), paddingRight: scale(7) }, forecastBars: { flex: 1, flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', gap: scale(3) }, forecastColumn: { flex: 1, height: '100%', justifyContent: 'flex-end', alignItems: 'center' }, forecastBar: { width: '100%', maxHeight: scale(86), minHeight: scale(8), borderRadius: scale(5), backgroundColor: '#F97316' }, axisLabel: { fontSize: scale(7), fontFamily: fonts.medium },
