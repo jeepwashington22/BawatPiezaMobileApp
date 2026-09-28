@@ -1,5 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Platform } from 'react-native';
+import { Platform, TurboModuleRegistry } from 'react-native';
 import * as WebBrowser from 'expo-web-browser';
 import * as Linking from 'expo-linking';
 import { createClient } from '@supabase/supabase-js';
@@ -66,43 +66,265 @@ export async function signOut() {
   return true;
 }
 
+/* ------------------------------------------------------------------ *
+ * Google Sign-In
+ * ------------------------------------------------------------------ */
+
 /**
- * Signs in with Google using Supabase Auth OAuth flow.
+ * The app's own URL scheme — `app.json` → `expo.scheme`.
  *
- * On web: the browser handles the redirect natively — we just point Supabase
- * back at the current origin so `detectSessionInUrl` picks up the session.
- *
- * On native (Android/iOS): `signInWithOAuth` alone does NOT work — the session
- * would be delivered to Supabase's site URL instead of the app. So we:
- *   1. Get the Google auth URL without auto-redirecting (`skipBrowserRedirect`).
- *   2. Open it in an in-app browser auth session that listens for the app's
- *      deep link (`bawatpiezaapp://oauth`).
- *   3. Parse the tokens from the redirect URL and set the Supabase session.
- *
- * This handles both new user registration and existing user sign-in.
+ * Hard-coded on purpose: `Linking.createURL()` returns an
+ * `exp://<metro-host>/--/oauth` URL inside Expo Go, and that scheme belongs to
+ * *Expo Go*, not to this app. A development or production build registers
+ * `bawatpiezaapp://`, which is what lets the OS hand control back to the app.
  */
-export async function signInWithGoogle() {
+export const GOOGLE_URL_SCHEME = 'bawatpiezaapp';
+
+/** Deep-link path Google's consent screen returns to. Any path works. */
+export const GOOGLE_OAUTH_PATH = 'oauth';
+
+/**
+ * OAuth client of type **Web application** (Google Cloud Console) — the same
+ * client Supabase's Google provider is configured with. Google stamping it as
+ * the token audience is what makes `signInWithIdToken` accept the token.
+ */
+const GOOGLE_WEB_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID;
+
+/** iOS OAuth client. Optional — only iOS builds pass it as `iosClientId`. */
+const GOOGLE_IOS_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID;
+
+/** Raised when the user dismisses the Google sheet — not a failure to report. */
+export class GoogleSignInCancelledError extends Error {
+  constructor(message = 'Google sign-in was cancelled.') {
+    super(message);
+    this.name = 'GoogleSignInCancelled';
+  }
+}
+
+/** True for the "user backed out" case, which callers should not alert on. */
+export function isGoogleSignInCancelled(error: unknown): boolean {
+  return error instanceof GoogleSignInCancelledError;
+}
+
+/**
+ * Raised when the running binary has no Google Sign-In native module — i.e. when
+ * the app is running inside Expo Go.
+ *
+ * Google's account sheet is a native SDK, so there is no browser-free way to sign
+ * in from Expo Go: a development or production build is required.
+ */
+export class GoogleSignInUnavailableError extends Error {
+  constructor(
+    message =
+      "Google sign-in needs a development build: Expo Go cannot load Google's native account sheet. Run 'npx expo run:android' (or 'eas build') for the no-browser flow, or set EXPO_PUBLIC_GOOGLE_BROWSER_FALLBACK=1 in BawatPiezaApp/.env to use the browser round trip - see docs/features/google-sign-in.md.",
+  ) {
+    super(message);
+    this.name = 'GoogleSignInUnavailable';
+  }
+}
+
+/**
+ * Opt-in browser fallback for binaries that lack the native module (Expo Go).
+ *
+ * Off by default, because the loop only closes when Supabase knows where to
+ * send the browser back to: `signInWithBrowserGoogle()` redirects through
+ * `Linking.createURL('/oauth')` — `exp://<metro-host>/--/oauth` inside Expo Go.
+ * Expo Go registers the `exp://` scheme itself (it is the app's own
+ * `bawatpiezaapp://` scheme that is missing there), so the deep link *can*
+ * re-enter the app — but only once that exact URL is allow-listed under
+ * Supabase → Authentication → URL Configuration. Otherwise Supabase silently
+ * falls back to its Site URL and the tab dead-ends, which is why the plain
+ * "needs a development build" alert is the safer default.
+ */
+const GOOGLE_BROWSER_FALLBACK_ENABLED =
+  process.env.EXPO_PUBLIC_GOOGLE_BROWSER_FALLBACK === '1';
+
+/**
+ * The redirect URL Supabase has to be told about (Site URL / Redirect URLs).
+ *
+ * - Web → the origin the app is actually served from. Never a hard-coded
+ *   `localhost`: a phone that loaded the web build from `http://192.168.x.x`
+ *   has to come back to that same address.
+ * - Native → the app's own scheme. `bawatpiezaapp://oauth` only resolves in a
+ *   development or production build; Expo Go cannot receive it.
+ */
+export function googleRedirectUrl(): string {
+  if (Platform.OS === 'web') {
+    const origin =
+      typeof window !== 'undefined' && window.location?.origin
+        ? window.location.origin
+        : Linking.createURL('/');
+    return `${origin.replace(/\/+$/, '')}/`;
+  }
+  return `${GOOGLE_URL_SCHEME}://${GOOGLE_OAUTH_PATH}`;
+}
+
+type GoogleSigninModule = typeof import('@react-native-google-signin/google-signin');
+
+/**
+ * True when the running binary actually contains the Google Sign-In native module.
+ *
+ * `@react-native-google-signin/google-signin` resolves its TurboModule *while the
+ * package is being imported*:
+ *
+ *     export const NativeModule = TurboModuleRegistry.getEnforcing('RNGoogleSignin');
+ *
+ * `RNGoogleSignin` is not part of Expo Go's fixed native module set, so importing
+ * the package there raises:
+ *
+ *     Invariant Violation: TurboModuleRegistry.getEnforcing(...):
+ *     'RNGoogleSignin' could not be found. Verify that a module by this name is
+ *     registered in the native binary.
+ *
+ * Swallowing that with `try { require(...) } catch {}` proved unreliable — the
+ * invariant still reached LogBox on every Google sign-in press. So the registry is
+ * asked first instead: `TurboModuleRegistry.get()` returns `null` rather than
+ * throwing, and the package is only evaluated when the native side really exists.
+ */
+function hasGoogleSigninModule(): boolean {
+  try {
+    return TurboModuleRegistry.get('RNGoogleSignin') != null;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Evaluates the package. Callers must gate on {@link hasGoogleSigninModule} first —
+ * that gate is the entire point, so this must never run in Expo Go.
+ */
+function requireGoogleSignin(): GoogleSigninModule {
+  return require('@react-native-google-signin/google-signin') as GoogleSigninModule;
+}
+
+let googleSigninConfigured = false;
+
+/** Points the SDK at the client ID Supabase verifies. Must run before signIn. */
+function configureGoogleSignin(mod: GoogleSigninModule): void {
+  if (googleSigninConfigured) return;
+  mod.GoogleSignin.configure({
+    webClientId: GOOGLE_WEB_CLIENT_ID,
+    scopes: ['profile', 'email'],
+    offlineAccess: false,
+    ...(Platform.OS === 'ios' && GOOGLE_IOS_CLIENT_ID
+      ? { iosClientId: GOOGLE_IOS_CLIENT_ID }
+      : {}),
+  });
+  googleSigninConfigured = true;
+}
+
+/**
+ * Signs in with Google and establishes a Supabase session.
+ *
+ * - **Web** → OAuth through the browser, back to the page's own origin. A browser
+ *   hop is unavoidable for Google on the web.
+ * - **Native build with the Google SDK** → the OS account sheet and
+ *   `signInWithIdToken()`. No browser, no redirect.
+ * - **Expo Go** → throws {@link GoogleSignInUnavailableError}. Google's sheet is a
+ *   native SDK and Expo Go cannot load it, and the browser round trip cannot find
+ *   its way back into Expo Go, so there is no working browser-free path there.
+ *
+ * Resolves only once the session exists, so callers can navigate immediately.
+ * Throws {@link GoogleSignInCancelledError} when the user backs out.
+ */
+export async function signInWithGoogle(): Promise<true> {
   if (Platform.OS === 'web') {
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
         scopes: 'profile email',
-        redirectTo: Linking.createURL('/home'),
+        redirectTo: googleRedirectUrl(),
+        queryParams: { prompt: 'select_account' },
       },
     });
     if (error) throw error;
     return true;
   }
 
-  // Native: run the OAuth dance manually through an in-app browser.
-  const redirectTo = Linking.createURL('/oauth');
+  if (!hasGoogleSigninModule()) {
+    // Expo Go. Deliberately not a silent browser redirect: the app's own scheme is
+    // unregistered there, so Supabase's redirect would land on a dead page.
+    if (GOOGLE_BROWSER_FALLBACK_ENABLED) return signInWithBrowserGoogle();
+    throw new GoogleSignInUnavailableError();
+  }
+
+  // The native sheet — no browser and no redirect.
+  return signInWithNativeGoogle(requireGoogleSignin());
+}
+
+/**
+ * The no-browser path: Google's own account sheet, then a token exchange.
+ *
+ * Requires a build that ships `@react-native-google-signin/google-signin`, the
+ * Google provider enabled in Supabase, and this app's package name plus signing
+ * SHA-1 registered on an Android OAuth client in Google Cloud Console.
+ */
+async function signInWithNativeGoogle(mod: GoogleSigninModule): Promise<true> {
+  if (!GOOGLE_WEB_CLIENT_ID) {
+    throw new Error(
+      'Google sign-in is not configured: EXPO_PUBLIC_GOOGLE_CLIENT_ID is missing from BawatPiezaApp/.env.',
+    );
+  }
+
+  if (Platform.OS === 'android') {
+    const playServices = await mod.GoogleSignin.hasPlayServices({
+      showPlayServicesUpdateDialog: true,
+    });
+    if (!playServices) {
+      throw new Error('Google Play Services is missing or out of date. Update it and try again.');
+    }
+  }
+
+  configureGoogleSignin(mod);
+
+  const response = await mod.GoogleSignin.signIn();
+  if (response.type !== 'success') throw new GoogleSignInCancelledError();
+
+  const idToken = response.data.idToken;
+  if (!idToken) {
+    throw new Error(
+      "Google returned no ID token. Check that this app's package name and signing SHA-1 are registered on an Android OAuth client in Google Cloud Console.",
+    );
+  }
+
+  const { data, error } = await supabase.auth.signInWithIdToken({
+    provider: 'google',
+    token: idToken,
+  });
+  if (error) throw error;
+  if (!data.session) throw new Error('Google sign-in did not create a session.');
+  return true;
+}
+
+/**
+ * The browser round trip — opt-in only (see `GOOGLE_BROWSER_FALLBACK_ENABLED`).
+ *
+ * The browser has to hand control back through a deep link, so Supabase needs the
+ * URL `Linking.createURL` produces here — `exp://<metro-host>/--/oauth`, or
+ * `bawatpiezaapp://oauth` in a dev build — in both its **Site URL** and its
+ * **Redirect URLs** list. When those are missing, Supabase silently falls back to
+ * the Site URL (`http://localhost:3000` by default) and the flow dead-ends in the
+ * browser instead of returning to the app.
+ */
+async function signInWithBrowserGoogle(): Promise<true> {
+  const redirectTo = Linking.createURL(`/${GOOGLE_OAUTH_PATH}`);
+
+  if (__DEV__) {
+    // The one value that has to match Supabase's Redirect URLs allow-list.
+    // In Expo Go it is exp://<metro-host>:8081/--/oauth; print it verbatim so
+    // nobody has to guess the host or path shape when configuring the dashboard.
+    console.info(
+      `[google] Browser fallback redirect → ${redirectTo} (allow-list it under Supabase → Authentication → URL Configuration → Redirect URLs).`,
+    );
+  }
 
   const { data, error } = await supabase.auth.signInWithOAuth({
     provider: 'google',
     options: {
       scopes: 'profile email',
       redirectTo,
-      skipBrowserRedirect: true, // we open the browser ourselves
+      skipBrowserRedirect: true, // we open the browser session ourselves
+      queryParams: { prompt: 'select_account' },
     },
   });
 
@@ -112,6 +334,9 @@ export async function signInWithGoogle() {
   // Open Google's consent screen and wait for the deep-link redirect back.
   const result = await WebBrowser.openAuthSessionAsync(data.url, redirectTo);
 
+  if (result.type === 'cancel' || result.type === 'dismiss') {
+    throw new GoogleSignInCancelledError();
+  }
   if (result.type !== 'success' || !('url' in result) || !result.url) {
     throw new Error('Google sign-in was cancelled or failed.');
   }
@@ -122,7 +347,9 @@ export async function signInWithGoogle() {
   if (!parsed?.accessToken || !parsed.refreshToken) {
     // Supabase may return an error message instead of tokens.
     if (parsed?.errorDescription) throw new Error(parsed.errorDescription);
-    throw new Error('Google sign-in did not return a valid session.');
+    throw new Error(
+      `Google sign-in did not return a valid session. If the browser stopped on a localhost or error page instead of returning to the app, allow-list ${redirectTo} under Supabase → Authentication → URL Configuration → Redirect URLs.`,
+    );
   }
 
   // Persist the session — this also fires the SIGNED_IN event so the
@@ -134,6 +361,51 @@ export async function signInWithGoogle() {
   if (sessionError) throw sessionError;
 
   return true;
+}
+
+/**
+ * Turns a Google/Supabase failure into something the user — or whoever is
+ * configuring the project — can act on.
+ *
+ * Supabase's wording is terse, and the misconfiguration that matters most (a
+ * redirect URL missing from the allow-list) never surfaces as an error at all:
+ * Supabase quietly sends the browser to the Site URL, which is
+ * `http://localhost:3000` by default. The common cases get an explicit
+ * instruction here.
+ */
+export function describeGoogleSignInError(error: unknown): string {
+  const code = (error as { code?: string } | null)?.code ?? '';
+  const raw = error instanceof Error ? error.message : String(error ?? '');
+  const text = raw.toLowerCase();
+
+  if (!raw) return 'Unable to sign in with Google. Please try again.';
+
+  // Transport problems carry no `code` and no HTTP status.
+  if (
+    !code &&
+    (text.includes('network') ||
+      text.includes('failed to fetch') ||
+      text.includes('timeout') ||
+      text.includes('aborted'))
+  ) {
+    return 'Network error. Check your internet connection and try again.';
+  }
+
+  if (
+    code === 'provider_disabled' ||
+    text.includes('provider is not enabled') ||
+    text.includes('unsupported provider')
+  ) {
+    return 'Google sign-in is not enabled for this Supabase project. Turn it on in Supabase → Authentication → Providers → Google.';
+  }
+  if (text.includes('authorized client id') || text.includes('audience')) {
+    return "Supabase rejected the Google token audience. Add this app's Google client IDs under Authentication → Providers → Google → Authorized Client IDs.";
+  }
+  if (text.includes('redirect') || text.includes('not allowed')) {
+    return `${raw} (Add the URL under Supabase → Authentication → URL Configuration.)`;
+  }
+
+  return raw;
 }
 
 /**

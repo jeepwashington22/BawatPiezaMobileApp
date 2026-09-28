@@ -25,6 +25,8 @@ import {
   flushPendingTermsAcceptance,
   isEmailRegistered,
   termsAcceptanceMetadata,
+  isGoogleSignInCancelled,
+  describeGoogleSignInError,
 } from '../lib/supabase';
 import { TermsModal } from '../components/terms-modal';
 import {
@@ -321,8 +323,9 @@ export default function SignupScreen() {
       // entirely), so park the acceptance until an account actually exists.
       await markTermsAcceptancePending(acceptedAt);
 
-      // Opens Google's consent screen in the in-app browser and establishes
-      // the Supabase session when the deep link returns.
+      // Opens Google's own account sheet on a native build, or Google's consent
+      // page in an in-app browser under Expo Go. The Supabase session exists by
+      // the time this resolves.
       await signInWithGoogle();
 
       // signInWithGoogle() only resolves after the session is actually set.
@@ -336,10 +339,14 @@ export default function SignupScreen() {
         setError('Sign-up finished, but no session was created. Please try again.');
       }
     } catch (authError) {
-      const message =
-        authError instanceof Error
-          ? describeAuthError({ message: authError.message }, 'signup')
-          : 'Unable to sign up with Google. Please try again.';
+      // Dismissing the Google sheet is a choice, not a failure. The parked Terms
+      // acceptance stays in storage and is attached on the next sign-in that
+      // actually creates a session.
+      if (isGoogleSignInCancelled(authError)) return;
+
+      // Not routed through `describeAuthError`: it needs a `code`/`status` and
+      // would flatten every configuration problem into "Network error".
+      const message = describeGoogleSignInError(authError);
       setError(message);
       Alert.alert('Google sign up failed', message);
     } finally {

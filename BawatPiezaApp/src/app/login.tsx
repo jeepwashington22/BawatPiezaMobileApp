@@ -17,7 +17,14 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { fonts } from '../theme';
 import { Ionicons } from '@expo/vector-icons';
-import { supabase, signInWithGoogle, sendWelcomeEmailIfNew, isEmailRegistered } from '../lib/supabase';
+import {
+  supabase,
+  signInWithGoogle,
+  sendWelcomeEmailIfNew,
+  isEmailRegistered,
+  isGoogleSignInCancelled,
+  describeGoogleSignInError,
+} from '../lib/supabase';
 import {
   validateEmail,
   validateLoginPassword,
@@ -370,7 +377,8 @@ export default function LoginScreen() {
     setError(null);
 
     try {
-      // Sign in with Google using Supabase OAuth
+      // Native builds use the OS Google sheet (no browser); Expo Go falls back
+      // to the OAuth browser round trip. See `signInWithGoogle` in lib/supabase.
             await signInWithGoogle();
 
       // signInWithGoogle() only resolves after the session is actually set.
@@ -383,7 +391,10 @@ export default function LoginScreen() {
         setError('Sign-in finished, but no session was created. Please try again.');
       }
     } catch (authError) {
-      const message = authError instanceof Error ? authError.message : 'Unable to sign in with Google. Please try again.';
+      // Dismissing the Google sheet is a choice, not a failure.
+      if (isGoogleSignInCancelled(authError)) return;
+
+      const message = describeGoogleSignInError(authError);
       setError(message);
       Alert.alert('Google sign in failed', message);
     } finally {

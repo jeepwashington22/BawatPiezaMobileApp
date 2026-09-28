@@ -45,7 +45,7 @@ How the BawatPieza mobile app, backend API, and cloud services fit together.
 | --- | --- | --- | --- |
 | Sessions | Stores/refreshes tokens via `@supabase/supabase-js` | Validates Bearer tokens (`supabase.auth.getUser`) | Issues & verifies JWTs |
 | Password sign-in | Collects credentials | Verifies + parks session, e-mails OTP | Password check (anon client) |
-| Google Sign-In | OAuth dance via deep link `bawatpiezaapp://` | — | OAuth provider + implicit-flow tokens |
+| Google Sign-In | Native Google sheet → `signInWithIdToken`; Expo Go/web fall back to an OAuth browser round trip | — | OAuth provider + ID token / implicit-flow tokens |
 | One-time codes | Shows input, counts down | Generates, hashes (SHA-256), stores in Redis | — |
 | E-mail delivery | — | Brevo SMTP via nodemailer | Edge function (`welcome-email`) |
 | Profile data | Reads/writes `user_accounts` directly (RLS) | Admin reads/writes via service-role | Postgres + row level security |
@@ -116,14 +116,29 @@ password alone is useless — the API keeps the real tokens server-side.
 
 ### Google Sign-In
 
-`signInWithGoogle()` in `BawatPiezaApp/src/lib/supabase.ts`:
+`signInWithGoogle()` in `BawatPiezaApp/src/lib/supabase.ts` picks a path at run
+time:
 
-1. Web → plain `signInWithOAuth` redirect; `detectSessionInUrl` picks the
-   session up from the URL.
-2. Native → build the auth URL with `skipBrowserRedirect`, open it in an
-   in-app browser auth session (`expo-web-browser`), catch the deep link
-   `bawatpiezaapp://oauth#access_token=…`, parse the implicit-flow tokens,
-   then `supabase.auth.setSession(...)`.
+1. **Web** → plain `signInWithOAuth` redirect to the live
+   `window.location.origin`; `detectSessionInUrl` picks the session up from the
+   URL.
+2. **Native, native module present** → the OS Google account sheet
+   (`@react-native-google-signin/google-signin`) returns an ID token, and
+   `supabase.auth.signInWithIdToken({ provider: 'google' })` exchanges it for a
+   Supabase session. **No browser and no redirect are involved.**
+3. **Native, native module absent (Expo Go)** → when
+   `EXPO_PUBLIC_GOOGLE_BROWSER_FALLBACK=1` (set in this repo's `.env`), build
+   the auth URL with `skipBrowserRedirect`, open it in an in-app browser auth
+   session (`expo-web-browser`), catch the deep link
+   `Linking.createURL('/oauth')#access_token=…` (`exp://<metro-host>/--/oauth`
+   in Expo Go), parse the implicit-flow tokens, then
+   `supabase.auth.setSession(...)`; otherwise throw
+   `GoogleSignInUnavailableError` with instructions.
+
+The module is loaded through a guarded `require()`: Expo Go has no
+`RNGoogleSignin` TurboModule, and importing the package there throws. Details and
+the required Google Cloud / Supabase settings are in
+[features/google-sign-in.md](features/google-sign-in.md).
 
 ---
 

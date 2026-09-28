@@ -8,6 +8,7 @@
     "scheme": "bawatpiezaapp",
     "userInterfaceStyle": "automatic",
     "ios": {
+      "bundleIdentifier": "com.bawatpieza.app",
       "icon": "./assets/expo.icon",
       "infoPlist": {
         "NSAppTransportSecurity": {
@@ -17,6 +18,7 @@
       }
     },
     "android": {
+      "package": "com.bawatpieza.app",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/images/android-icon-foreground.png",

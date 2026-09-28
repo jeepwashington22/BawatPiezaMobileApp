@@ -80,9 +80,9 @@ Then press `a` (Android emulator), `i` (iOS simulator), or scan the QR code
 with Expo Go.
 
 > **Physical device?** `localhost` inside the app refers to the phone itself, so
-> the app resolves the API address at runtime (`src/lib/api.ts`): it uses
-> `EXPO_PUBLIC_API_URL` when that points at a real host, otherwise the LAN IP
-> Metro served the bundle from. Keep the phone and PC on the same Wi-Fi and allow
+> the app auto-detects the API address at runtime (`src/lib/api.ts`): it reads
+> the LAN IP Metro served the bundle from via expo-constants and falls back to
+> `EXPO_PUBLIC_API_URL`. Keep the phone and PC on the same Wi-Fi and allow
 > inbound TCP 4000 once — `npm run allow-lan-api` in an **elevated** PowerShell:
 
 ```bash

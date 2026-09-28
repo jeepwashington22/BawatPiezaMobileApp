@@ -70,27 +70,41 @@ reach the app bundle.
 | --- | --- | --- |
 | `EXPO_PUBLIC_SUPABASE_URL` | ✅ | Supabase project URL — the app throws at startup without it |
 | `EXPO_PUBLIC_SUPABASE_ANON_KEY` | ✅ | Supabase anon key (safe to expose; RLS protects data) |
-| `EXPO_PUBLIC_API_URL` | recommended | Backend base URL for devices (LAN IP, or a public HTTPS URL) |
+| `EXPO_PUBLIC_API_URL` | optional | Fallback/pin for the backend base URL — the LAN IP is auto-detected via expo-constants during dev; set a public HTTPS URL for a hosted API |
 | `EXPO_PUBLIC_API_PORT` | optional | Backend port used when the app derives the host itself. Defaults to `4000` |
+| `EXPO_PUBLIC_GOOGLE_CLIENT_ID` | for Google Sign-In | OAuth client of type **Web application**. Used as `webClientId` for `@react-native-google-signin/google-signin` (native sheet → `signInWithIdToken`) and matched to the Supabase Google provider |
+| `EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID` | iOS builds only | OAuth client of type **iOS**, passed as `iosClientId` |
+| `EXPO_PUBLIC_GOOGLE_BROWSER_FALLBACK` | Expo Go testing | Set to `1` so a binary without the Google native module (Expo Go) uses the browser round trip instead of throwing "needs a development build". Requires the `exp://` redirect URL to be allow-listed in Supabase → Authentication → URL Configuration. This repo's `.env` ships with `1` |
+
+Google Sign-In also needs dashboard settings (Site URL, Redirect URLs, provider
++ *Authorized Client IDs*) — see
+[features/google-sign-in.md](features/google-sign-in.md).
 
 ### How the app finds the API
 
 `BawatPiezaApp/src/lib/api.ts` resolves the base URL **at runtime**, in this order:
 
-1. `EXPO_PUBLIC_API_URL`, when its host is not `localhost` / `127.0.0.1`.
-2. The host the bundle was served from — the browser origin on web, the Metro
-   dev-server host on native (`expo start --lan` → the PC's LAN IP) — with port
-   `4000`. This is why a stale LAN IP in `.env` no longer breaks the app.
-3. `10.0.2.2:4000` on an Android emulator, otherwise `localhost:4000`.
+1. The **auto-detected LAN IP** — the host Metro served the bundle from, read
+   through expo-constants (`Constants.expoConfig.hostUri`; `expo start --lan` →
+   the PC's current LAN IP) or the browser origin on web — with port `4000`.
+   Because the device reads it at runtime, a stale IP in `.env` cannot break
+   the app.
+2. `EXPO_PUBLIC_API_URL`, when its host is not `localhost` / `127.0.0.1` — a
+   hosted / tunnelled API or a standalone build (no Metro host, or a tunnel
+   domain that must not get port `4000` appended).
+3. Any other host the bundle was served from (tunnel domain, web origin).
+4. `10.0.2.2:4000` on an Android emulator, otherwise `localhost:4000`.
 
 Each request also retries the remaining candidates, and a failure message names
 every URL that was tried. `resolveApiBase()`, `apiUrl()` and `apiFetch()` are the
 only API entry points screens should use.
 
-> **Physical device tip:** set `EXPO_PUBLIC_API_URL=http://<PC-LAN-IP>:4000` as a
-> fallback, keep the phone on the same Wi-Fi, and allow inbound TCP 4000 once with
-> `npm run allow-lan-api` (elevated PowerShell). Restart `expo start` after any
-> `.env` change: values are inlined at build time.
+> **Physical device tip:** the LAN IP is detected automatically while Metro runs
+> with `--lan`; keep the phone on the same Wi-Fi and allow inbound TCP 4000 once
+> with `npm run allow-lan-api` (elevated PowerShell). Set
+> `EXPO_PUBLIC_API_URL=http://<PC-LAN-IP>:4000` only to pin an address (or for a
+> hosted API), and restart `expo start` after any `.env` change: values are
+> inlined at build time.
 
 ### Cleartext HTTP on Android / iOS
 
@@ -115,6 +129,7 @@ For anything beyond local development, serve the API over HTTPS and drop
 | Value | Read by |
 | --- | --- |
 | `EXPO_PUBLIC_SUPABASE_URL/ANON_KEY` | `BawatPiezaApp/src/lib/supabase.ts` (single client) |
+| `EXPO_PUBLIC_GOOGLE_CLIENT_ID` | `src/lib/supabase.ts` — `GoogleSignin.configure({ webClientId })` and `signInWithOAuth` |
 | `EXPO_PUBLIC_API_URL` | `src/lib/api.ts` (resolver) → `login.tsx`, `forgot-password.tsx`, `pages/accounts.tsx`, `pages/device.tsx`, `lib/supabase.ts` (welcome e-mail) |
 | `SUPABASE_SERVICE_ROLE_KEY` | `backend/src/lib/supabase.ts` (all admin routes) |
 | `SUPABASE_ANON_KEY` | `backend/src/lib/supabaseAuth.ts` (2FA step 1 password check) |

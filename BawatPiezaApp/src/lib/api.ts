@@ -6,15 +6,19 @@
  * `localhost`, which the phone resolves to itself. Hard-coding that address in
  * `.env` breaks as soon as the router hands out a new one, and `EXPO_PUBLIC_*`
  * values are inlined when Metro starts, so a stale value keeps failing until the
- * dev server is restarted. To keep Android, iOS, emulators and the web all
- * working, the base URL is resolved here in this order:
+ * dev server is restarted. Instead of trusting `.env`, the LAN IP is
+ * auto-detected from the address Metro served this bundle from
+ * (`Constants.expoConfig.hostUri` via expo-constants). Resolution order:
  *
- *   1. `EXPO_PUBLIC_API_URL`, when it points somewhere other than loopback
- *      (that is how a hosted / tunnelled API is configured).
- *   2. The host this bundle was loaded from — the browser origin on web, and the
- *      Metro dev-server host on native (`Constants.expoConfig.hostUri`, which is
- *      the PC's LAN IP while `expo start --lan` is running). Port 4000.
- *   3. Loopback (`10.0.2.2` on an Android emulator, `localhost` elsewhere).
+ *   1. The auto-detected LAN IP — the browser origin on web, or the Metro
+ *      dev-server host on native (`expo start --lan` → the PC's current LAN
+ *      IP). It wins over `EXPO_PUBLIC_API_URL`, so a stale IP in `.env` can no
+ *      longer pin the app to a dead address.
+ *   2. `EXPO_PUBLIC_API_URL`, when it points somewhere other than loopback —
+ *      hosted / tunnelled APIs and standalone builds, which have no Metro host
+ *      (or whose host is a domain that must not get port 4000 appended).
+ *   3. Any other host this bundle was served from (e.g. a tunnel domain).
+ *   4. Loopback (`10.0.2.2` on an Android emulator, `localhost` elsewhere).
  *
  * Requests also fall back through the other candidates, so a stale `.env` no
  * longer takes the app down.
@@ -67,6 +71,21 @@ function isLoopback(host: string | null): boolean {
   return host === null || LOOPBACK_HOSTS.has(host.toLowerCase());
 }
 
+/**
+ * True for RFC1918 private IPv4 addresses — exactly what Metro reports as the
+ * `hostUri` host when the dev server runs with `--lan`. Domains (tunnel, hosted
+ * web) deliberately return false: appending `:${API_PORT}` to them would be
+ * wrong, so `EXPO_PUBLIC_API_URL` keeps priority there.
+ */
+function isLanIpv4(host: string | null): boolean {
+  const match = host ? /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host) : null;
+  if (!match) return false;
+  const octets = match.slice(1).map(Number);
+  if (octets.some((value) => value > 255)) return false;
+  const [a, b] = octets;
+  return a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168);
+}
+
 /** `EXPO_PUBLIC_API_URL` as written in `.env`, normalized, or null. */
 function envApiUrl(): string | null {
   const raw = process.env.EXPO_PUBLIC_API_URL;
@@ -112,26 +131,35 @@ function loopbackBaseUrl(): string {
 export function resolveApiBase(): ResolvedApiBase {
   const configured = envApiUrl();
   const configuredHost = configured ? hostOf(configured) : null;
+  const host = runtimeHost();
 
-  // 1. An explicitly configured address reachable from a device wins.
+  // 1. The LAN IP this bundle was served from, auto-detected through
+  //    expo-constants (`Constants.expoConfig.hostUri`) on native and the page
+  //    origin on web. It tracks the router's DHCP changes, so it beats whatever
+  //    stale IP `.env` still carries.
+  if (isLanIpv4(host)) {
+    return { url: `http://${host}:${API_PORT}`, source: 'metro' };
+  }
+
+  // 2. An explicitly configured address reachable from a device: a hosted /
+  //    tunnelled API, or a standalone build that has no Metro host at all.
   if (configured && !isLoopback(configuredHost)) {
     return { url: configured, source: 'env' };
   }
 
-  // 2. Follow the host that served this bundle: a phone that loaded the app
-  //    from the PC's LAN address can reach the API on that same address.
-  const host = runtimeHost();
+  // 3. Some other host this bundle was served from (tunnel domain, web origin)
+  //    — still a better guess than loopback on a physical device.
   if (host && !isLoopback(host)) {
     return { url: `http://${host}:${API_PORT}`, source: 'metro' };
   }
 
-  // 3. Nothing usable, and `.env` did not ask for loopback either: use the
+  // 4. Nothing usable, and `.env` did not ask for loopback either: use the
   //    address that actually reaches the host machine from an emulator.
   if (!configured) {
     return { url: loopbackBaseUrl(), source: 'emulator' };
   }
 
-  // 4. Whatever `.env` says (web / simulator running on the API host itself).
+  // 5. Whatever `.env` says (web / simulator running on the API host itself).
   return { url: configured, source: 'fallback' };
 }
 
