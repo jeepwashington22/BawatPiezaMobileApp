@@ -1,18 +1,18 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Platform, TurboModuleRegistry } from 'react-native';
-import * as WebBrowser from 'expo-web-browser';
-import * as Linking from 'expo-linking';
-import { createClient } from '@supabase/supabase-js';
-import type { SupportedStorage } from '@supabase/supabase-js';
-import { TERMS_VERSION } from '../constants/terms';
-import { apiFetch } from './api';
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { Platform, TurboModuleRegistry } from "react-native";
+import * as WebBrowser from "expo-web-browser";
+import * as Linking from "expo-linking";
+import { createClient } from "@supabase/supabase-js";
+import type { SupportedStorage } from "@supabase/supabase-js";
+import { TERMS_VERSION } from "../constants/terms";
+import { apiFetch } from "./api";
 
 const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL;
 const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
 
 if (!supabaseUrl || !supabaseAnonKey) {
   throw new Error(
-    'Missing Supabase env vars. Add EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_ANON_KEY in BawatPiezaMobileApp/BawatPiezaApp/.env',
+    "Missing Supabase env vars. Add EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_ANON_KEY in BawatPiezaMobileApp/BawatPiezaApp/.env",
   );
 }
 
@@ -25,22 +25,23 @@ if (!supabaseUrl || !supabaseAnonKey) {
  */
 const webStorage: SupportedStorage = {
   getItem: (key: string) => {
-    if (typeof window === 'undefined') return null;
+    if (typeof window === "undefined") return null;
     return window.localStorage.getItem(key);
   },
   setItem: (key: string, value: string) => {
-    if (typeof window !== 'undefined') {
+    if (typeof window !== "undefined") {
       window.localStorage.setItem(key, value);
     }
   },
   removeItem: (key: string) => {
-    if (typeof window !== 'undefined') {
+    if (typeof window !== "undefined") {
       window.localStorage.removeItem(key);
     }
   },
 };
 
-const storage: SupportedStorage = Platform.OS === 'web' ? webStorage : AsyncStorage;
+const storage: SupportedStorage =
+  Platform.OS === "web" ? webStorage : AsyncStorage;
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
@@ -49,16 +50,26 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
     detectSessionInUrl: true, // Enable to handle OAuth redirect URLs
     // Implicit flow: the OAuth redirect returns tokens in the URL fragment,
     // which we parse and set manually on native (see signInWithGoogle).
-    flowType: 'implicit',
+    flowType: "implicit",
     storage,
   },
 });
 
 /**
  * Signs out the current user from Supabase Auth.
- * Clears the session and redirects to the login screen.
+ * Clears the session, signs out of the native Google SDK cache, and redirects to the login screen.
  */
 export async function signOut() {
+  if (hasGoogleSigninModule()) {
+    try {
+      const mod = requireGoogleSignin();
+      configureGoogleSignin(mod);
+      await mod.GoogleSignin.signOut();
+    } catch (e) {
+      // Ignore if not signed in natively
+    }
+  }
+
   const { error } = await supabase.auth.signOut();
   if (error) {
     throw error;
@@ -78,10 +89,10 @@ export async function signOut() {
  * *Expo Go*, not to this app. A development or production build registers
  * `bawatpiezaapp://`, which is what lets the OS hand control back to the app.
  */
-export const GOOGLE_URL_SCHEME = 'bawatpiezaapp';
+export const GOOGLE_URL_SCHEME = "bawatpiezaapp";
 
 /** Deep-link path Google's consent screen returns to. Any path works. */
-export const GOOGLE_OAUTH_PATH = 'oauth';
+export const GOOGLE_OAUTH_PATH = "oauth";
 
 /**
  * OAuth client of type **Web application** (Google Cloud Console) — the same
@@ -93,11 +104,15 @@ const GOOGLE_WEB_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID;
 /** iOS OAuth client. Optional — only iOS builds pass it as `iosClientId`. */
 const GOOGLE_IOS_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID;
 
+/** Android OAuth client ID for native Google Sign-In configuration. */
+const GOOGLE_ANDROID_CLIENT_ID =
+  "890013660689-449tii667m5c0ks7ncvmahvg6mu6t86c.apps.googleusercontent.com";
+
 /** Raised when the user dismisses the Google sheet — not a failure to report. */
 export class GoogleSignInCancelledError extends Error {
-  constructor(message = 'Google sign-in was cancelled.') {
+  constructor(message = "Google sign-in was cancelled.") {
     super(message);
-    this.name = 'GoogleSignInCancelled';
+    this.name = "GoogleSignInCancelled";
   }
 }
 
@@ -115,11 +130,10 @@ export function isGoogleSignInCancelled(error: unknown): boolean {
  */
 export class GoogleSignInUnavailableError extends Error {
   constructor(
-    message =
-      "Google sign-in needs a development build: Expo Go cannot load Google's native account sheet. Run 'npx expo run:android' (or 'eas build') for the no-browser flow, or set EXPO_PUBLIC_GOOGLE_BROWSER_FALLBACK=1 in BawatPiezaApp/.env to use the browser round trip - see docs/features/google-sign-in.md.",
+    message = "Google sign-in needs a development build: Expo Go cannot load Google's native account sheet. Run 'npx expo run:android' (or 'eas build') for the no-browser flow, or set EXPO_PUBLIC_GOOGLE_BROWSER_FALLBACK=1 in BawatPiezaApp/.env to use the browser round trip - see docs/features/google-sign-in.md.",
   ) {
     super(message);
-    this.name = 'GoogleSignInUnavailable';
+    this.name = "GoogleSignInUnavailable";
   }
 }
 
@@ -137,7 +151,7 @@ export class GoogleSignInUnavailableError extends Error {
  * "needs a development build" alert is the safer default.
  */
 const GOOGLE_BROWSER_FALLBACK_ENABLED =
-  process.env.EXPO_PUBLIC_GOOGLE_BROWSER_FALLBACK === '1';
+  process.env.EXPO_PUBLIC_GOOGLE_BROWSER_FALLBACK === "1";
 
 /**
  * The redirect URL Supabase has to be told about (Site URL / Redirect URLs).
@@ -149,17 +163,18 @@ const GOOGLE_BROWSER_FALLBACK_ENABLED =
  *   development or production build; Expo Go cannot receive it.
  */
 export function googleRedirectUrl(): string {
-  if (Platform.OS === 'web') {
+  if (Platform.OS === "web") {
     const origin =
-      typeof window !== 'undefined' && window.location?.origin
+      typeof window !== "undefined" && window.location?.origin
         ? window.location.origin
-        : Linking.createURL('/');
-    return `${origin.replace(/\/+$/, '')}/`;
+        : Linking.createURL("/");
+    return `${origin.replace(/\/+$/, "")}/`;
   }
   return `${GOOGLE_URL_SCHEME}://${GOOGLE_OAUTH_PATH}`;
 }
 
-type GoogleSigninModule = typeof import('@react-native-google-signin/google-signin');
+type GoogleSigninModule =
+  typeof import("@react-native-google-signin/google-signin");
 
 /**
  * True when the running binary actually contains the Google Sign-In native module.
@@ -183,7 +198,7 @@ type GoogleSigninModule = typeof import('@react-native-google-signin/google-sign
  */
 function hasGoogleSigninModule(): boolean {
   try {
-    return TurboModuleRegistry.get('RNGoogleSignin') != null;
+    return TurboModuleRegistry.get("RNGoogleSignin") != null;
   } catch {
     return false;
   }
@@ -194,7 +209,7 @@ function hasGoogleSigninModule(): boolean {
  * that gate is the entire point, so this must never run in Expo Go.
  */
 function requireGoogleSignin(): GoogleSigninModule {
-  return require('@react-native-google-signin/google-signin') as GoogleSigninModule;
+  return require("@react-native-google-signin/google-signin") as GoogleSigninModule;
 }
 
 let googleSigninConfigured = false;
@@ -204,9 +219,9 @@ function configureGoogleSignin(mod: GoogleSigninModule): void {
   if (googleSigninConfigured) return;
   mod.GoogleSignin.configure({
     webClientId: GOOGLE_WEB_CLIENT_ID,
-    scopes: ['profile', 'email'],
+    scopes: ["profile", "email"],
     offlineAccess: false,
-    ...(Platform.OS === 'ios' && GOOGLE_IOS_CLIENT_ID
+    ...(Platform.OS === "ios" && GOOGLE_IOS_CLIENT_ID
       ? { iosClientId: GOOGLE_IOS_CLIENT_ID }
       : {}),
   });
@@ -228,13 +243,13 @@ function configureGoogleSignin(mod: GoogleSigninModule): void {
  * Throws {@link GoogleSignInCancelledError} when the user backs out.
  */
 export async function signInWithGoogle(): Promise<true> {
-  if (Platform.OS === 'web') {
+  if (Platform.OS === "web") {
     const { error } = await supabase.auth.signInWithOAuth({
-      provider: 'google',
+      provider: "google",
       options: {
-        scopes: 'profile email',
+        scopes: "profile email",
         redirectTo: googleRedirectUrl(),
-        queryParams: { prompt: 'select_account' },
+        queryParams: { prompt: "select_account" },
       },
     });
     if (error) throw error;
@@ -262,23 +277,33 @@ export async function signInWithGoogle(): Promise<true> {
 async function signInWithNativeGoogle(mod: GoogleSigninModule): Promise<true> {
   if (!GOOGLE_WEB_CLIENT_ID) {
     throw new Error(
-      'Google sign-in is not configured: EXPO_PUBLIC_GOOGLE_CLIENT_ID is missing from BawatPiezaApp/.env.',
+      "Google sign-in is not configured: EXPO_PUBLIC_GOOGLE_CLIENT_ID is missing from BawatPiezaApp/.env.",
     );
   }
 
-  if (Platform.OS === 'android') {
+  if (Platform.OS === "android") {
     const playServices = await mod.GoogleSignin.hasPlayServices({
       showPlayServicesUpdateDialog: true,
     });
     if (!playServices) {
-      throw new Error('Google Play Services is missing or out of date. Update it and try again.');
+      throw new Error(
+        "Google Play Services is missing or out of date. Update it and try again.",
+      );
     }
   }
 
   configureGoogleSignin(mod);
 
+  // FORCE ACCOUNT PICKER: Silently sign out of the native Google cache before prompting
+  // so the OS never skips the account selection screen.
+  try {
+    await mod.GoogleSignin.signOut();
+  } catch (err) {
+    // Ignored. Just ensuring the state is cleared.
+  }
+
   const response = await mod.GoogleSignin.signIn();
-  if (response.type !== 'success') throw new GoogleSignInCancelledError();
+  if (response.type !== "success") throw new GoogleSignInCancelledError();
 
   const idToken = response.data.idToken;
   if (!idToken) {
@@ -288,11 +313,12 @@ async function signInWithNativeGoogle(mod: GoogleSigninModule): Promise<true> {
   }
 
   const { data, error } = await supabase.auth.signInWithIdToken({
-    provider: 'google',
+    provider: "google",
     token: idToken,
   });
   if (error) throw error;
-  if (!data.session) throw new Error('Google sign-in did not create a session.');
+  if (!data.session)
+    throw new Error("Google sign-in did not create a session.");
   return true;
 }
 
@@ -319,26 +345,26 @@ async function signInWithBrowserGoogle(): Promise<true> {
   }
 
   const { data, error } = await supabase.auth.signInWithOAuth({
-    provider: 'google',
+    provider: "google",
     options: {
-      scopes: 'profile email',
+      scopes: "profile email",
       redirectTo,
       skipBrowserRedirect: true, // we open the browser session ourselves
-      queryParams: { prompt: 'select_account' },
+      queryParams: { prompt: "select_account" },
     },
   });
 
   if (error) throw error;
-  if (!data?.url) throw new Error('Could not start the Google sign-in flow.');
+  if (!data?.url) throw new Error("Could not start the Google sign-in flow.");
 
   // Open Google's consent screen and wait for the deep-link redirect back.
   const result = await WebBrowser.openAuthSessionAsync(data.url, redirectTo);
 
-  if (result.type === 'cancel' || result.type === 'dismiss') {
+  if (result.type === "cancel" || result.type === "dismiss") {
     throw new GoogleSignInCancelledError();
   }
-  if (result.type !== 'success' || !('url' in result) || !result.url) {
-    throw new Error('Google sign-in was cancelled or failed.');
+  if (result.type !== "success" || !("url" in result) || !result.url) {
+    throw new Error("Google sign-in was cancelled or failed.");
   }
 
   // The redirect carries the tokens in the URL fragment (implicit flow):
@@ -374,34 +400,34 @@ async function signInWithBrowserGoogle(): Promise<true> {
  * instruction here.
  */
 export function describeGoogleSignInError(error: unknown): string {
-  const code = (error as { code?: string } | null)?.code ?? '';
-  const raw = error instanceof Error ? error.message : String(error ?? '');
+  const code = (error as { code?: string } | null)?.code ?? "";
+  const raw = error instanceof Error ? error.message : String(error ?? "");
   const text = raw.toLowerCase();
 
-  if (!raw) return 'Unable to sign in with Google. Please try again.';
+  if (!raw) return "Unable to sign in with Google. Please try again.";
 
   // Transport problems carry no `code` and no HTTP status.
   if (
     !code &&
-    (text.includes('network') ||
-      text.includes('failed to fetch') ||
-      text.includes('timeout') ||
-      text.includes('aborted'))
+    (text.includes("network") ||
+      text.includes("failed to fetch") ||
+      text.includes("timeout") ||
+      text.includes("aborted"))
   ) {
-    return 'Network error. Check your internet connection and try again.';
+    return "Network error. Check your internet connection and try again.";
   }
 
   if (
-    code === 'provider_disabled' ||
-    text.includes('provider is not enabled') ||
-    text.includes('unsupported provider')
+    code === "provider_disabled" ||
+    text.includes("provider is not enabled") ||
+    text.includes("unsupported provider")
   ) {
-    return 'Google sign-in is not enabled for this Supabase project. Turn it on in Supabase → Authentication → Providers → Google.';
+    return "Google sign-in is not enabled for this Supabase project. Turn it on in Supabase → Authentication → Providers → Google.";
   }
-  if (text.includes('authorized client id') || text.includes('audience')) {
+  if (text.includes("authorized client id") || text.includes("audience")) {
     return "Supabase rejected the Google token audience. Add this app's Google client IDs under Authentication → Providers → Google → Authorized Client IDs.";
   }
-  if (text.includes('redirect') || text.includes('not allowed')) {
+  if (text.includes("redirect") || text.includes("not allowed")) {
     return `${raw} (Add the URL under Supabase → Authentication → URL Configuration.)`;
   }
 
@@ -424,28 +450,27 @@ function extractTokensFromUrl(url: string) {
 
   const collect = (searchParams: URLSearchParams) => {
     searchParams.forEach((value, key) => {
-      if (key === 'access_token') result.accessToken = value;
-      else if (key === 'refresh_token') result.refreshToken = value;
-      else if (key === 'expires_in') result.expiresIn = value;
-      else if (key === 'error') result.error = value;
-      else if (key === 'error_description') result.errorDescription = value;
+      if (key === "access_token") result.accessToken = value;
+      else if (key === "refresh_token") result.refreshToken = value;
+      else if (key === "expires_in") result.expiresIn = value;
+      else if (key === "error") result.error = value;
+      else if (key === "error_description") result.errorDescription = value;
     });
   };
 
   try {
     // Fragment part (implicit flow): scheme://oauth#access_token=...
-    const hashIndex = url.indexOf('#');
+    const hashIndex = url.indexOf("#");
     if (hashIndex !== -1) {
       collect(new URLSearchParams(url.slice(hashIndex + 1)));
     }
     // Query part (PKCE/error): scheme://oauth?error=...
-    const queryIndex = url.indexOf('?');
+    const queryIndex = url.indexOf("?");
     if (queryIndex !== -1) {
-      const queryEnd = hashIndex !== -1 && hashIndex > queryIndex ? hashIndex : undefined;
+      const queryEnd =
+        hashIndex !== -1 && hashIndex > queryIndex ? hashIndex : undefined;
       collect(
-        new URLSearchParams(
-          url.slice(queryIndex + 1, queryEnd ?? undefined),
-        ),
+        new URLSearchParams(url.slice(queryIndex + 1, queryEnd ?? undefined)),
       );
     }
   } catch {
@@ -460,7 +485,9 @@ function extractTokensFromUrl(url: string) {
  * Returns true if there's a valid session, false otherwise.
  */
 export async function isUserSignedIn(): Promise<boolean> {
-  const { data: { session } } = await supabase.auth.getSession();
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
   return session !== null;
 }
 
@@ -475,7 +502,9 @@ export async function isUserSignedIn(): Promise<boolean> {
  */
 export async function sendWelcomeEmailIfNew(): Promise<boolean> {
   try {
-    const { data: { user } } = await supabase.auth.getUser();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
     if (!user?.email) return false;
 
     // Only greet brand-new accounts (created within the last 2 minutes).
@@ -485,24 +514,26 @@ export async function sendWelcomeEmailIfNew(): Promise<boolean> {
     const meta = user.user_metadata as Record<string, unknown> | undefined;
     const fullName =
       (meta?.full_name as string) ??
-      [meta?.firstname, meta?.middlename, meta?.lastname].filter(Boolean).join(' ') ??
+      [meta?.firstname, meta?.middlename, meta?.lastname]
+        .filter(Boolean)
+        .join(" ") ??
       undefined;
-    const firstName = (meta?.firstname as string) ?? fullName?.split(' ')[0];
+    const firstName = (meta?.firstname as string) ?? fullName?.split(" ")[0];
 
-    const res = await apiFetch('/accounts/welcome-email', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+    const res = await apiFetch("/accounts/welcome-email", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email: user.email, fullName, firstName }),
       timeoutMs: 10_000,
     });
     if (!res.ok) {
-      console.warn('[welcome-email] Backend returned', res.status);
+      console.warn("[welcome-email] Backend returned", res.status);
       return false;
     }
     return true;
   } catch (err) {
     // Non-fatal — the user still gets into the app; email is best-effort.
-    console.warn('[welcome-email] Could not send:', (err as Error).message);
+    console.warn("[welcome-email] Could not send:", (err as Error).message);
     return false;
   }
 }
@@ -512,8 +543,8 @@ export async function sendWelcomeEmailIfNew(): Promise<boolean> {
  * ------------------------------------------------------------------ */
 
 /** user_metadata keys used to record a Terms & Conditions acceptance. */
-export const TERMS_ACCEPTED_AT_KEY = 'terms_accepted_at';
-export const TERMS_VERSION_KEY = 'terms_version';
+export const TERMS_ACCEPTED_AT_KEY = "terms_accepted_at";
+export const TERMS_VERSION_KEY = "terms_version";
 
 /**
  * Payload merged into the account's user_metadata, so you can prove which
@@ -526,7 +557,7 @@ export function termsAcceptanceMetadata(acceptedAt: string) {
   };
 }
 
-const PENDING_TERMS_KEY = 'bawatpieza:pending-terms-acceptance';
+const PENDING_TERMS_KEY = "bawatpieza:pending-terms-acceptance";
 
 /**
  * Remembers an acceptance that cannot be attached to an account yet.
@@ -535,11 +566,16 @@ const PENDING_TERMS_KEY = 'bawatpieza:pending-terms-acceptance';
  * web reloads the page entirely) before a user row exists, so the acceptance has
  * to survive the redirect and be attached once the session is established.
  */
-export async function markTermsAcceptancePending(acceptedAt: string): Promise<void> {
+export async function markTermsAcceptancePending(
+  acceptedAt: string,
+): Promise<void> {
   try {
     await storage.setItem(PENDING_TERMS_KEY, acceptedAt);
   } catch (err) {
-    console.warn('[terms] Could not store pending acceptance:', (err as Error).message);
+    console.warn(
+      "[terms] Could not store pending acceptance:",
+      (err as Error).message,
+    );
   }
 }
 
@@ -555,17 +591,24 @@ export async function flushPendingTermsAcceptance(): Promise<void> {
     const pending = await storage.getItem(PENDING_TERMS_KEY);
     if (!pending) return;
 
-    const { data: { session } } = await supabase.auth.getSession();
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
     if (!session?.user) return;
 
-    const { error } = await supabase.auth.updateUser({ data: termsAcceptanceMetadata(pending) });
+    const { error } = await supabase.auth.updateUser({
+      data: termsAcceptanceMetadata(pending),
+    });
     if (error) {
-      console.warn('[terms] Could not record acceptance:', error.message);
+      console.warn("[terms] Could not record acceptance:", error.message);
       return;
     }
     await storage.removeItem(PENDING_TERMS_KEY);
   } catch (err) {
-    console.warn('[terms] Could not record acceptance:', (err as Error).message);
+    console.warn(
+      "[terms] Could not record acceptance:",
+      (err as Error).message,
+    );
   }
 }
 
@@ -585,7 +628,9 @@ export async function flushPendingTermsAcceptance(): Promise<void> {
  */
 let emailRegisteredRpcUnavailable = false;
 
-export async function isEmailRegistered(email: string): Promise<boolean | null> {
+export async function isEmailRegistered(
+  email: string,
+): Promise<boolean | null> {
   const value = email.trim().toLowerCase();
   if (!value) return null;
 
@@ -594,18 +639,23 @@ export async function isEmailRegistered(email: string): Promise<boolean | null> 
   if (emailRegisteredRpcUnavailable) return null;
 
   try {
-    const { data, error } = await supabase.rpc('email_registered', { check_email: value });
+    const { data, error } = await supabase.rpc("email_registered", {
+      check_email: value,
+    });
     if (error) {
-      if (error.code === 'PGRST202' || error.message.includes('email_registered')) {
+      if (
+        error.code === "PGRST202" ||
+        error.message.includes("email_registered")
+      ) {
         emailRegisteredRpcUnavailable = true;
       } else {
-        console.warn('[auth] Email check unavailable:', error.message);
+        console.warn("[auth] Email check unavailable:", error.message);
       }
       return null;
     }
     return data === true;
   } catch (err) {
-    console.warn('[auth] Email check failed:', (err as Error).message);
+    console.warn("[auth] Email check failed:", (err as Error).message);
     return null;
   }
 }

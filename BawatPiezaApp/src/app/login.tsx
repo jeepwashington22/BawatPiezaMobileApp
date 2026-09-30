@@ -11,6 +11,7 @@ import {
   Platform,
   Alert,
   ActivityIndicator,
+  Modal,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -18,6 +19,7 @@ import { useRouter } from "expo-router";
 import { fonts } from "../theme";
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { TermsModal } from "../components/terms-modal";
 import {
   supabase,
   signInWithGoogle,
@@ -25,6 +27,7 @@ import {
   isEmailRegistered,
   isGoogleSignInCancelled,
   describeGoogleSignInError,
+  termsAcceptanceMetadata,
 } from "../lib/supabase";
 import { validateEmail, validateLoginPassword } from "../lib/validation";
 import { apiFetch } from "../lib/api";
@@ -42,13 +45,6 @@ const MUTED = "rgba(255, 255, 255, 0.72)";
 const LINE = "rgba(255, 255, 255, 0.12)";
 const SURFACE = "rgba(15, 23, 36, 0.72)";
 const INPUT_BG = "rgba(255, 255, 255, 0.05)";
-
-/**
- * Requests go through `apiFetch` (`lib/api.ts`), which resolves the API address
- * at runtime: `EXPO_PUBLIC_API_URL` when it names a real host, otherwise the LAN
- * address this bundle was served from. Android, iOS and web therefore keep
- * working when the PC's IP changes, or when `.env` still says `localhost`.
- */
 
 /** Best-effort device description sent to the backend for security alerts. */
 function deviceInfoHeader(): string {
@@ -128,8 +124,12 @@ export default function LoginScreen() {
   const [googleSigningIn, setGoogleSigningIn] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Two-factor state: after a correct password the API emails a 6-digit code
-  // and only releases the session once that code is verified.
+  // Terms & Welcome state
+  const [termsVisible, setTermsVisible] = useState(false);
+  const [showWelcomeModal, setShowWelcomeModal] = useState(false);
+  const [welcomeName, setWelcomeName] = useState("");
+  const processingRef = useRef(false);
+
   const [step, setStep] = useState<"credentials" | "otp">("credentials");
   const [challengeId, setChallengeId] = useState("");
   const [otp, setOtp] = useState("");
@@ -139,26 +139,15 @@ export default function LoginScreen() {
   const [otpError, setOtpError] = useState<string | null>(null);
   const [resendIn, setResendIn] = useState(0);
   const otpInputs = useRef<Array<TextInput | null>>([]);
-  // Structured network problems (offline / unstable / rate limit / timeout)
-  // rendered as an icon + headline + explanation instead of a bare message.
   const [netIssue, setNetIssue] = useState<NetworkIssue | null>(null);
 
-  // SMART ROUTING: Check if a hub exists and route accordingly
   const handleAuthSuccess = async () => {
     try {
       let savedHubId = await AsyncStorage.getItem("bawatpieza_hub_id");
 
-      // === DEV BYPASS: Auto-inject your hub ID during local testing ===
-      if (__DEV__ && !savedHubId) {
-        savedHubId = "YOUR_ESP32_MAC_ADDRESS"; // Put your actual ESP32 MAC here (e.g., "A1B2C3D4E5F6")
-      }
-      // ================================================================
-
       if (savedHubId) {
-        console.log("LoginScreen: Hub found, routing to home dashboard");
         router.replace({ pathname: "/home", params: { hubId: savedHubId } });
       } else {
-        console.log("LoginScreen: No hub found, routing to provisioning");
         router.replace("/provisioning");
       }
     } catch (err) {
@@ -166,7 +155,80 @@ export default function LoginScreen() {
     }
   };
 
-  // Handle OAuth redirect and check for existing session
+  const processSession = async (session: any) => {
+    if (processingRef.current) return;
+    processingRef.current = true;
+    try {
+      // 🛠 DATABASE AUTO-CLEANER:
+      // Wipes the fake "Unknown" surname injected by Supabase DB triggers on Google SSO
+      if (session?.user?.id) {
+        supabase
+          .from("user_accounts")
+          .update({ lastname: null })
+          .eq("id", session.user.id)
+          .ilike("lastname", "unknown")
+          .then();
+      }
+
+      const meta = session?.user?.user_metadata || {};
+      const hasAccepted = !!meta.terms_accepted_at;
+
+      // Extract a friendly first name to greet the user
+      let fName =
+        meta.given_name ||
+        meta.firstname ||
+        meta.full_name?.split(" ")[0] ||
+        "there";
+      setWelcomeName(fName);
+
+      if (hasAccepted) {
+        await handleAuthSuccess();
+      } else {
+        setTermsVisible(true);
+      }
+    } catch (err) {
+      processingRef.current = false;
+    }
+  };
+
+  const handleTermsAccept = async (acceptedAt: string) => {
+    setTermsVisible(false);
+    setSubmitting(true);
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      const meta = user?.user_metadata || {};
+
+      const familyName = meta.family_name || meta.lastname || "";
+      const cleanLastName =
+        familyName.toLowerCase() === "unknown" ? null : familyName;
+
+      const { error } = await supabase.auth.updateUser({
+        data: {
+          ...termsAcceptanceMetadata(acceptedAt),
+          lastname: cleanLastName,
+          family_name: cleanLastName,
+        },
+      });
+      if (error) throw error;
+
+      setShowWelcomeModal(true);
+    } catch (e) {
+      setError("Failed to save terms acceptance. Please try again.");
+      processingRef.current = false;
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleTermsDecline = async () => {
+    setTermsVisible(false);
+    processingRef.current = false;
+    await supabase.auth.signOut();
+    setError("You must read and accept the Terms & Conditions to use the app.");
+  };
+
   useEffect(() => {
     let authSubscription:
       | ReturnType<
@@ -176,25 +238,20 @@ export default function LoginScreen() {
 
     const initAuth = async () => {
       try {
-        // First, check if there's an existing session (from OAuth redirect or previous login)
         const {
           data: { session },
         } = await supabase.auth.getSession();
 
         if (session?.user) {
-          // User is already authenticated - check device status
-          await handleAuthSuccess();
+          await processSession(session);
           return;
         }
 
-        // If no session, listen for auth state changes (handles OAuth callback)
         authSubscription = supabase.auth.onAuthStateChange((event, session) => {
           if (event === "SIGNED_IN" && session?.user) {
-            // Send a welcome email for brand-new Google accounts (non-blocking)
             sendWelcomeEmailIfNew();
-            // Small delay to ensure everything is ready
             setTimeout(() => {
-              void handleAuthSuccess();
+              void processSession(session);
             }, 200);
           }
         }).data.subscription;
@@ -204,8 +261,6 @@ export default function LoginScreen() {
     };
 
     initAuth();
-
-    // Cleanup
     return () => {
       if (authSubscription) {
         authSubscription.unsubscribe();
@@ -213,7 +268,6 @@ export default function LoginScreen() {
     };
   }, [router]);
 
-  // Cooldown countdown for the "Resend code" button.
   useEffect(() => {
     if (resendIn <= 0) return undefined;
     const timer = setInterval(
@@ -223,7 +277,6 @@ export default function LoginScreen() {
     return () => clearInterval(timer);
   }, [resendIn]);
 
-  /** Pulls the human-readable message out of the API's { error: string } envelope. */
   const apiMessage = (payload: unknown, fallback: string): string => {
     if (payload && typeof payload === "object") {
       const record = payload as Record<string, unknown>;
@@ -235,12 +288,11 @@ export default function LoginScreen() {
     return fallback;
   };
 
-  /** Establishes the Supabase session from the tokens released after the OTP check. */
   const completeSignIn = async (
     accessToken: string,
     refreshToken: string,
   ): Promise<void> => {
-    const { error: sessionError } = await supabase.auth.setSession({
+    const { error: sessionError, data } = await supabase.auth.setSession({
       access_token: accessToken,
       refresh_token: refreshToken,
     });
@@ -249,16 +301,17 @@ export default function LoginScreen() {
         "Sign-in succeeded, but the session could not be started. Please try again.",
       );
     }
-    // The password has served its purpose - drop it from memory.
     setPassword("");
     setOtp("");
-    await handleAuthSuccess();
+
+    if (data.session) {
+      await processSession(data.session);
+    }
   };
 
   const handleLogin = async () => {
     const trimmedEmail = email.trim();
 
-    // Validate locally first so obvious mistakes never hit the network.
     const validationError =
       validateEmail(trimmedEmail) ?? validateLoginPassword(password);
     if (validationError) {
@@ -273,9 +326,6 @@ export default function LoginScreen() {
     setNetIssue(null);
 
     try {
-      // Step 1 of two-factor sign-in: the API verifies the credentials, emails
-      // a 6-digit code, and parks the session server-side. No session exists
-      // in the app until the code is verified (see handleVerifyOtp).
       const res = await apiFetch("/accounts/2fa/login", {
         method: "POST",
         headers: {
@@ -291,9 +341,6 @@ export default function LoginScreen() {
       > | null;
 
       if (!res.ok) {
-        // Network-shaped failures (rate limiting, timeouts, server errors) get
-        // a dedicated icon + message; everything else falls through to the
-        // credential-specific handling below.
         const netProblem = issueForHttpStatus(res.status);
         if (netProblem) {
           setNetIssue(netProblem.issue);
@@ -306,10 +353,6 @@ export default function LoginScreen() {
           "Unable to sign in right now. Please try again.",
         );
 
-        // The API keeps unknown email / wrong password indistinguishable; ask
-        // the database which one it was and make the hint specific. When the
-        // check is unavailable (migration 006 not applied) the combined
-        // wording is kept.
         if (res.status === 401) {
           const registered = await isEmailRegistered(trimmedEmail);
           if (registered === false) {
@@ -333,8 +376,6 @@ export default function LoginScreen() {
       const refreshToken =
         typeof session?.refresh_token === "string" ? session.refresh_token : "";
 
-      // 2FA bypassed server-side (LOGIN_2FA_ENABLED=false): the session came
-      // straight back, so skip the code screen entirely.
       if (accessToken && refreshToken) {
         await completeSignIn(accessToken, refreshToken);
         return;
@@ -361,7 +402,6 @@ export default function LoginScreen() {
       setResendIn(60);
       setStep("otp");
     } catch (authError) {
-      // Transport failure (offline mid-request, unstable link, timeout, abort).
       const issue = classifyNetworkError(authError);
       setNetIssue(issue.issue);
       setError(`${issue.title}. ${issue.message}`);
@@ -382,8 +422,6 @@ export default function LoginScreen() {
     setOtpError(null);
 
     try {
-      // Step 2 of two-factor sign-in: exchange the verified code for the
-      // session the API parked when the password was accepted.
       const res = await apiFetch("/accounts/2fa/verify", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -397,7 +435,6 @@ export default function LoginScreen() {
 
       if (!res.ok) {
         if (res.status === 410) {
-          // The challenge expired - restart cleanly from the password step.
           backToCredentials();
           setError(
             apiMessage(
@@ -513,25 +550,21 @@ export default function LoginScreen() {
     setError(null);
 
     try {
-      // Native builds use the OS Google sheet (no browser); Expo Go falls back
-      // to the OAuth browser round trip. See `signInWithGoogle` in lib/supabase.
       await signInWithGoogle();
 
-      // signInWithGoogle() only resolves after the session is actually set.
-      // Navigate immediately instead of relying solely on the auth listener.
       const {
         data: { session },
       } = await supabase.auth.getSession();
+
       if (session?.user) {
         sendWelcomeEmailIfNew();
-        await handleAuthSuccess();
+        await processSession(session);
       } else {
         setError(
           "Sign-in finished, but no session was created. Please try again.",
         );
       }
     } catch (authError) {
-      // Dismissing the Google sheet is a choice, not a failure.
       if (isGoogleSignInCancelled(authError)) return;
 
       const message = describeGoogleSignInError(authError);
@@ -943,6 +976,56 @@ export default function LoginScreen() {
           </ScrollView>
         </KeyboardAvoidingView>
       </SafeAreaView>
+
+      {/* Terms & Conditions gate for new Google SSO accounts */}
+      <TermsModal
+        visible={termsVisible}
+        variant="dark"
+        confirmLabel="I agree"
+        busy={submitting}
+        onAccept={handleTermsAccept}
+        onDecline={handleTermsDecline}
+      />
+
+      {/* Warm Welcome Modal */}
+      <Modal visible={showWelcomeModal} transparent animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <View style={styles.modalHeader}>
+              <View style={styles.modalIconBox}>
+                <Ionicons name="sparkles" size={28} color={BUTTER} />
+              </View>
+              <Text style={styles.modalTitle}>Welcome, {welcomeName}!</Text>
+            </View>
+            <Text style={styles.modalMessage}>
+              Your account is ready. Let's get your spaces set up.
+            </Text>
+            <TouchableOpacity
+              style={[styles.primaryButton, { width: "100%", marginBottom: 0 }]}
+              onPress={() => {
+                setShowWelcomeModal(false);
+                handleAuthSuccess();
+              }}
+              activeOpacity={0.9}
+            >
+              <LinearGradient
+                colors={[PRUSSIAN, PRUSSIAN_SOFT]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={styles.primaryButtonInner}
+              >
+                <Text style={styles.primaryButtonText}>Get Started</Text>
+                <Ionicons
+                  name="arrow-forward"
+                  size={16}
+                  color="#FFFFFF"
+                  style={styles.primaryButtonIcon}
+                />
+              </LinearGradient>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -1322,5 +1405,57 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     fontFamily: fonts.extrabold,
     marginLeft: 4,
+  },
+
+  // Modal styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.65)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 24,
+  },
+  modalCard: {
+    width: "100%",
+    maxWidth: 320,
+    backgroundColor: SURFACE,
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: LINE,
+    padding: 24,
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.3,
+    shadowRadius: 20,
+    elevation: 10,
+  },
+  modalHeader: {
+    alignItems: "center",
+    marginBottom: 16,
+  },
+  modalIconBox: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 16,
+    backgroundColor: "rgba(246, 196, 69, 0.15)",
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontFamily: fonts.extrabold,
+    color: "#FFFFFF",
+    textAlign: "center",
+    letterSpacing: -0.5,
+  },
+  modalMessage: {
+    fontSize: 14,
+    fontFamily: fonts.medium,
+    color: MUTED,
+    textAlign: "center",
+    lineHeight: 20,
+    marginBottom: 24,
   },
 });

@@ -1,5 +1,5 @@
 import { fonts, useTheme, type Mode } from "../../theme";
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import { View, Text, StyleSheet, Pressable } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter, useLocalSearchParams, type Href } from "expo-router";
@@ -82,11 +82,19 @@ export default function HomeScreen() {
 
   const [savedHubId, setSavedHubId] = useState<string | null>(null);
 
+  // DEMO MODE STATE
+  const isDemoModeRef = useRef(false);
+  const [isDemoMode, _setIsDemoMode] = useState(false);
+  const setIsDemoMode = (val: boolean) => {
+    isDemoModeRef.current = val;
+    _setIsDemoMode(val);
+  };
+
   // LIVE HARDWARE STATE
   const [deviceStatus, setDeviceStatus] = useState("Offline");
-  const [batteryPct, setBatteryPct] = useState(0);
-  const [livePower, setLivePower] = useState(0);
-  const [displayVoltage, setDisplayVoltage] = useState("0.00");
+  const [batteryPct, setBatteryPct] = useState<number | null>(null);
+  const [livePower, setLivePower] = useState<number | null>(null);
+  const [displayVoltage, setDisplayVoltage] = useState<string>("--");
   const [todayKwh, setTodayKwh] = useState(4.82);
 
   const [zones, setZones] = useState([
@@ -129,13 +137,9 @@ export default function HomeScreen() {
   useEffect(() => {
     const loadHub = async () => {
       let stored = await AsyncStorage.getItem("bawatpieza_hub_id");
-
-      // === DEV BYPASS ===
       if (__DEV__ && !stored) {
-        stored = "YOUR_ESP32_MAC_ADDRESS"; // Must match the one in login.tsx
+        stored = "YOUR_ESP32_MAC_ADDRESS";
       }
-      // ==================
-
       if (stored) {
         setSavedHubId(stored);
       }
@@ -143,17 +147,42 @@ export default function HomeScreen() {
     loadHub();
   }, []);
 
-  // === REAL MQTT WEBSOCKET CONNECTION ===
+  // === FAKE LIVE DEMO DATA GENERATOR ===
+  useEffect(() => {
+    let interval: ReturnType<typeof setInterval>;
+    if (isDemoMode) {
+      setDeviceStatus("Demo Mode");
+      setBatteryPct(87.4);
+      setLivePower(315);
+      setDisplayVoltage("224.50");
+
+      interval = setInterval(() => {
+        setBatteryPct((prev) =>
+          prev !== null ? Math.max(0, prev - 0.05) : 87.4,
+        );
+        setLivePower(Math.floor(Math.random() * (325 - 305 + 1) + 305));
+        setDisplayVoltage((220 + Math.random() * 5).toFixed(2));
+        setTodayKwh((prev) => +(prev + 0.002).toFixed(3));
+      }, 2000);
+    } else {
+      setDeviceStatus("Offline");
+      setBatteryPct(null);
+      setLivePower(null);
+      setDisplayVoltage("--");
+    }
+    return () => clearInterval(interval);
+  }, [isDemoMode]);
+
+  // === PUBLIC MQTT WEBSOCKET CONNECTION ===
   useEffect(() => {
     const activeHubId = params.hubId || savedHubId;
     if (!activeHubId) return;
 
     const clientId = "app_" + Math.random().toString(16).substring(2, 10);
 
-    // EXPLICIT MOBILE FIX: Split Host, Port, and Path so Android WebSockets don't crash
     const client = new Paho.Client(
-      "c9e7c1e2662642ffbad60cc76af14c10.s1.eu.hivemq.cloud",
-      8884,
+      "broker.hivemq.com",
+      8000,
       "/mqtt",
       clientId,
     );
@@ -161,9 +190,56 @@ export default function HomeScreen() {
     const telemetryTopic = `bawatpieza/devices/${activeHubId}/telemetry`;
     const statusTopic = `bawatpieza/devices/${activeHubId}/status`;
 
+    let watchdog: ReturnType<typeof setTimeout>;
+
+    const startWatchdog = () => {
+      clearTimeout(watchdog);
+      watchdog = setTimeout(() => {
+        if (!isDemoModeRef.current) {
+          setDeviceStatus((prev) =>
+            prev === "Reconnecting..." ? prev : "Offline",
+          );
+          setBatteryPct(null);
+          setLivePower(null);
+          setDisplayVoltage("--");
+        }
+      }, 4000);
+    };
+
+    const connectMQTT = () => {
+      if (client.isConnected()) return;
+
+      client.connect({
+        useSSL: false,
+        timeout: 5,
+        onSuccess: () => {
+          client.subscribe(statusTopic);
+          client.subscribe(telemetryTopic);
+        },
+        onFailure: (err: any) => {
+          if (!isDemoModeRef.current) {
+            setDeviceStatus("Reconnecting...");
+            setBatteryPct(null);
+            setLivePower(null);
+            setDisplayVoltage("--");
+          }
+          setTimeout(connectMQTT, 3000);
+        },
+      });
+    };
+
     client.onConnectionLost = (responseObject: any) => {
-      console.log("MQTT Connection Lost:", responseObject.errorMessage);
-      setDeviceStatus("Offline");
+      if (responseObject.errorCode !== 0) {
+        if (!isDemoModeRef.current) setDeviceStatus("Reconnecting...");
+        setTimeout(connectMQTT, 3000);
+      } else {
+        if (!isDemoModeRef.current) setDeviceStatus("Offline");
+      }
+      if (!isDemoModeRef.current) {
+        setBatteryPct(null);
+        setLivePower(null);
+        setDisplayVoltage("--");
+      }
     };
 
     client.onMessageArrived = (message: any) => {
@@ -171,10 +247,20 @@ export default function HomeScreen() {
         const payload = JSON.parse(message.payloadString);
 
         if (message.destinationName === statusTopic) {
-          setDeviceStatus(payload.status === "online" ? "Live" : "Offline");
+          if (!isDemoModeRef.current) {
+            setDeviceStatus(payload.status === "online" ? "Online" : "Offline");
+          }
+          if (payload.status === "online") startWatchdog();
         }
 
         if (message.destinationName === telemetryTopic) {
+          if (isDemoModeRef.current) {
+            setIsDemoMode(false);
+          }
+
+          setDeviceStatus("Online");
+          startWatchdog();
+
           if (payload.percentage !== undefined)
             setBatteryPct(payload.percentage);
           if (payload.voltage !== undefined)
@@ -188,23 +274,10 @@ export default function HomeScreen() {
       }
     };
 
-    client.connect({
-      useSSL: true,
-      userName: "bawatpieza_hub",
-      password: "7Y883J3R2AD",
-      timeout: 10,
-      onSuccess: () => {
-        console.log("Successfully connected to HiveMQ via Mobile WebSockets!");
-        client.subscribe(statusTopic);
-        client.subscribe(telemetryTopic);
-      },
-      onFailure: (err: any) => {
-        console.error("MQTT Connection failed:", err.errorMessage);
-        setDeviceStatus("Offline");
-      },
-    });
+    connectMQTT();
 
     return () => {
+      clearTimeout(watchdog);
       if (client.isConnected()) {
         client.disconnect();
       }
@@ -215,15 +288,31 @@ export default function HomeScreen() {
     return <LoadingScreen label="Verifying session" />;
   }
 
+  const isActive = deviceStatus === "Online" || isDemoMode;
+  const isReconnecting = deviceStatus === "Reconnecting...";
+  const isOffline = !isActive && !isReconnecting;
+
   const stats = [
     { label: "VOLTAGE", value: displayVoltage, unit: "V" },
-    { label: "POWER", value: livePower.toString(), unit: "W" },
-    { label: "BATTERY", value: batteryPct.toString(), unit: "%" },
+    {
+      label: "POWER",
+      value: livePower !== null ? livePower.toString() : "--",
+      unit: "W",
+    },
+    {
+      label: "BATTERY",
+      value: batteryPct !== null ? Math.floor(batteryPct).toString() : "--",
+      unit: "%",
+    },
   ];
 
   const yesterdayKwh = "5.36";
   const consumptionDelta = "-10.1%";
-  const isOnline = deviceStatus === "Live";
+
+  // Chart line calculations
+  const activeChartPath =
+    "M0 105 C24 91 38 79 60 82 S92 99 116 87 S147 41 170 51 S203 83 228 65 S256 18 280 42 S302 54 320 31";
+  const flatChartPath = "M0 115 L320 115";
 
   return (
     <ScreenShell>
@@ -236,44 +325,127 @@ export default function HomeScreen() {
         <TopBar gutter={0} title="Dashboard" showTitleChevron lightContent />
       </LinearGradient>
 
+      {/* ============ OFFLINE BANNER ============ */}
+      {isOffline && (
+        <EnterView
+          style={{ marginHorizontal: scale(20), marginTop: scale(16) }}
+        >
+          <View
+            style={[
+              st.offlineNotice,
+              {
+                backgroundColor:
+                  mode === "dark"
+                    ? "rgba(255,255,255,0.05)"
+                    : "rgba(10,42,74,0.04)",
+                borderColor:
+                  mode === "dark"
+                    ? "rgba(255,255,255,0.12)"
+                    : "rgba(10,42,74,0.1)",
+              },
+            ]}
+          >
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                gap: scale(12),
+              }}
+            >
+              <View
+                style={{
+                  backgroundColor:
+                    mode === "dark"
+                      ? "rgba(255,255,255,0.1)"
+                      : "rgba(10,42,74,0.08)",
+                  padding: scale(9),
+                  borderRadius: 99,
+                }}
+              >
+                <Ionicons
+                  name="hardware-chip-outline"
+                  size={scale(20)}
+                  color={c.muted}
+                />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[st.offlineNoticeTitle, { color: c.text }]}>
+                  Hardware is sleeping
+                </Text>
+                <Text style={[st.offlineNoticeDesc, { color: c.muted }]}>
+                  Your dashboard is paused. Power on your hub to resume live
+                  telemetry and controls.
+                </Text>
+              </View>
+            </View>
+            <Pressable onPress={() => setIsDemoMode(true)} style={st.demoBtn}>
+              <Ionicons name="play" size={scale(12)} color="#FFFFFF" />
+              <Text style={st.demoBtnText}>Show Demo Data</Text>
+            </Pressable>
+          </View>
+        </EnterView>
+      )}
+
       {/* ============ BATTERY HEALTH ============ */}
-      <EnterView style={st.heroBleed}>
+      <EnterView
+        style={[st.heroBleed, isOffline ? { marginTop: scale(16) } : {}]}
+      >
         <LinearGradient
-          colors={["#F97316", "#FB923C"]}
+          colors={
+            isActive
+              ? ["#F97316", "#FB923C"]
+              : mode === "dark"
+                ? ["#1C1C1E", "#2C2C2E"]
+                : ["#E5E5EA", "#F2F2F7"]
+          }
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 1 }}
-          style={[
-            st.energyCard,
-            { borderWidth: 0, opacity: isOnline ? 1 : 0.6 },
-          ]}
+          style={[st.energyCard, { borderWidth: 0 }]}
         >
-          <LinearGradient
-            colors={["#FFF7ED", "#FDBA74", "#F97316"]}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 0 }}
-            style={st.energyTrim}
-          />
+          {isActive && (
+            <LinearGradient
+              colors={["#FFF7ED", "#FDBA74", "#F97316"]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+              style={st.energyTrim}
+            />
+          )}
           <Ionicons
             name="battery-half"
             size={scale(108)}
-            color="rgba(255,255,255,0.12)"
+            color={
+              isActive ? "rgba(255,255,255,0.12)" : "rgba(150,150,150,0.06)"
+            }
             style={st.energyBolt}
           />
           <View style={st.healthIntro}>
-            <Text style={st.healthIntroTitle}>Battery health</Text>
-            <Text style={st.healthIntroDescription}>
-              Strong charge capacity for today&apos;s energy needs
+            <Text style={[st.healthIntroTitle, !isActive && { color: c.text }]}>
+              Battery health
+            </Text>
+            <Text
+              style={[
+                st.healthIntroDescription,
+                !isActive && { color: c.muted },
+              ]}
+            >
+              {isActive
+                ? "Strong charge capacity for today's energy needs"
+                : "Awaiting connection to read capacity"}
             </Text>
           </View>
           <View style={st.healthBody}>
             <View style={st.healthNumberRow}>
-              <Text style={st.healthNumber}>
-                {isOnline ? batteryPct : "--"}
+              <Text style={[st.healthNumber, !isActive && { color: c.text }]}>
+                {batteryPct !== null ? Math.floor(batteryPct) : "--"}
               </Text>
-              <Text style={st.healthNumberUnit}>%</Text>
+              <Text
+                style={[st.healthNumberUnit, !isActive && { color: c.muted }]}
+              >
+                %
+              </Text>
             </View>
-            <Text style={st.healthStatus}>
-              {isOnline ? "HEALTHY" : "OFFLINE"}
+            <Text style={[st.healthStatus, !isActive && { color: c.muted }]}>
+              {isActive ? "HEALTHY" : "OFFLINE"}
             </Text>
           </View>
         </LinearGradient>
@@ -309,12 +481,12 @@ export default function HomeScreen() {
               </Text>
               <View style={st.kwhRow}>
                 <Text style={[st.kwhValue, { color: c.text }]}>
-                  {todayKwh.toFixed(2)}
+                  {isActive ? todayKwh.toFixed(2) : "--"}
                 </Text>
                 <Text style={st.kwhUnit}>kWh</Text>
               </View>
             </View>
-            <View style={st.comparisonPill}>
+            <View style={[st.comparisonPill, !isActive && { opacity: 0.4 }]}>
               <Ionicons name="trending-down" size={scale(13)} color="#2563EB" />
               <View>
                 <Text style={st.comparisonValue}>{consumptionDelta}</Text>
@@ -322,8 +494,18 @@ export default function HomeScreen() {
               </View>
             </View>
           </View>
-          <View style={st.comparisonTrack}>
-            <View style={st.comparisonFill} />
+          <View
+            style={[
+              st.comparisonTrack,
+              !isActive && { backgroundColor: c.line },
+            ]}
+          >
+            <View
+              style={[
+                st.comparisonFill,
+                !isActive && { backgroundColor: c.muted, width: "0%" },
+              ]}
+            />
           </View>
           <Text
             style={[
@@ -369,7 +551,7 @@ export default function HomeScreen() {
                 </Text>
                 <View style={st.statValueRow}>
                   <Text style={[st.statValue, { color: c.text }]}>
-                    {isOnline ? s.value : "--"}
+                    {s.value}
                   </Text>
                   <Text style={st.statUnit}>{s.unit}</Text>
                 </View>
@@ -401,8 +583,16 @@ export default function HomeScreen() {
               </Text>
             </View>
             <View style={st.chartMetric}>
-              <Text style={st.chartMetricValue}>{todayKwh.toFixed(2)}</Text>
-              <Text style={st.chartMetricUnit}>kWh</Text>
+              <Text
+                style={[st.chartMetricValue, !isActive && { color: c.muted }]}
+              >
+                {isActive ? todayKwh.toFixed(2) : "--"}
+              </Text>
+              <Text
+                style={[st.chartMetricUnit, !isActive && { color: c.muted }]}
+              >
+                kWh
+              </Text>
             </View>
           </View>
           <View style={st.chartWrap}>
@@ -430,16 +620,19 @@ export default function HomeScreen() {
                   strokeWidth="1"
                 />
               ))}
+              {isActive && (
+                <Path
+                  d={activeChartPath + " L320 132 L0 132 Z"}
+                  fill="url(#energyFill)"
+                />
+              )}
               <Path
-                d="M0 105 C24 91 38 79 60 82 S92 99 116 87 S147 41 170 51 S203 83 228 65 S256 18 280 42 S302 54 320 31 L320 132 L0 132 Z"
-                fill="url(#energyFill)"
-              />
-              <Path
-                d="M0 105 C24 91 38 79 60 82 S92 99 116 87 S147 41 170 51 S203 83 228 65 S256 18 280 42 S302 54 320 31"
+                d={isActive ? activeChartPath : flatChartPath}
                 fill="none"
-                stroke="#2DD4BF"
-                strokeWidth="3"
+                stroke={isActive ? "#2DD4BF" : c.muted}
+                strokeWidth={isActive ? "3" : "2"}
                 strokeLinecap="round"
+                strokeDasharray={isActive ? "" : "6,6"}
               />
               <Line
                 x1="0"
@@ -462,185 +655,204 @@ export default function HomeScreen() {
       </EnterView>
 
       <EnterView delay={270}>
-        <Glass mode={mode} style={st.zonesCard}>
-          <View style={st.zonesHeader}>
-            <View style={st.zonesTitleGroup}>
-              <View style={st.zonesAccent} />
-              <View>
-                <Text
-                  style={[
-                    st.zonesEyebrow,
-                    {
-                      color:
-                        mode === "dark"
-                          ? "rgba(255,255,255,0.52)"
-                          : "rgba(10,42,74,0.52)",
-                    },
-                  ]}
-                >
-                  CONNECTED SPACES
-                </Text>
-                <Text style={[st.zonesTitle, { color: c.text }]}>My zones</Text>
-              </View>
-            </View>
-            <Pressable
-              onPress={() => router.push("/pages/schedule")}
-              style={st.manageButton}
-            >
-              <Text
-                style={[
-                  st.manageText,
-                  { color: mode === "dark" ? "#FFFFFF" : "#0B63B7" },
-                ]}
-              >
-                Manage
-              </Text>
-              <Ionicons
-                name="arrow-forward"
-                size={scale(13)}
-                color={mode === "dark" ? "#FFFFFF" : "#0B63B7"}
-              />
-            </Pressable>
-          </View>
-          <View
-            style={[
-              st.zonesSummary,
-              {
-                backgroundColor:
-                  mode === "dark"
-                    ? "rgba(255,255,255,0.06)"
-                    : "rgba(11,99,183,0.07)",
-              },
-            ]}
-          >
-            <Ionicons
-              name="radio-outline"
-              size={scale(14)}
-              color={mode === "dark" ? "#FFFFFF" : "#0B63B7"}
-            />
-            <Text style={[st.zonesSummaryText, { color: c.text }]}>
-              {zones.filter((zone) => zone.on).length} of {zones.length} zones
-              active
-            </Text>
-            <View
-              style={[
-                st.zonesLiveDot,
-                !isOnline && { backgroundColor: c.muted },
-              ]}
-            />
-            <Text
-              style={[
-                st.zonesLiveText,
-                {
-                  color: mode === "dark" ? "rgba(255,255,255,0.62)" : "#0B63B7",
-                },
-              ]}
-            >
-              {isOnline ? "LIVE" : "OFFLINE"}
-            </Text>
-          </View>
-          {zones.length === 0 && (
-            <Text
-              style={{
-                color:
-                  mode === "dark"
-                    ? "rgba(255,255,255,0.4)"
-                    : "rgba(10,42,74,0.4)",
-                fontSize: scale(10),
-                fontFamily: fonts.medium,
-                textAlign: "center",
-                paddingVertical: scale(16),
-              }}
-            >
-              No zones yet
-            </Text>
-          )}
-          {zones.map((z, i) => (
-            <View key={z.id} style={st.zoneRow}>
-              {i > 0 && <View style={st.zoneDivider} />}
-              <Pressable
-                onPress={() =>
-                  router.push(
-                    `/pages/zones/${z.id}?name=${encodeURIComponent(z.name)}&source=${encodeURIComponent(z.source)}&detail=${encodeURIComponent(z.detail)}&on=${z.on}` as Href,
-                  )
-                }
-                style={{
-                  paddingVertical: scale(12),
-                  paddingHorizontal: scale(14),
-                }}
-              >
+        <Glass
+          mode={mode}
+          style={[st.zonesCard, !isActive && { opacity: 0.65 }]}
+        >
+          <View pointerEvents={isActive ? "auto" : "none"}>
+            <View style={st.zonesHeader}>
+              <View style={st.zonesTitleGroup}>
                 <View
-                  style={{
-                    flexDirection: "row",
-                    alignItems: "center",
-                    alignSelf: "stretch",
-                  }}
-                >
-                  <View
+                  style={[
+                    st.zonesAccent,
+                    !isActive && { backgroundColor: c.muted },
+                  ]}
+                />
+                <View>
+                  <Text
                     style={[
-                      st.zoneIcon,
+                      st.zonesEyebrow,
                       {
-                        backgroundColor:
+                        color:
                           mode === "dark"
-                            ? "rgba(255,255,255,0.06)"
-                            : "rgba(10,42,74,0.05)",
-                      },
-                      z.on && {
-                        backgroundColor: accent(0.16),
-                        borderColor: accent(0.45),
+                            ? "rgba(255,255,255,0.52)"
+                            : "rgba(10,42,74,0.52)",
                       },
                     ]}
                   >
-                    <Ionicons
-                      name="bulb"
-                      size={scale(15)}
-                      color={
-                        z.on
-                          ? accent()
-                          : mode === "dark"
-                            ? "rgba(255,255,255,0.35)"
-                            : "rgba(10,42,74,0.3)"
+                    CONNECTED SPACES
+                  </Text>
+                  <Text style={[st.zonesTitle, { color: c.text }]}>
+                    My zones
+                  </Text>
+                </View>
+              </View>
+              <Pressable
+                onPress={() => router.push("/pages/schedule")}
+                style={st.manageButton}
+              >
+                <Text
+                  style={[
+                    st.manageText,
+                    { color: mode === "dark" ? "#FFFFFF" : "#0B63B7" },
+                  ]}
+                >
+                  Manage
+                </Text>
+                <Ionicons
+                  name="arrow-forward"
+                  size={scale(13)}
+                  color={mode === "dark" ? "#FFFFFF" : "#0B63B7"}
+                />
+              </Pressable>
+            </View>
+            <View
+              style={[
+                st.zonesSummary,
+                {
+                  backgroundColor:
+                    mode === "dark"
+                      ? "rgba(255,255,255,0.06)"
+                      : "rgba(11,99,183,0.07)",
+                },
+              ]}
+            >
+              <Ionicons
+                name="radio-outline"
+                size={scale(14)}
+                color={
+                  isActive ? (mode === "dark" ? "#FFFFFF" : "#0B63B7") : c.muted
+                }
+              />
+              <Text style={[st.zonesSummaryText, { color: c.text }]}>
+                {isActive ? zones.filter((zone) => zone.on).length : 0} of{" "}
+                {zones.length} zones active
+              </Text>
+              <View
+                style={[
+                  st.zonesLiveDot,
+                  !isActive && { backgroundColor: c.muted },
+                ]}
+              />
+              <Text
+                style={[
+                  st.zonesLiveText,
+                  {
+                    color: isActive
+                      ? mode === "dark"
+                        ? "rgba(255,255,255,0.62)"
+                        : "#0B63B7"
+                      : c.muted,
+                  },
+                ]}
+              >
+                {isActive ? "ONLINE" : "STANDBY"}
+              </Text>
+            </View>
+            {zones.length === 0 && (
+              <Text
+                style={{
+                  color:
+                    mode === "dark"
+                      ? "rgba(255,255,255,0.4)"
+                      : "rgba(10,42,74,0.4)",
+                  fontSize: scale(10),
+                  fontFamily: fonts.medium,
+                  textAlign: "center",
+                  paddingVertical: scale(16),
+                }}
+              >
+                No zones yet
+              </Text>
+            )}
+            {zones.map((z, i) => (
+              <View key={z.id} style={st.zoneRow}>
+                {i > 0 && <View style={st.zoneDivider} />}
+                <Pressable
+                  onPress={() =>
+                    router.push(
+                      `/pages/zones/${z.id}?name=${encodeURIComponent(z.name)}&source=${encodeURIComponent(z.source)}&detail=${encodeURIComponent(z.detail)}&on=${z.on}` as Href,
+                    )
+                  }
+                  style={{
+                    paddingVertical: scale(12),
+                    paddingHorizontal: scale(14),
+                  }}
+                >
+                  <View
+                    style={{
+                      flexDirection: "row",
+                      alignItems: "center",
+                      alignSelf: "stretch",
+                    }}
+                  >
+                    <View
+                      style={[
+                        st.zoneIcon,
+                        {
+                          backgroundColor:
+                            mode === "dark"
+                              ? "rgba(255,255,255,0.06)"
+                              : "rgba(10,42,74,0.05)",
+                        },
+                        isActive &&
+                          z.on && {
+                            backgroundColor: accent(0.16),
+                            borderColor: accent(0.45),
+                          },
+                      ]}
+                    >
+                      <Ionicons
+                        name="bulb"
+                        size={scale(15)}
+                        color={
+                          isActive && z.on
+                            ? accent()
+                            : mode === "dark"
+                              ? "rgba(255,255,255,0.35)"
+                              : "rgba(10,42,74,0.3)"
+                        }
+                      />
+                    </View>
+                    <View style={{ flex: 1, marginLeft: scale(11) }}>
+                      <Text
+                        style={{
+                          color: c.text,
+                          fontSize: scale(12.5),
+                          fontFamily: fonts.bold,
+                        }}
+                      >
+                        {z.name}
+                      </Text>
+                      <Text
+                        style={{
+                          color:
+                            mode === "dark"
+                              ? "rgba(255,255,255,0.55)"
+                              : "rgba(10,42,74,0.5)",
+                          fontSize: scale(9.5),
+                          fontFamily: fonts.medium,
+                          marginTop: 1,
+                        }}
+                      >
+                        {z.source} · {z.detail}
+                      </Text>
+                    </View>
+                    <Toggle
+                      on={isActive && z.on}
+                      onToggle={() =>
+                        setZones((zs) =>
+                          zs.map((x) =>
+                            x.id === z.id ? { ...x, on: !x.on } : x,
+                          ),
+                        )
                       }
                     />
                   </View>
-                  <View style={{ flex: 1, marginLeft: scale(11) }}>
-                    <Text
-                      style={{
-                        color: c.text,
-                        fontSize: scale(12.5),
-                        fontFamily: fonts.bold,
-                      }}
-                    >
-                      {z.name}
-                    </Text>
-                    <Text
-                      style={{
-                        color:
-                          mode === "dark"
-                            ? "rgba(255,255,255,0.55)"
-                            : "rgba(10,42,74,0.5)",
-                        fontSize: scale(9.5),
-                        fontFamily: fonts.medium,
-                        marginTop: 1,
-                      }}
-                    >
-                      {z.source} · {z.detail}
-                    </Text>
-                  </View>
-                  <Toggle
-                    on={z.on}
-                    onToggle={() =>
-                      setZones((zs) =>
-                        zs.map((x) =>
-                          x.id === z.id ? { ...x, on: !x.on } : x,
-                        ),
-                      )
-                    }
-                  />
-                </View>
-              </Pressable>
-            </View>
-          ))}
+                </Pressable>
+              </View>
+            ))}
+          </View>
         </Glass>
       </EnterView>
 
@@ -677,8 +889,7 @@ export default function HomeScreen() {
                   marginTop: scale(3),
                 }}
               >
-                {/* Changes to Red if device is offline */}
-                <LiveDot color={isOnline ? "#4CA83E" : "#EF4444"} />
+                <LiveDot color={isActive ? "#4CA83E" : c.muted} />
                 <Text
                   style={{
                     color: c.text,
@@ -690,31 +901,57 @@ export default function HomeScreen() {
                 </Text>
               </View>
             </View>
-            <View
-              style={[
-                st.uptimePill,
-                {
-                  backgroundColor: isOnline
-                    ? accent(0.12)
-                    : "rgba(150,150,150,0.12)",
-                  borderColor: isOnline ? accent(0.3) : "rgba(150,150,150,0.3)",
-                },
-              ]}
-            >
-              <Ionicons
-                name={isOnline ? "time-outline" : "alert-circle-outline"}
-                size={scale(11)}
-                color={isOnline ? accent() : c.muted}
-              />
-              <Text
-                style={{
-                  color: isOnline ? accent() : c.muted,
-                  fontSize: scale(9.5),
-                  fontFamily: fonts.bold,
-                }}
+
+            <View style={{ alignItems: "flex-end", gap: scale(6) }}>
+              <View
+                style={[
+                  st.uptimePill,
+                  {
+                    backgroundColor: isActive
+                      ? accent(0.12)
+                      : "rgba(150,150,150,0.12)",
+                    borderColor: isActive
+                      ? accent(0.3)
+                      : "rgba(150,150,150,0.3)",
+                  },
+                ]}
               >
-                {isOnline ? "Tracking live data" : "Hub unreachable"}
-              </Text>
+                <Ionicons
+                  name={isActive ? "time-outline" : "moon-outline"}
+                  size={scale(11)}
+                  color={isActive ? accent() : c.muted}
+                />
+                <Text
+                  style={{
+                    color: isActive ? accent() : c.muted,
+                    fontSize: scale(9.5),
+                    fontFamily: fonts.bold,
+                  }}
+                >
+                  {isDemoMode
+                    ? "Simulating data"
+                    : isActive
+                      ? "Tracking live data"
+                      : "Offline mode"}
+                </Text>
+              </View>
+
+              {isDemoMode && (
+                <Pressable
+                  onPress={() => setIsDemoMode(false)}
+                  style={{ paddingHorizontal: scale(4) }}
+                >
+                  <Text
+                    style={{
+                      color: "#EF4444",
+                      fontSize: scale(8.5),
+                      fontFamily: fonts.bold,
+                    }}
+                  >
+                    Stop Demo
+                  </Text>
+                </Pressable>
+              )}
             </View>
           </View>
         </Card>
@@ -767,28 +1004,49 @@ export default function HomeScreen() {
             <View
               style={[
                 st.stepsPill,
-                { backgroundColor: accent(0.14), borderColor: accent(0.4) },
+                isActive
+                  ? { backgroundColor: accent(0.14), borderColor: accent(0.4) }
+                  : {
+                      backgroundColor: "rgba(150,150,150,0.12)",
+                      borderColor: "rgba(150,150,150,0.3)",
+                    },
               ]}
             >
               <Ionicons
                 name="footsteps"
                 size={scale(13)}
-                color={mode === "dark" ? "#FFFFFF" : NAVY}
+                color={
+                  isActive ? (mode === "dark" ? "#FFFFFF" : NAVY) : c.muted
+                }
               />
-              <Text style={[st.stepsPillText, { color: c.text }]}>1,248</Text>
+              <Text
+                style={[
+                  st.stepsPillText,
+                  { color: isActive ? c.text : c.muted },
+                ]}
+              >
+                {isActive ? "1,248" : "--"}
+              </Text>
             </View>
           </View>
 
           <View
             style={[
               st.kineticRow,
-              { borderColor: accent(0.35), backgroundColor: accent(0.1) },
+              isActive
+                ? { borderColor: accent(0.35), backgroundColor: accent(0.1) }
+                : {
+                    borderColor: "rgba(150,150,150,0.25)",
+                    backgroundColor: "rgba(150,150,150,0.08)",
+                  },
             ]}
           >
             <Ionicons
               name="footsteps"
               size={scale(14)}
-              color={mode === "dark" ? "#FFFFFF" : "#B4771B"}
+              color={
+                isActive ? (mode === "dark" ? "#FFFFFF" : "#B4771B") : c.muted
+              }
             />
             <Text
               style={[
@@ -805,12 +1063,16 @@ export default function HomeScreen() {
             </Text>
             <Text
               style={{
-                color: mode === "dark" ? "#FFFFFF" : "#4CA83E",
+                color: isActive
+                  ? mode === "dark"
+                    ? "#FFFFFF"
+                    : "#4CA83E"
+                  : c.muted,
                 fontSize: scale(11),
                 fontFamily: fonts.extrabold,
               }}
             >
-              +0.34 kWh
+              {isActive ? "+0.34 kWh" : "-- kWh"}
             </Text>
           </View>
 
@@ -829,32 +1091,35 @@ export default function HomeScreen() {
               <View key={r} style={st.heatRow}>
                 {Array.from({ length: HEAT_COLS }, (_, col) => {
                   const i = r * HEAT_COLS + col;
-                  const v = heatTiles[i];
+                  const v = isActive ? heatTiles[i] : 0.05; // Drop value strictly to baseline if offline
                   const active = activeTile === i;
                   return (
                     <Pressable
                       key={col}
-                      onPress={() => setActiveTile(active ? null : i)}
+                      onPress={() => {
+                        if (isActive) setActiveTile(active ? null : i);
+                      }}
                       style={[
                         st.heatTile,
                         {
                           backgroundColor: heatColor(v, mode),
                           shadowColor: mode === "dark" ? "#FFFFFF" : "#4CA83E",
-                          shadowOpacity: v * 0.9,
+                          shadowOpacity: isActive ? v * 0.9 : 0,
                           shadowRadius: scale(9),
                           borderWidth: mode === "dark" ? 1 : 0,
                           borderColor: "rgba(255,255,255,0.10)",
                         },
-                        active && [
-                          st.heatTileActive,
-                          {
-                            borderColor:
-                              mode === "dark" ? "#FFFFFF" : "#4CA83E",
-                          },
-                        ],
+                        active &&
+                          isActive && [
+                            st.heatTileActive,
+                            {
+                              borderColor:
+                                mode === "dark" ? "#FFFFFF" : "#4CA83E",
+                            },
+                          ],
                       ]}
                     >
-                      {active && (
+                      {active && isActive && (
                         <Ionicons
                           name="footsteps"
                           size={scale(11)}
@@ -890,7 +1155,13 @@ export default function HomeScreen() {
             >
               Less
             </Text>
-            <View style={{ flexDirection: "row", gap: scale(3) }}>
+            <View
+              style={{
+                flexDirection: "row",
+                gap: scale(3),
+                opacity: isActive ? 1 : 0.4,
+              }}
+            >
               {[0.1, 0.35, 0.6, 0.82, 0.98].map((v, i) => (
                 <View
                   key={i}
@@ -916,7 +1187,7 @@ export default function HomeScreen() {
             </Text>
           </View>
 
-          {activeTile !== null && (
+          {activeTile !== null && isActive && (
             <Text
               style={[
                 st.tileInfo,
@@ -948,6 +1219,39 @@ const st = StyleSheet.create({
     borderBottomColor: "#F97316",
   },
   heroBleed: { marginHorizontal: -20 },
+
+  // Offline Banner Styles
+  offlineNotice: {
+    flexDirection: "column",
+    gap: scale(12),
+    borderWidth: 1,
+    borderRadius: scale(14),
+    padding: scale(14),
+  },
+  offlineNoticeTitle: {
+    fontSize: scale(12),
+    fontFamily: fonts.extrabold,
+  },
+  offlineNoticeDesc: {
+    fontSize: scale(9.5),
+    fontFamily: fonts.medium,
+    marginTop: scale(2),
+  },
+  demoBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: scale(6),
+    backgroundColor: "#0B63B7",
+    paddingVertical: scale(9),
+    borderRadius: scale(8),
+  },
+  demoBtnText: {
+    color: "#FFFFFF",
+    fontSize: scale(10.5),
+    fontFamily: fonts.bold,
+  },
+
   energyCard: {
     position: "relative",
     overflow: "hidden",

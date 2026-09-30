@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
-  Alert,
+  ActivityIndicator,
   KeyboardAvoidingView,
   Linking,
   Modal,
@@ -62,31 +62,12 @@ const STEPS: Step[] = [
   },
 ];
 
-/** The screen drives step 1 (joining the hub's network); the hub finishes the rest. */
 const ACTIVE_STEP = 0;
 const TOTAL_STEPS = 2;
 
-/* ---------------------------- responsive helpers --------------------------- */
-
-/**
- * Type ramp guard. `scale()` already shrinks with the viewport, but on very
- * narrow phones (320–360 dp) it drops below a comfortable reading size, so the
- * ramp never goes under 90% of its design value. Layout metrics still use
- * `scale()` directly, and the content column is capped on large screens
- * (tablets / foldables) so lines never stretch past a comfortable measure.
- */
 const fs = (v: number) => Math.max(scale(v), v * 0.9);
-
-/** Content column shared by every screen size — centred once the screen is wider. */
 const COLUMN_MAX = 560;
 
-/* ------------------------- mode-aware brand palette ------------------------ */
-
-/**
- * The app ships two themes: light is navy + house gold, dark is a strict
- * black-and-white canvas. Everything below therefore resolves through the theme
- * mode instead of hard-coded brand blues, so both modes stay on-brand.
- */
 function themePalette(mode: Mode, c: ThemeColors) {
   const dark = mode === "dark";
   return {
@@ -112,31 +93,89 @@ function themePalette(mode: Mode, c: ThemeColors) {
   };
 }
 
-/* --------------------------------- screen --------------------------------- */
-
 export function ProvisioningScreen() {
   const router = useRouter();
   const { colors: c, mode } = useTheme();
   const { width, height } = useWindowDimensions();
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
+
   const [ssid, setSsid] = useState("");
   const [wifiPassword, setWifiPassword] = useState("");
   const [showWifiPassword, setShowWifiPassword] = useState(false);
   const [focusedField, setFocusedField] = useState<"ssid" | "password" | null>(
     null,
   );
+
   const [scannerVisible, setScannerVisible] = useState(false);
   const [scanLocked, setScanLocked] = useState(false);
   const [torchOn, setTorchOn] = useState(false);
 
+  // TOUR GUIDE STATE
+  const [tourVisible, setTourVisible] = useState(false);
+
+  const [isConnecting, setIsConnecting] = useState(false);
+  const [modalConfig, setModalConfig] = useState<{
+    visible: boolean;
+    title: string;
+    message: string;
+    type: "error" | "success" | "info";
+    onConfirm?: () => void;
+  }>({
+    visible: false,
+    title: "",
+    message: "",
+    type: "info",
+  });
+
   const p = themePalette(mode, c);
 
-  /* Responsive metrics: gutter tightens on small phones, opens up on tablets. */
   const compact = width < 375;
   const wide = width >= 700;
   const gutter = wide ? 24 : compact ? 14 : 20;
   const heroMinHeight = Math.max(148, Math.min(height * 0.24, 196));
   const scanFrame = Math.round(Math.min(width - 76, height * 0.38, 272));
+
+  // Initialize Tour Guide Safely with a new storage key
+  useEffect(() => {
+    let isMounted = true;
+    // We use a fresh key here so it ignores the old cached value from your testing
+    AsyncStorage.getItem("bawatpieza_tour_seen_modal").then((seen) => {
+      if (isMounted && !seen) {
+        setTourVisible(true);
+      }
+    });
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const dismissTour = () => {
+    setTourVisible(false);
+    AsyncStorage.setItem("bawatpieza_tour_seen_modal", "true");
+  };
+
+  const handleSsidChange = (text: string) => {
+    setSsid(text);
+  };
+
+  const handlePasswordChange = (text: string) => {
+    setWifiPassword(text);
+  };
+
+  const showModal = (
+    title: string,
+    message: string,
+    type: "error" | "success" | "info",
+    onConfirm?: () => void,
+  ) => {
+    setModalConfig({ visible: true, title, message, type, onConfirm });
+  };
+
+  const closeModal = () => {
+    const { onConfirm } = modalConfig;
+    setModalConfig((prev) => ({ ...prev, visible: false }));
+    if (onConfirm) onConfirm();
+  };
 
   const openWifiSettings = () => {
     const open =
@@ -152,12 +191,17 @@ export function ProvisioningScreen() {
 
   const connectToHub = async () => {
     if (!ssid || !wifiPassword) {
-      Alert.alert(
+      showModal(
         "Missing Details",
         "Please enter your Wi-Fi name and password.",
+        "error",
       );
       return;
     }
+
+    setIsConnecting(true);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8000); // 8-second timeout to prevent app hanging
 
     try {
       const formData = new URLSearchParams();
@@ -170,35 +214,53 @@ export function ProvisioningScreen() {
           "Content-Type": "application/x-www-form-urlencoded",
         },
         body: formData.toString(),
+        signal: controller.signal,
       });
+
+      clearTimeout(timeout);
 
       if (response.ok) {
         const data = await response.json();
         if (data.status === "success") {
-          // 1. Capture the unique MAC address sent by the ESP32
           const hubId = data.hub_id;
-
-          // 2. Save it permanently to AsyncStorage so the app remembers it
           await AsyncStorage.setItem("bawatpieza_hub_id", hubId);
 
-          Alert.alert(
-            "Connected!",
-            "The hub is now joining your Wi-Fi network.",
+          setIsConnecting(false);
+          // Explicitly warn them to reconnect internet before continuing to avoid MQTT crash on Home Screen
+          showModal(
+            "Hub Configured!",
+            "The hub is successfully joining your network.\n\nIMPORTANT: Reconnect your phone to your normal Wi-Fi (with internet) before tapping Continue.",
+            "success",
+            () => {
+              router.replace({
+                pathname: "/home",
+                params: { hubId: hubId },
+              });
+            },
           );
-
-          // 3. Pass the hubId to the home screen so it knows which MQTT topic to listen to
-          router.replace({
-            pathname: "/home",
-            params: { hubId: hubId },
-          });
+        } else {
+          setIsConnecting(false);
+          showModal(
+            "Error",
+            "The hub rejected the connection. Try again.",
+            "error",
+          );
         }
       } else {
-        Alert.alert("Error", "The hub rejected the connection. Try again.");
+        setIsConnecting(false);
+        showModal(
+          "Error",
+          "The hub rejected the connection. Try again.",
+          "error",
+        );
       }
     } catch (error) {
-      Alert.alert(
+      clearTimeout(timeout);
+      setIsConnecting(false);
+      showModal(
         "Connection Failed",
-        "Could not reach the hub. Ensure your phone is connected to the 'BawatPieza-Setup' Wi-Fi network before pressing connect.",
+        "Could not reach the hub. Ensure your phone is connected to the 'BawatPieza-Setup' network. Ignore any 'No Internet' warnings from your phone.",
+        "error",
       );
     }
   };
@@ -224,21 +286,23 @@ export function ProvisioningScreen() {
 
     if (!wifi) {
       setScanLocked(true);
-      Alert.alert(
+      showModal(
         "Not a Wi-Fi QR code",
         "Scan a Wi-Fi sharing QR code or enter the network details manually.",
-        [
-          { text: "Try again", onPress: () => setScanLocked(false) },
-          { text: "Close", onPress: closeScanner },
-        ],
+        "error",
+        () => {
+          setScanLocked(false);
+          closeScanner();
+        },
       );
       return;
     }
 
     if (wifi.isRaw) {
-      Alert.alert(
+      showModal(
         "Notice",
         "Could not read full credentials. Raw data set as Wi-Fi Name.",
+        "info",
       );
     }
 
@@ -361,6 +425,7 @@ export function ProvisioningScreen() {
                 </Text>
               </View>
             </LinearGradient>
+
             <View style={styles.steps}>
               {STEPS.map((step, index) => {
                 const active = index === ACTIVE_STEP;
@@ -420,7 +485,14 @@ export function ProvisioningScreen() {
                 );
               })}
             </View>
-            <Card mode={mode} style={styles.card}>
+
+            <Card
+              mode={mode}
+              style={[
+                styles.card,
+                tourVisible && { borderColor: "#F97316", borderWidth: 2 },
+              ]}
+            >
               <View style={styles.cardHead}>
                 <View style={styles.cardHeadCopy}>
                   <Text style={[styles.cardEyebrow, { color: c.orange }]}>
@@ -446,6 +518,24 @@ export function ProvisioningScreen() {
               <Text style={[styles.cardCopy, { color: c.muted }]}>
                 Use the same Wi-Fi network your hub will use.
               </Text>
+
+              {/* Disclaimer to soothe users worried about the OS "No Internet" prompt */}
+              <View
+                style={[
+                  styles.disclaimerBox,
+                  { backgroundColor: c.surfaceMuted, borderColor: c.line },
+                ]}
+              >
+                <Ionicons
+                  name="information-circle"
+                  size={14}
+                  color={c.accent}
+                />
+                <Text style={[styles.disclaimerText, { color: c.muted }]}>
+                  It is completely normal for your phone to display a "No
+                  Internet Connection" warning during this step.
+                </Text>
+              </View>
 
               <Pressable
                 onPress={openWifiSettings}
@@ -481,7 +571,7 @@ export function ProvisioningScreen() {
               >
                 <TextInput
                   value={ssid}
-                  onChangeText={setSsid}
+                  onChangeText={handleSsidChange}
                   onFocus={() => setFocusedField("ssid")}
                   onBlur={() => setFocusedField(null)}
                   placeholder="e.g. UCC-Staff-5G"
@@ -493,7 +583,7 @@ export function ProvisioningScreen() {
                 <Pressable
                   accessibilityRole="button"
                   accessibilityLabel="Scan Wi-Fi QR code"
-                  onPress={() => void openScanner()}
+                  onPress={openScanner}
                   hitSlop={8}
                   style={({ pressed }) => [
                     styles.inputAction,
@@ -523,7 +613,7 @@ export function ProvisioningScreen() {
               >
                 <TextInput
                   value={wifiPassword}
-                  onChangeText={setWifiPassword}
+                  onChangeText={handlePasswordChange}
                   onFocus={() => setFocusedField("password")}
                   onBlur={() => setFocusedField(null)}
                   placeholder="Enter password"
@@ -554,12 +644,14 @@ export function ProvisioningScreen() {
 
               <Pressable
                 onPress={connectToHub}
+                disabled={isConnecting}
                 accessibilityRole="button"
                 accessibilityLabel="Connect hub"
                 style={({ pressed }) => [
                   styles.cta,
                   { shadowColor: p.ctaShadow },
-                  pressed && styles.ctaPressed,
+                  pressed && !isConnecting && styles.ctaPressed,
+                  isConnecting && { opacity: 0.7 },
                 ]}
               >
                 <LinearGradient
@@ -568,14 +660,20 @@ export function ProvisioningScreen() {
                   end={{ x: 1, y: 0 }}
                   style={StyleSheet.absoluteFill}
                 />
-                <Ionicons
-                  name="arrow-forward-circle-outline"
-                  size={fs(19)}
-                  color={p.ctaInk}
-                />
-                <Text style={[styles.ctaText, { color: p.ctaInk }]}>
-                  Connect hub
-                </Text>
+                {isConnecting ? (
+                  <ActivityIndicator size="small" color={p.ctaInk} />
+                ) : (
+                  <>
+                    <Ionicons
+                      name="arrow-forward-circle-outline"
+                      size={fs(19)}
+                      color={p.ctaInk}
+                    />
+                    <Text style={[styles.ctaText, { color: p.ctaInk }]}>
+                      Connect hub
+                    </Text>
+                  </>
+                )}
               </Pressable>
 
               <View style={styles.noteRow}>
@@ -585,7 +683,7 @@ export function ProvisioningScreen() {
                   color={c.muted}
                 />
                 <Text style={[styles.note, { color: c.muted }]}>
-                  Your network details stay on this device.
+                  Your network details stay securely on this device.
                 </Text>
               </View>
             </Card>
@@ -605,6 +703,114 @@ export function ProvisioningScreen() {
         </ScrollView>
       </KeyboardAvoidingView>
 
+      {/* TOUR GUIDE MODAL */}
+      <Modal
+        visible={tourVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={dismissTour}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalCard, { backgroundColor: c.surface }]}>
+            <View style={styles.modalHeader}>
+              <View
+                style={[
+                  styles.modalIconBox,
+                  { backgroundColor: "rgba(249, 115, 22, 0.15)" },
+                ]}
+              >
+                <Ionicons name="map" size={28} color="#F97316" />
+              </View>
+              <Text style={[styles.modalTitle, { color: c.text }]}>
+                Setup Guide
+              </Text>
+            </View>
+            <Text style={[styles.modalMessage, { color: c.muted }]}>
+              Welcome! To view your dashboard, you need to pair your first hub.
+              Join the hub's Wi-Fi network, then enter your home network details
+              below.
+            </Text>
+            <Pressable
+              style={({ pressed }) => [
+                styles.modalButton,
+                { backgroundColor: "#F97316" },
+                pressed && { opacity: 0.8 },
+              ]}
+              onPress={dismissTour}
+            >
+              <Text style={[styles.modalButtonText, { color: "#FFFFFF" }]}>
+                Got it
+              </Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
+
+      {/* CUSTOM FEEDBACK MODAL REPLACING NATIVE ALERTS */}
+      <Modal
+        visible={modalConfig.visible}
+        transparent
+        animationType="fade"
+        onRequestClose={closeModal}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalCard, { backgroundColor: c.surface }]}>
+            <View style={styles.modalHeader}>
+              <View
+                style={[
+                  styles.modalIconBox,
+                  {
+                    backgroundColor:
+                      modalConfig.type === "error"
+                        ? "rgba(239, 68, 68, 0.1)"
+                        : modalConfig.type === "success"
+                          ? "rgba(34, 197, 94, 0.1)"
+                          : "rgba(59, 130, 246, 0.1)",
+                  },
+                ]}
+              >
+                <Ionicons
+                  name={
+                    modalConfig.type === "error"
+                      ? "close-circle"
+                      : modalConfig.type === "success"
+                        ? "checkmark-circle"
+                        : "information-circle"
+                  }
+                  size={26}
+                  color={
+                    modalConfig.type === "error"
+                      ? "#EF4444"
+                      : modalConfig.type === "success"
+                        ? "#22C55E"
+                        : "#3B82F6"
+                  }
+                />
+              </View>
+              <Text style={[styles.modalTitle, { color: c.text }]}>
+                {modalConfig.title}
+              </Text>
+            </View>
+            <Text style={[styles.modalMessage, { color: c.muted }]}>
+              {modalConfig.message}
+            </Text>
+            <Pressable
+              style={({ pressed }) => [
+                styles.modalButton,
+                { backgroundColor: c.accent },
+                pressed && { opacity: 0.8 },
+              ]}
+              onPress={closeModal}
+            >
+              <Text style={[styles.modalButtonText, { color: c.onAccent }]}>
+                {modalConfig.type === "success" ? "Continue" : "Got it"}
+              </Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
+
+      {/* QR SCANNER MODAL */}
       <Modal
         visible={scannerVisible}
         animationType="fade"
@@ -939,6 +1145,24 @@ const styles = StyleSheet.create({
     marginTop: scale(8),
     fontFamily: fonts.medium,
   },
+
+  /* Disclaimer Box */
+  disclaimerBox: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: scale(8),
+    marginTop: scale(14),
+    padding: scale(10),
+    borderWidth: 1,
+    borderRadius: scale(10),
+  },
+  disclaimerText: {
+    flex: 1,
+    fontSize: fs(10),
+    fontFamily: fonts.medium,
+    lineHeight: fs(14),
+  },
+
   outlineButton: {
     flexDirection: "row",
     alignItems: "center",
@@ -1124,6 +1348,61 @@ const styles = StyleSheet.create({
     fontSize: fs(10.5),
     textAlign: "center",
     fontFamily: fonts.medium,
+  },
+
+  /* CUSTOM FEEDBACK MODALS */
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 24,
+  },
+  modalCard: {
+    width: "85%",
+    maxWidth: 290,
+    borderRadius: 20,
+    padding: 20,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.15,
+    shadowRadius: 20,
+    elevation: 10,
+    alignItems: "center",
+  },
+  modalHeader: {
+    alignItems: "center",
+    marginBottom: 12,
+  },
+  modalIconBox: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 12,
+  },
+  modalTitle: {
+    fontSize: 17,
+    fontFamily: fonts.extrabold,
+    textAlign: "center",
+  },
+  modalMessage: {
+    fontSize: 13,
+    fontFamily: fonts.medium,
+    textAlign: "center",
+    lineHeight: 18,
+    marginBottom: 20,
+  },
+  modalButton: {
+    width: "100%",
+    paddingVertical: 12,
+    borderRadius: 10,
+    alignItems: "center",
+  },
+  modalButtonText: {
+    fontSize: 14,
+    fontFamily: fonts.extrabold,
   },
 });
 
