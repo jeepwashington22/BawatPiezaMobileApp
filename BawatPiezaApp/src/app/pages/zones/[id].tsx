@@ -4,13 +4,15 @@ import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { ScreenShell } from '../../../components/screen-shell';
+import { TopBar } from '../../../components/top-bar';
+import { HeroGlow } from '../../../components/hero-glow';
 import { useTheme, type ThemeColors } from '../../../theme';
 import { fonts } from '../../../theme';
 import { scale } from '../../../components/glass-ui';
 
 export default function ZoneDetailScreen() {
   const router = useRouter();
-  const { colors: c } = useTheme();
+  const { colors: c, mode } = useTheme();
   const styles = makeStyles(c);
   const params = useLocalSearchParams<{ name?: string; source?: string; detail?: string; on?: string }>();
   const [enabled, setEnabled] = useState(params.on !== 'false');
@@ -19,31 +21,51 @@ export default function ZoneDetailScreen() {
   const source = params.source || 'Battery';
   const detail = params.detail || 'Stable operation';
 
+  // Hero (glow header) colours — theme-aware ink so the glow stays legible on
+  // BOTH themes (mirrors the home hero). Light mode sits on a pale peach glow,
+  // so it borrows the dark warm ink the glass TopBar uses (#2B1205).
+  const heroInk = mode === 'dark' ? '#FFFFFF' : '#2B1205';
+  const heroInkSoft = mode === 'dark' ? 'rgba(255,255,255,0.70)' : 'rgba(43,18,5,0.72)';
+  const heroTrack = mode === 'dark' ? 'rgba(255,255,255,0.14)' : 'rgba(43,18,5,0.16)';
+  const heroFillColors: [string, string] = mode === 'dark' ? ['#FDBA74', '#F97316'] : ['#F97316', '#C2410C'];
+
   return (
     <ScreenShell scroll>
-      <LinearGradient colors={['#F97316', '#FB923C']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.topBand}>
-        <View style={styles.header}>
-          <Pressable onPress={() => router.back()} style={styles.backButton} accessibilityRole="button" accessibilityLabel="Go back">
-            <Ionicons name="chevron-back" size={20} color="#FFFFFF" />
-          </Pressable>
-          <View style={styles.headerCopy}>
-            <Text style={styles.eyebrow}>ZONE</Text>
-            <Text style={styles.headerTitle}>Zone Detail</Text>
-          </View>
+      {/* ============ HERO: GLASS TOP BAR + ZONE BATTERY HEALTH ============ */}
+      <View style={styles.hero}>
+        <HeroGlow mode={mode} intensity={1} bleedBottom={scale(40)} />
+
+        <View style={styles.heroTopBar}>
+          <TopBar gutter={0} title="Zone Detail" showBack glass />
         </View>
 
-        <View style={styles.heroCard}>
-          <Ionicons name="battery-half" size={scale(92)} color="rgba(255,255,255,0.12)" style={styles.heroBattery} />
-          <Text style={styles.heroEyebrow}>ZONE BATTERY HEALTH</Text>
-          <Text style={styles.zoneName}>{zoneName}</Text>
-          <Text style={styles.zoneMeta}>Powered by {source} · {detail}</Text>
-          <View style={styles.healthValueRow}>
-            <Text style={styles.healthValue}>82</Text>
-            <Text style={styles.healthUnit}>%</Text>
+        <View style={styles.heroBody}>
+          <View style={styles.heroLabelRow}>
+            <Ionicons name="battery-charging" size={scale(14)} color={heroInkSoft} />
+            <Text style={[styles.heroLabel, { color: heroInkSoft }]} numberOfLines={1}>
+              {zoneName}
+            </Text>
           </View>
-          <Text style={styles.healthStatus}>HEALTHY · READY FOR LOAD</Text>
+
+          <View style={styles.heroNumberRow}>
+            <Text style={[styles.heroNumber, { color: heroInk }]}>82</Text>
+            <Text style={[styles.heroUnit, { color: heroInkSoft }]}>%</Text>
+          </View>
+
+          <Text style={[styles.heroDesc, { color: heroInkSoft }]}>
+            Powered by {source} · {detail}
+          </Text>
+
+          <View style={[styles.heroTrack, { backgroundColor: heroTrack }]}>
+            <LinearGradient
+              colors={heroFillColors}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+              style={styles.heroFill}
+            />
+          </View>
         </View>
-      </LinearGradient>
+      </View>
 
       <Text style={styles.sectionLabel}>LIVE READOUT</Text>
       <View style={styles.statsCard}>
@@ -94,21 +116,18 @@ function Readout({ icon, value, unit, label, color }: { icon: keyof typeof Ionic
 }
 
 const makeStyles = (c: ThemeColors) => StyleSheet.create({
-  topBand: { marginHorizontal: -18, paddingHorizontal: scale(18), paddingBottom: scale(18), borderBottomLeftRadius: scale(24), borderBottomRightRadius: scale(24), overflow: 'hidden' },
-  header: { flexDirection: 'row', alignItems: 'center', marginBottom: scale(12), paddingTop: scale(2) },
-  backButton: { width: scale(40), height: scale(40), borderRadius: scale(20), backgroundColor: 'rgba(255,255,255,0.16)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.35)', alignItems: 'center', justifyContent: 'center' },
-  headerCopy: { flex: 1, alignItems: 'flex-end', marginRight: scale(4) },
-  eyebrow: { color: 'rgba(255,255,255,0.72)', fontSize: scale(9), letterSpacing: 1.5, fontFamily: fonts.bold },
-  headerTitle: { color: '#FFFFFF', fontSize: scale(18), fontFamily: fonts.extrabold, marginTop: 2 },
-  heroCard: { position: 'relative', alignItems: 'center', overflow: 'hidden', paddingHorizontal: scale(16), paddingTop: scale(4), paddingBottom: scale(2) },
-  heroBattery: { position: 'absolute', right: scale(8), top: scale(15) },
-  heroEyebrow: { color: 'rgba(255,255,255,0.74)', fontSize: scale(8), letterSpacing: 1.5, fontFamily: fonts.extrabold },
-  zoneName: { color: '#FFFFFF', fontSize: scale(20), fontFamily: fonts.extrabold, textAlign: 'center', marginTop: scale(4) },
-  zoneMeta: { color: 'rgba(255,255,255,0.76)', fontSize: scale(9.5), fontFamily: fonts.medium, textAlign: 'center', marginTop: 3 },
-  healthValueRow: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'center', marginTop: scale(12) },
-  healthValue: { color: '#FFFFFF', fontSize: scale(64), lineHeight: scale(66), letterSpacing: -1, fontFamily: fonts.extrabold },
-  healthUnit: { color: '#FFF7ED', fontSize: scale(23), marginLeft: scale(3), fontFamily: fonts.extrabold },
-  healthStatus: { color: 'rgba(255,255,255,0.78)', fontSize: scale(8), letterSpacing: 1.1, fontFamily: fonts.extrabold },
+  // Hero: glass top bar + zone battery health on a shared orange glow (mirrors home)
+  hero: { marginHorizontal: -20, paddingHorizontal: 20, paddingBottom: scale(26), position: 'relative', zIndex: 10 },
+  heroTopBar: { zIndex: 5 },
+  heroBody: { zIndex: 1, alignItems: 'center', marginTop: scale(6) },
+  heroLabelRow: { flexDirection: 'row', alignItems: 'center', gap: scale(6) },
+  heroLabel: { fontSize: scale(12), letterSpacing: 0.4, fontFamily: fonts.extrabold },
+  heroNumberRow: { flexDirection: 'row', alignItems: 'baseline', marginTop: scale(6) },
+  heroNumber: { fontSize: scale(72), lineHeight: scale(78), letterSpacing: -2, fontFamily: fonts.extrabold },
+  heroUnit: { fontSize: scale(24), marginLeft: scale(3), fontFamily: fonts.extrabold },
+  heroDesc: { fontSize: scale(9.5), textAlign: 'center', marginTop: scale(10), fontFamily: fonts.medium },
+  heroTrack: { alignSelf: 'stretch', height: scale(6), borderRadius: 99, overflow: 'hidden', marginTop: scale(16) },
+  heroFill: { width: '82%', height: '100%', borderRadius: 99 },
   sectionLabel: { color: c.muted, fontSize: scale(10), letterSpacing: 1.3, fontFamily: fonts.extrabold, marginTop: scale(16), marginBottom: scale(8), marginLeft: scale(2) },
   switchRow: { flexDirection: 'row', gap: scale(6) },
   switchButton: { flex: 1, height: scale(42), borderRadius: scale(11), backgroundColor: c.surface, alignItems: 'center', justifyContent: 'center' },

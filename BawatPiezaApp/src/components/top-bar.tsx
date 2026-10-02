@@ -21,6 +21,8 @@ export type TopBarProps = {
   showBack?: boolean;
   showTitleChevron?: boolean;
   lightContent?: boolean;
+  /** Translucent buttons + mode-aware ink, for sitting on top of <HeroGlow />. */
+  glass?: boolean;
 };
 
 function greeting(): string {
@@ -30,9 +32,9 @@ function greeting(): string {
   return 'Good evening';
 }
 
-export function TopBar({ gutter = 18, title, subtitle, showBack = false, showTitleChevron = false, lightContent = false }: TopBarProps) {
+export function TopBar({ gutter = 18, title, subtitle, showBack = false, showTitleChevron = false, lightContent = false, glass = false }: TopBarProps) {
   const router = useRouter();
-  const { colors: c, fonts: f } = useTheme();
+  const { colors: c, fonts: f, mode } = useTheme();
 
   const [name, setName] = useState<string | null>(null);
   const [email, setEmail] = useState<string | null>(null);
@@ -71,7 +73,18 @@ export function TopBar({ gutter = 18, title, subtitle, showBack = false, showTit
 
   const firstName = name ? name.trim().split(' ')[0] : null;
   const titleText = title ?? (firstName ? `${greeting()}, ${firstName}` : greeting());
-  const foreground = lightContent ? '#FFFFFF' : c.text;
+  const dark = mode === 'dark';
+  const foreground = glass ? (dark ? '#FFFFFF' : '#2B1205') : lightContent ? '#FFFFFF' : c.text;
+  const btnBg = glass
+    ? dark ? 'rgba(255,255,255,0.10)' : 'rgba(255,255,255,0.55)'
+    : lightContent ? 'rgba(255,255,255,0.16)' : c.surface;
+  const btnBorder = glass
+    ? dark ? 'rgba(255,255,255,0.22)' : 'rgba(255,255,255,0.85)'
+    : lightContent ? 'rgba(255,255,255,0.42)' : c.line;
+  const badgeBorder = glass
+    ? dark ? '#3A1A08' : '#FFF3E8'
+    : lightContent ? '#F97316' : c.surface;
+  const avatarBorder = glass ? (dark ? 'rgba(255,255,255,0.55)' : '#FFFFFF') : c.accent;
 
   return (
     <View style={styles.container}>
@@ -105,7 +118,7 @@ export function TopBar({ gutter = 18, title, subtitle, showBack = false, showTit
               <Pressable
                 style={({ pressed }) => [
                   styles.iconButton,
-                  { backgroundColor: lightContent ? 'rgba(255,255,255,0.16)' : c.surface, borderColor: lightContent ? 'rgba(255,255,255,0.42)' : c.line },
+                  { backgroundColor: btnBg, borderColor: btnBorder },
                   pressed && { opacity: 0.7 },
                 ]}
                 onPress={() => setNotificationsOpen((open) => !open)}
@@ -114,7 +127,7 @@ export function TopBar({ gutter = 18, title, subtitle, showBack = false, showTit
               >
                 <Ionicons name="notifications-outline" size={20} color={foreground} />
                 {hasNotifications && (
-                  <View style={[styles.badge, { backgroundColor: c.orange, borderColor: lightContent ? '#F97316' : c.surface }]} />
+                  <View style={[styles.badge, { backgroundColor: c.orange, borderColor: badgeBorder }]} />
                 )}
               </Pressable>
 
@@ -125,9 +138,9 @@ export function TopBar({ gutter = 18, title, subtitle, showBack = false, showTit
                 accessibilityLabel="Profile"
               >
                 {avatarUrl ? (
-                  <Image source={{ uri: avatarUrl }} style={[styles.avatar, { borderColor: c.accent }]} />
+                  <Image source={{ uri: avatarUrl }} style={[styles.avatar, { borderColor: avatarBorder }]} />
                 ) : (
-                  <View style={[styles.avatar, { backgroundColor: c.accentSoft, borderColor: c.accent }]}>
+                  <View style={[styles.avatar, { backgroundColor: c.accentSoft, borderColor: avatarBorder }]}>
                     <Text style={[styles.avatarText, { color: c.onAccentSoft, fontFamily: f.bold }]}>
                       {(firstName ?? 'U').charAt(0).toUpperCase()}
                     </Text>
@@ -139,7 +152,7 @@ export function TopBar({ gutter = 18, title, subtitle, showBack = false, showTit
         ) : (
           <>
             <View style={styles.topRow}>
-              <Text numberOfLines={1} style={[styles.pageTitle, { color: c.text, fontFamily: f.extrabold }]}>
+              <Text numberOfLines={1} style={[styles.pageTitle, { color: foreground, fontFamily: f.extrabold }]}>
                 {titleText}
               </Text>
 
@@ -149,7 +162,7 @@ export function TopBar({ gutter = 18, title, subtitle, showBack = false, showTit
                 <Pressable
                   style={({ pressed }) => [
                     styles.iconButton,
-                    { backgroundColor: lightContent ? 'rgba(255,255,255,0.16)' : c.surface, borderColor: lightContent ? 'rgba(255,255,255,0.42)' : c.line },
+                    { backgroundColor: btnBg, borderColor: btnBorder },
                     pressed && { opacity: 0.7 },
                   ]}
                   onPress={() => setNotificationsOpen((open) => !open)}
@@ -158,7 +171,7 @@ export function TopBar({ gutter = 18, title, subtitle, showBack = false, showTit
                 >
                   <Ionicons name="notifications-outline" size={20} color={foreground} />
                   {hasNotifications && (
-                    <View style={[styles.badge, { backgroundColor: c.orange, borderColor: lightContent ? '#F97316' : c.surface }]} />
+                    <View style={[styles.badge, { backgroundColor: c.orange, borderColor: badgeBorder }]} />
                   )}
                 </Pressable>
 
@@ -169,9 +182,9 @@ export function TopBar({ gutter = 18, title, subtitle, showBack = false, showTit
                   accessibilityLabel="Profile"
                 >
                   {avatarUrl ? (
-                    <Image source={{ uri: avatarUrl }} style={[styles.avatar, { borderColor: c.accent }]} />
+                    <Image source={{ uri: avatarUrl }} style={[styles.avatar, { borderColor: avatarBorder }]} />
                   ) : (
-                    <View style={[styles.avatar, { backgroundColor: c.accentSoft, borderColor: c.accent }]}>
+                    <View style={[styles.avatar, { backgroundColor: c.accentSoft, borderColor: avatarBorder }]}>
                       <Text style={[styles.avatarText, { color: c.onAccentSoft, fontFamily: f.bold }]}>
                         {(firstName ?? 'U').charAt(0).toUpperCase()}
                       </Text>
@@ -326,4 +339,3 @@ const styles = StyleSheet.create({
   },
   pageSubtitle: { fontSize: scale(11), marginTop: scale(2) },
 });
-

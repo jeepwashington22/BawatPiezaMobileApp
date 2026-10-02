@@ -18,7 +18,7 @@ export default function AboutScreen() {
   const OK = c.ok;
   const BAD = c.danger;
   return (
-    <ScreenShell title="About Pieza" showBack>
+    <ScreenShell>
       <View style={styles.hero}>
         <Image source={require('../../../assets/images/LOGO3.png')} style={styles.logo} resizeMode="contain" />
         <Text style={styles.tagline}>Waste Into Watts, Ions</Text>
@@ -72,7 +72,7 @@ const makeStyles = (c: ThemeColors) => {
     alignItems: 'center',
     paddingVertical: 9,
     borderBottomWidth: 1,
-    borderBottomColor: LINE,
+    borderBottomColor: 'rgba(10, 42, 74, 0.08)',
   },
   rowLast: { borderBottomWidth: 0 },
   label: { color: PRUSSIAN, fontSize: 13, fontWeight: '800', fontFamily: fonts.extrabold },

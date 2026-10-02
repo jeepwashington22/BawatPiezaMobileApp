@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   Dimensions,
   ScrollView,
@@ -8,8 +8,7 @@ import {
   type NativeScrollEvent,
   type NativeSyntheticEvent,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
-import { LinearGradient } from "expo-linear-gradient";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import Animated, {
   type SharedValue,
@@ -26,95 +25,102 @@ import Animated, {
   withTiming,
 } from "react-native-reanimated";
 import { useRouter } from "expo-router";
-import { fonts } from "../theme";
-import { AnimatedPressable, GOLD, NAVY, scale } from "../components/glass-ui";
-import type { IoniconName } from "../lib/network";
+import { useVideoPlayer, VideoView } from "expo-video";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { fonts } from "../theme";
+import { AnimatedPressable, scale } from "../components/glass-ui";
 
-const SCREEN_W = Dimensions.get("window").width;
+const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get("window");
+
+/**
+ * Full-bleed hero art height. Mirrors the reference template, where the top
+ * illustration / map / collage fills roughly the upper half of the screen.
+ */
+const HERO_H = SCREEN_H * 0.56;
 
 /** AsyncStorage flag marking the boarding walkthrough as completed. */
 const ONBOARDING_SEEN_KEY = "bawatpieza.onboarding.seen";
 
+/* ------------------------------ brand tokens ------------------------------ */
+const ACCENT = "#F45B49"; // primary action red — matches the reference CTA
+const INK = "#0F2137"; // headings
+const INK_SOFT = "rgba(15,33,55,0.58)"; // body copy
+
 /* --------------------------------- slides --------------------------------- */
 
 interface SlideDef {
-  kicker: string;
   title: string;
   body: string;
-  icon: IoniconName;
-  tones: [string, string];
+  visual: "video" | "placeholder" | "ai";
 }
 
 const SLIDES: SlideDef[] = [
   {
-    kicker: "WELCOME TO",
     title: "BawatPieza",
-    body: "Every pieza, accounted for. A smarter way to watch over every floor tile in your zones â€” right from your pocket.",
-    icon: "grid-outline",
-    tones: ["#F6C445", "#E2A617"],
+    body: "Every pieza, accounted for. A smarter way to watch over every floor tile in your zones, right from your pocket.",
+    visual: "video",
   },
   {
-    kicker: "LIVE MONITORING",
-    title: "See every tile, live",
-    body: "Foot traffic, energy draw and tile health stream in real time, so nothing happens on your floor without you knowing.",
-    icon: "pulse-outline",
-    tones: ["#38BDF8", "#0EA5E9"],
+    title: "Dynamo",
+    body: "Connect your Dynamo experience and keep every part of your operation moving with confidence.",
+    visual: "placeholder",
   },
   {
-    kicker: "SMART ALERTS",
-    title: "Know before it breaks",
-    body: "BawatPieza watches the patterns for you and raises the alarm the moment a tile, sensor or circuit acts up.",
-    icon: "notifications-outline",
-    tones: ["#F97316", "#EA580C"],
-  },
-  {
-    kicker: "SECURE SIGN-IN",
-    title: "Protected by 2FA",
-    body: "Sign in with email and a 6-digit verification code, plus instant security alerts if someone tries your account.",
-    icon: "shield-checkmark-outline",
-    tones: ["#4ADE80", "#22C55E"],
+    title: "AI, at your side",
+    body: "Let AI turn your data into clear answers, useful insights and better decisions for every piece of your work.",
+    visual: "ai",
   },
 ];
 
-/* ------------------------------- one slide -------------------------------- */
+/* ---------------------------- hero: background video ---------------------- */
 
-function Slide({
-  slide,
-  index,
-  scrollX,
-}: {
-  slide: SlideDef;
-  index: number;
-  scrollX: SharedValue<number>;
-}) {
-  // Parallax: content drifts slower than the pager and cross-fades at edges.
-  const content = useAnimatedStyle(() => ({
-    opacity: interpolate(
-      scrollX.value,
-      [(index - 1) * SCREEN_W, index * SCREEN_W, (index + 1) * SCREEN_W],
-      [0, 1, 0],
-      Extrapolation.CLAMP,
-    ),
-    transform: [{ translateX: (scrollX.value - index * SCREEN_W) * 0.28 }],
-  }));
+function HeroVideo({ isActive }: { isActive: boolean }) {
+  const player = useVideoPlayer(
+    require("../../assets/images/videobg.mp4"),
+    (p) => {
+      p.loop = true;
+      p.muted = true;
+      p.play();
+    },
+  );
 
+  // Only the visible slide should be decoding frames.
+  useEffect(() => {
+    if (isActive) player.play();
+    else player.pause();
+  }, [isActive, player]);
+
+  return (
+    <VideoView
+      style={StyleSheet.absoluteFill}
+      player={player}
+      nativeControls={false}
+      contentFit="cover"
+      // textureView lets the Skip pill / dots composite on top of the video on Android.
+      surfaceType="textureView"
+    />
+  );
+}
+
+/* ------------------------------ the AI visual ----------------------------- */
+
+function AiVisual() {
   // Gentle floating loop for the icon badge.
   const float = useSharedValue(0);
   useEffect(() => {
     float.value = withRepeat(
       withSequence(
-        withTiming(1, { duration: 1400, easing: Easing.inOut(Easing.quad) }),
-        withTiming(0, { duration: 1400, easing: Easing.inOut(Easing.quad) }),
+        withTiming(1, { duration: 1500, easing: Easing.inOut(Easing.quad) }),
+        withTiming(0, { duration: 1500, easing: Easing.inOut(Easing.quad) }),
       ),
       -1,
     );
   }, [float]);
 
-  // FIX: Calculate the scale multiplier outside the worklet
+  // Scale multiplier resolved outside the worklet.
   const floatYScale = scale(10);
 
-  const iconWrap = useAnimatedStyle(() => ({
+  const orb = useAnimatedStyle(() => ({
     transform: [
       { translateY: -float.value * floatYScale },
       { scale: 1 + float.value * 0.04 },
@@ -122,28 +128,43 @@ function Slide({
   }));
 
   return (
-    <View style={{ width: SCREEN_W, paddingHorizontal: scale(28) }}>
-      <Animated.View style={content}>
-        <Animated.View style={iconWrap}>
-          <LinearGradient
-            colors={slide.tones}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={st.iconChip}
-          >
-            <Ionicons name={slide.icon} size={scale(44)} color="#FFFFFF" />
-          </LinearGradient>
-          <View style={st.iconHalo} />
-        </Animated.View>
-
-        <View style={st.copyBlock}>
-          <Text style={st.kicker}>{slide.kicker}</Text>
-          <Text style={st.title}>{slide.title}</Text>
-          <Text style={st.body}>{slide.body}</Text>
-        </View>
+    <View style={[st.hero, st.aiVisual]}>
+      <Animated.View style={[st.aiOrb, orb]}>
+        <Ionicons name="sparkles" size={scale(48)} color={ACCENT} />
       </Animated.View>
+      <View style={[st.aiSpark, st.aiSparkOne]} />
+      <View style={[st.aiSpark, st.aiSparkTwo]} />
     </View>
   );
+}
+
+/* --------------------------- hero: pick one visual ------------------------ */
+
+function Visual({ slide, isActive }: { slide: SlideDef; isActive: boolean }) {
+  if (slide.visual === "video") {
+    return (
+      <View style={st.hero}>
+        <HeroVideo isActive={isActive} />
+        <View style={st.heroScrim} />
+      </View>
+    );
+  }
+
+  if (slide.visual === "placeholder") {
+    // Space reserved for the upcoming Dynamo artwork — intentionally empty.
+    return (
+      <View style={[st.hero, st.placeholder]}>
+        <Ionicons
+          name="image-outline"
+          size={scale(34)}
+          color="rgba(15,33,55,0.26)"
+        />
+        <Text style={st.placeholderText}>Dynamo visual coming soon</Text>
+      </View>
+    );
+  }
+
+  return <AiVisual />;
 }
 
 /* ------------------------------ dots indicator ---------------------------- */
@@ -168,7 +189,7 @@ function Dot({
       backgroundColor: interpolateColor(
         t,
         [0, 1],
-        ["rgba(255,255,255,0.28)", GOLD],
+        ["rgba(15,33,55,0.18)", ACCENT],
       ),
     };
   });
@@ -185,10 +206,47 @@ function Dots({ scrollX }: { scrollX: SharedValue<number> }) {
   );
 }
 
+/* ------------------------------- one slide -------------------------------- */
+
+function Slide({
+  slide,
+  index,
+  scrollX,
+  isActive,
+}: {
+  slide: SlideDef;
+  index: number;
+  scrollX: SharedValue<number>;
+  isActive: boolean;
+}) {
+  // Parallax: the copy drifts slower than the pager and cross-fades at edges.
+  const content = useAnimatedStyle(() => ({
+    opacity: interpolate(
+      scrollX.value,
+      [(index - 1) * SCREEN_W, index * SCREEN_W, (index + 1) * SCREEN_W],
+      [0, 1, 0],
+      Extrapolation.CLAMP,
+    ),
+    transform: [{ translateX: (scrollX.value - index * SCREEN_W) * 0.28 }],
+  }));
+
+  return (
+    <View style={{ width: SCREEN_W }}>
+      <Visual slide={slide} isActive={isActive} />
+
+      <Animated.View style={[content, st.copy]}>
+        <Text style={st.title}>{slide.title}</Text>
+        <Text style={st.body}>{slide.body}</Text>
+      </Animated.View>
+    </View>
+  );
+}
+
 /* --------------------------- the boarding screen -------------------------- */
 
 export default function OnboardingScreen({ onDone }: { onDone?: () => void }) {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const scrollX = useSharedValue(0);
   const scrollRef = useRef<ScrollView>(null);
   const [active, setActive] = useState(0);
@@ -222,99 +280,178 @@ export default function OnboardingScreen({ onDone }: { onDone?: () => void }) {
   };
 
   return (
-    <LinearGradient
-      colors={["#0A2A4A", "#0C2038", "#071527"]}
-      style={StyleSheet.absoluteFill}
-    >
-      <SafeAreaView style={st.safe}>
-        {/* Skip */}
-        <View style={st.skipRow}>
-          <AnimatedPressable onPress={finish}>
-            <View style={st.skipPill}>
-              <Text style={st.skipText}>Skip</Text>
+    <View style={st.screen}>
+      {/* Slides — full-bleed hero art with the copy swapped underneath */}
+      <Animated.ScrollView
+        ref={scrollRef}
+        horizontal
+        pagingEnabled
+        showsHorizontalScrollIndicator={false}
+        bounces={false}
+        onScroll={scrollHandler}
+        scrollEventThrottle={16}
+        onMomentumScrollEnd={onScroll}
+        onScrollEndDrag={onScroll}
+        style={st.pager}
+      >
+        {SLIDES.map((slide, i) => (
+          <Slide
+            key={i}
+            slide={slide}
+            index={i}
+            scrollX={scrollX}
+            isActive={i === active}
+          />
+        ))}
+      </Animated.ScrollView>
+
+      {/* Skip — floats over the hero at the top-right (reference style) */}
+      <View style={[st.skipRow, { top: insets.top + scale(8) }]}>
+        <AnimatedPressable onPress={finish}>
+          <View style={st.skipPill}>
+            <Text style={st.skipText}>Skip</Text>
+            <Ionicons name="chevron-forward" size={scale(13)} color={ACCENT} />
+          </View>
+        </AnimatedPressable>
+      </View>
+
+      {/* Dots — pinned just under the hero art */}
+      <View
+        style={[st.dotsOverlay, { top: HERO_H + scale(14) }]}
+        pointerEvents="none"
+      >
+        <Dots scrollX={scrollX} />
+      </View>
+
+      {/* Bottom actions */}
+      <View style={[st.bottom, { paddingBottom: insets.bottom + scale(14) }]}>
+        <View style={st.actionsRow}>
+          {active > 0 ? (
+            <AnimatedPressable
+              style={{ width: scale(54) }}
+              onPress={() => goTo(active - 1)}
+            >
+              <View style={st.backButton}>
+                <Ionicons name="arrow-back" size={scale(20)} color={INK} />
+              </View>
+            </AnimatedPressable>
+          ) : null}
+
+          <AnimatedPressable
+            style={{ flex: 1 }}
+            onPress={() => (isLast ? finish() : goTo(active + 1))}
+          >
+            <View style={st.primaryButton}>
+              <Text style={st.primaryText}>
+                {isLast ? "Get started" : "Next"}
+              </Text>
               <Ionicons
-                name="chevron-forward"
-                size={scale(14)}
-                color="rgba(255,255,255,0.7)"
+                name={isLast ? "arrow-forward" : "chevron-forward"}
+                size={scale(16)}
+                color="#FFFFFF"
+                style={st.primaryIcon}
               />
             </View>
           </AnimatedPressable>
         </View>
-
-        {/* Slides */}
-        <Animated.ScrollView
-          ref={scrollRef}
-          horizontal
-          pagingEnabled
-          showsHorizontalScrollIndicator={false}
-          bounces={false}
-          onScroll={scrollHandler}
-          scrollEventThrottle={16}
-          onMomentumScrollEnd={onScroll}
-          onScrollEndDrag={onScroll}
-          style={st.pager}
-        >
-          {SLIDES.map((slide, i) => (
-            <Slide key={i} slide={slide} index={i} scrollX={scrollX} />
-          ))}
-        </Animated.ScrollView>
-
-        {/* Dots + actions */}
-        <View style={st.bottom}>
-          <Dots scrollX={scrollX} />
-
-          <View style={st.actionsRow}>
-            {active > 0 ? (
-              <AnimatedPressable onPress={() => goTo(active - 1)}>
-                <View style={st.ghostButton}>
-                  <Ionicons
-                    name="chevron-back"
-                    size={scale(18)}
-                    color="rgba(255,255,255,0.85)"
-                  />
-                  <Text style={st.ghostText}>Back</Text>
-                </View>
-              </AnimatedPressable>
-            ) : (
-              <View style={st.ghostSpacer} />
-            )}
-
-            <AnimatedPressable
-              onPress={() => (isLast ? finish() : goTo(active + 1))}
-            >
-              <LinearGradient
-                colors={isLast ? [GOLD, "#E2A617"] : [NAVY, "#345271"]}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
-                style={st.primaryButton}
-              >
-                <Text style={[st.primaryText, isLast && st.primaryTextOnGold]}>
-                  {isLast ? "Get started" : "Next"}
-                </Text>
-                <Ionicons
-                  name={isLast ? "arrow-forward" : "chevron-forward"}
-                  size={scale(16)}
-                  color={isLast ? NAVY : "#FFFFFF"}
-                  style={st.primaryIcon}
-                />
-              </LinearGradient>
-            </AnimatedPressable>
-          </View>
-        </View>
-      </SafeAreaView>
-    </LinearGradient>
+      </View>
+    </View>
   );
 }
 
 /* --------------------------------- styles --------------------------------- */
 
 const st = StyleSheet.create({
-  safe: { flex: 1 },
+  screen: { flex: 1, backgroundColor: "#FFFFFF" },
+  pager: { flex: 1 },
+
+  /* hero art (video / placeholder / AI) */
+  hero: {
+    width: "100%",
+    height: HERO_H,
+    backgroundColor: "#F4F6F8",
+    overflow: "hidden",
+  },
+  heroScrim: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: "rgba(0,0,0,0.06)",
+    pointerEvents: "none",
+  },
+  placeholder: {
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#F5F7FA",
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(15,33,55,0.06)",
+  },
+  placeholderText: {
+    marginTop: scale(10),
+    color: "rgba(15,33,55,0.42)",
+    fontSize: scale(12),
+    fontFamily: fonts.medium,
+  },
+  aiVisual: {
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#FDF3F1",
+  },
+  aiOrb: {
+    width: scale(132),
+    height: scale(132),
+    borderRadius: scale(66),
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#FFFFFF",
+    shadowColor: ACCENT,
+    shadowOpacity: 0.3,
+    shadowRadius: 26,
+    shadowOffset: { width: 0, height: 12 },
+    elevation: 8,
+  },
+  aiSpark: {
+    position: "absolute",
+    width: scale(12),
+    height: scale(12),
+    borderRadius: scale(6),
+    backgroundColor: "#F6C445",
+  },
+  aiSparkOne: { top: scale(96), right: scale(70) },
+  aiSparkTwo: { bottom: scale(110), left: scale(66), backgroundColor: "#7CB6FF" },
+
+  /* copy under the hero (margin clears the pinned dots row) */
+  copy: {
+    paddingHorizontal: scale(28),
+    marginTop: scale(46),
+    alignItems: "center",
+  },
+  title: {
+    color: INK,
+    fontSize: scale(25),
+    fontFamily: fonts.extrabold,
+    textAlign: "center",
+    marginBottom: scale(10),
+  },
+  body: {
+    color: INK_SOFT,
+    fontSize: scale(12.5),
+    lineHeight: scale(19),
+    fontFamily: fonts.medium,
+    textAlign: "center",
+    maxWidth: scale(290),
+  },
+
+  /* skip */
   skipRow: {
-    flexDirection: "row",
-    justifyContent: "flex-end",
+    position: "absolute",
+    left: 0,
+    right: 0,
+    alignItems: "flex-end",
     paddingHorizontal: scale(20),
-    paddingTop: scale(6),
+    zIndex: 10,
   },
   skipPill: {
     flexDirection: "row",
@@ -322,108 +459,69 @@ const st = StyleSheet.create({
     paddingHorizontal: scale(14),
     paddingVertical: scale(7),
     borderRadius: 99,
-    backgroundColor: "rgba(255,255,255,0.08)",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.12)",
+    backgroundColor: "rgba(255,255,255,0.9)",
+    shadowColor: INK,
+    shadowOpacity: 0.12,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
   },
   skipText: {
-    color: "rgba(255,255,255,0.8)",
-    fontSize: scale(12),
-    fontWeight: "700",
+    color: ACCENT,
+    fontSize: scale(12.5),
     fontFamily: fonts.bold,
     marginRight: scale(2),
   },
-  pager: { flex: 1 },
-  iconChip: {
-    alignSelf: "center",
-    width: scale(104),
-    height: scale(104),
-    borderRadius: scale(30),
+
+  /* dots */
+  dotsOverlay: {
+    position: "absolute",
+    left: 0,
+    right: 0,
     alignItems: "center",
-    justifyContent: "center",
-    shadowColor: "#000",
-    shadowOpacity: 0.35,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 6 },
-    elevation: 8,
-  },
-  iconHalo: {
-    alignSelf: "center",
-    marginTop: scale(14),
-    width: scale(56),
-    height: scale(4),
-    borderRadius: 4,
-    backgroundColor: "rgba(246,196,69,0.35)",
-  },
-  copyBlock: { alignItems: "center", marginTop: scale(30) },
-  kicker: {
-    color: GOLD,
-    fontSize: scale(11),
-    letterSpacing: 3,
-    fontWeight: "800",
-    fontFamily: fonts.extrabold,
-    marginBottom: scale(10),
-  },
-  title: {
-    color: "#FFFFFF",
-    fontSize: scale(28),
-    fontWeight: "800",
-    fontFamily: fonts.extrabold,
-    textAlign: "center",
-    marginBottom: scale(12),
-  },
-  body: {
-    color: "rgba(255,255,255,0.72)",
-    fontSize: scale(13.5),
-    lineHeight: scale(21),
-    fontFamily: fonts.medium,
-    textAlign: "center",
-    maxWidth: scale(300),
+    pointerEvents: "none",
   },
   dotsRow: {
     flexDirection: "row",
-    justifyContent: "center",
     alignItems: "center",
     gap: scale(6),
-    marginBottom: scale(22),
   },
-  bottom: { paddingBottom: scale(14) },
   dot: { height: scale(6), borderRadius: 99 },
+
+  /* bottom actions */
+  bottom: {
+    paddingHorizontal: scale(20),
+    paddingTop: scale(10),
+  },
   actionsRow: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: scale(20),
-    paddingBottom: scale(10),
+    gap: scale(12),
   },
-  ghostButton: {
-    flexDirection: "row",
+  backButton: {
+    width: scale(54),
+    height: scale(54),
+    borderRadius: 99,
     alignItems: "center",
-    paddingHorizontal: scale(14),
-    paddingVertical: scale(12),
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "rgba(15,33,55,0.16)",
+    backgroundColor: "#FFFFFF",
   },
-  ghostText: {
-    color: "rgba(255,255,255,0.85)",
-    fontSize: scale(13),
-    fontWeight: "700",
-    fontFamily: fonts.bold,
-    marginLeft: scale(2),
-  },
-  ghostSpacer: { width: scale(74) },
   primaryButton: {
+    width: "100%",
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    borderRadius: 14,
-    paddingHorizontal: scale(30),
-    paddingVertical: scale(15),
+    borderRadius: 99,
+    backgroundColor: ACCENT,
+    paddingVertical: scale(17),
+    paddingHorizontal: scale(24),
   },
   primaryText: {
     color: "#FFFFFF",
-    fontSize: scale(14),
-    fontWeight: "800",
+    fontSize: scale(14.5),
     fontFamily: fonts.extrabold,
   },
-  primaryTextOnGold: { color: NAVY },
   primaryIcon: { marginLeft: scale(6) },
 });

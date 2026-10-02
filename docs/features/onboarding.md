@@ -6,6 +6,24 @@
 
 ---
 
+## Slide art
+
+The layout follows the three-phone reference template: a full-bleed hero visual
+under the status bar, a floating **Skip** pill at the top-right, pinned progress
+dots just below the hero, then a centred headline + subcopy and a bottom action
+row (circular back button + primary CTA).
+
+| # | Title | Hero visual |
+| --- | --- | --- |
+| 1 | BawatPieza | `assets/images/videobg.mp4` (looping, muted background video) |
+| 2 | Dynamo | reserved empty space — placeholder awaiting final artwork |
+| 3 | AI, at your side | animated AI orb / sparkles |
+
+Hero art height is `56%` of the screen (`HERO_H` in `onboarding.tsx`). The video
+only plays while slide 1 is on screen and pauses when swiped away.
+
+---
+
 ## What it does
 
 The very first time the app is opened, `src/app/index.tsx` shows the onboarding

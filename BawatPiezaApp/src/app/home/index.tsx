@@ -1,12 +1,13 @@
 import { fonts, useTheme, type Mode } from "../../theme";
 import React, { useEffect, useState, useRef } from "react";
-import { View, Text, StyleSheet, Pressable } from "react-native";
+import { View, Text, StyleSheet, Pressable, Animated } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter, useLocalSearchParams, type Href } from "expo-router";
 import { supabase } from "../../lib/supabase";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { ScreenShell } from "../../components/screen-shell";
 import { TopBar } from "../../components/top-bar";
+import { HeroGlow } from "../../components/hero-glow";
 import { LoadingScreen } from "../../components/loading-screen";
 
 // @ts-ignore
@@ -15,7 +16,6 @@ import Paho from "paho-mqtt";
 import {
   Card,
   Glass,
-  Toggle,
   SectionHead,
   LiveDot,
   brandAccent,
@@ -68,6 +68,111 @@ function EnterView({
   children: React.ReactNode;
 }) {
   return <View style={style}>{children}</View>;
+}
+
+const SOURCE_META: Record<
+  string,
+  { icon: keyof typeof Ionicons.glyphMap; color: string; tint: string }
+> = {
+  Battery: { icon: "battery-charging", color: "#C2410C", tint: "rgba(249,115,22,0.14)" },
+  Grid: { icon: "flash", color: "#7C3AED", tint: "rgba(124,58,237,0.12)" },
+  Solar: { icon: "sunny", color: "#B45309", tint: "rgba(245,158,11,0.16)" },
+};
+
+/** Premium animated switch: orange track, white knob with a power glyph. */
+function ZoneSwitch({
+  on,
+  mode,
+  onToggle,
+}: {
+  on: boolean;
+  mode: Mode;
+  onToggle: () => void;
+}) {
+  const anim = useRef(new Animated.Value(on ? 1 : 0)).current;
+  useEffect(() => {
+    Animated.timing(anim, {
+      toValue: on ? 1 : 0,
+      duration: 220,
+      useNativeDriver: false,
+    }).start();
+  }, [on, anim]);
+
+  const W = scale(54);
+  const H = scale(27);
+  const K = scale(22);
+  const PAD = (H - K) / 2;
+
+  const trackColor = anim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [
+      mode === "dark" ? "rgba(255,255,255,0.16)" : "rgba(10,42,74,0.14)",
+      "rgba(249,115,22,1)",
+    ],
+  });
+  const knobX = anim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [PAD, W - K - PAD],
+  });
+
+  return (
+    <Pressable
+      onPress={onToggle}
+      hitSlop={8}
+      accessibilityRole="switch"
+      accessibilityState={{ checked: on }}
+    >
+      <Animated.View
+        style={{
+          width: W,
+          height: H,
+          borderRadius: H / 2,
+          backgroundColor: trackColor,
+          justifyContent: "center",
+          shadowColor: "#F97316",
+          shadowOpacity: on ? 0.45 : 0,
+          shadowRadius: scale(8),
+          shadowOffset: { width: 0, height: 3 },
+          elevation: on ? 4 : 0,
+        }}
+      >
+        <Text
+          style={{
+            position: "absolute",
+            [on ? "left" : "right"]: scale(8),
+            color: on ? "#FFFFFF" : mode === "dark" ? "rgba(255,255,255,0.55)" : "rgba(10,42,74,0.5)",
+            fontSize: scale(7),
+            letterSpacing: 0.8,
+            fontFamily: fonts.extrabold,
+          }}
+        >
+          {on ? "ON" : "OFF"}
+        </Text>
+        <Animated.View
+          style={{
+            width: K,
+            height: K,
+            borderRadius: K / 2,
+            backgroundColor: "#FFFFFF",
+            alignItems: "center",
+            justifyContent: "center",
+            transform: [{ translateX: knobX }],
+            shadowColor: "#000",
+            shadowOpacity: 0.22,
+            shadowRadius: 3,
+            shadowOffset: { width: 0, height: 1 },
+            elevation: 3,
+          }}
+        >
+          <Ionicons
+            name="power"
+            size={scale(11)}
+            color={on ? "#EA580C" : "#9AA3B2"}
+          />
+        </Animated.View>
+      </Animated.View>
+    </Pressable>
+  );
 }
 
 /* ------------------------------- screen --------------------------------- */
@@ -314,16 +419,59 @@ export default function HomeScreen() {
     "M0 105 C24 91 38 79 60 82 S92 99 116 87 S147 41 170 51 S203 83 228 65 S256 18 280 42 S302 54 320 31";
   const flatChartPath = "M0 115 L320 115";
 
+  // Hero (glow header) colours — theme-aware ink so the glow stays legible on
+  // BOTH themes. Light mode sits on a pale peach glow, so it borrows the same
+  // dark warm ink the glass TopBar uses (#2B1205); dark mode keeps white.
+  const heroInk = mode === "dark" ? "#FFFFFF" : "#2B1205";
+  const heroInkSoft =
+    mode === "dark" ? "rgba(255,255,255,0.70)" : "rgba(43,18,5,0.72)";
+  const heroTrack =
+    mode === "dark" ? "rgba(255,255,255,0.14)" : "rgba(43,18,5,0.16)";
+  const heroFillColors: [string, string] =
+    mode === "dark" ? ["#FDBA74", "#F97316"] : ["#F97316", "#C2410C"];
+
   return (
     <ScreenShell>
-      <LinearGradient
-        colors={["#F97316", "#FB923C"]}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 0 }}
-        style={st.topBarBleed}
-      >
-        <TopBar gutter={0} title="Dashboard" showTitleChevron lightContent />
-      </LinearGradient>
+      {/* ============ HERO: TOP BAR + BATTERY HEALTH ============ */}
+      <View style={st.hero}>
+        <HeroGlow mode={mode} intensity={isActive ? 1 : mode === "dark" ? 0.4 : 0.85} bleedBottom={scale(40)} />
+
+        <View style={st.heroTopBar}>
+          <TopBar gutter={0} title="Dashboard" showTitleChevron glass />
+        </View>
+
+        <View style={st.heroBody}>
+          <View style={st.heroLabelRow}>
+            <Ionicons name="battery-charging" size={scale(14)} color={heroInkSoft} />
+            <Text style={[st.heroLabel, { color: heroInkSoft }]}>Battery health</Text>
+          </View>
+
+          <View style={st.heroNumberRow}>
+            <Text style={[st.heroNumber, { color: heroInk }, !isActive && { opacity: 0.6 }]}>
+              {batteryPct !== null ? Math.floor(batteryPct) : "--"}
+            </Text>
+            <Text style={[st.heroUnit, { color: heroInkSoft }]}>%</Text>
+          </View>
+
+          <Text style={[st.heroDesc, { color: heroInkSoft }]}>
+            {isActive
+              ? "Strong charge capacity for today's energy needs"
+              : "Awaiting connection to read capacity"}
+          </Text>
+
+          <View style={[st.heroTrack, { backgroundColor: heroTrack }]}>
+            {isActive && (
+              <LinearGradient
+                colors={heroFillColors}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={[st.heroFill, { width: `${batteryPct ?? 0}%` }]}
+              />
+            )}
+          </View>
+        </View>
+      </View>
+
 
       {/* ============ OFFLINE BANNER ============ */}
       {isOffline && (
@@ -386,179 +534,72 @@ export default function HomeScreen() {
         </EnterView>
       )}
 
-      {/* ============ BATTERY HEALTH ============ */}
-      <EnterView
-        style={[st.heroBleed, isOffline ? { marginTop: scale(16) } : {}]}
-      >
+      <EnterView delay={90} style={st.statsSection}>
         <LinearGradient
           colors={
             isActive
-              ? ["#F97316", "#FB923C"]
-              : mode === "dark"
-                ? ["#1C1C1E", "#2C2C2E"]
-                : ["#E5E5EA", "#F2F2F7"]
+              ? mode === "dark"
+                ? ["#9A3412", "#EA580C", "#F97316"]
+                : ["#C2410C", "#EA580C", "#F97316"]
+              : ["#475569", "#64748B", "#94A3B8"]
           }
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 1 }}
-          style={[st.energyCard, { borderWidth: 0 }]}
+          style={st.scCard}
         >
-          {isActive && (
-            <LinearGradient
-              colors={["#FFF7ED", "#FDBA74", "#F97316"]}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 0 }}
-              style={st.energyTrim}
-            />
-          )}
-          <Ionicons
-            name="battery-half"
-            size={scale(108)}
-            color={
-              isActive ? "rgba(255,255,255,0.12)" : "rgba(150,150,150,0.06)"
-            }
-            style={st.energyBolt}
-          />
-          <View style={st.healthIntro}>
-            <Text style={[st.healthIntroTitle, !isActive && { color: c.text }]}>
-              Battery health
-            </Text>
-            <Text
-              style={[
-                st.healthIntroDescription,
-                !isActive && { color: c.muted },
-              ]}
-            >
-              {isActive
-                ? "Strong charge capacity for today's energy needs"
-                : "Awaiting connection to read capacity"}
-            </Text>
-          </View>
-          <View style={st.healthBody}>
-            <View style={st.healthNumberRow}>
-              <Text style={[st.healthNumber, !isActive && { color: c.text }]}>
-                {batteryPct !== null ? Math.floor(batteryPct) : "--"}
-              </Text>
-              <Text
-                style={[st.healthNumberUnit, !isActive && { color: c.muted }]}
-              >
-                %
-              </Text>
-            </View>
-            <Text style={[st.healthStatus, !isActive && { color: c.muted }]}>
-              {isActive ? "HEALTHY" : "OFFLINE"}
-            </Text>
-          </View>
-        </LinearGradient>
-      </EnterView>
-
-      <EnterView delay={90} style={st.statsSection}>
-        <Glass
-          mode={mode}
-          style={[
-            st.glassStats,
-            {
-              borderColor:
-                mode === "dark"
-                  ? "rgba(147,197,253,0.30)"
-                  : "rgba(37,99,235,0.20)",
-            },
-          ]}
-        >
-          <View style={st.energySummaryHeader}>
+          <View pointerEvents="none" style={st.scSheenA} />
+          <View pointerEvents="none" style={st.scSheenB} />
+          <View style={st.scTop}>
             <View>
-              <Text
-                style={[
-                  st.statsEyebrow,
-                  {
-                    color:
-                      mode === "dark"
-                        ? "rgba(255,255,255,0.56)"
-                        : "rgba(10,42,74,0.55)",
-                  },
-                ]}
-              >
-                TODAY&apos;S CONSUMPTION
-              </Text>
-              <View style={st.kwhRow}>
-                <Text style={[st.kwhValue, { color: c.text }]}>
+              <Text style={st.scEyebrow}>Today&apos;s consumption</Text>
+              <View style={st.scKwhRow}>
+                <Text style={st.scKwh}>
                   {isActive ? todayKwh.toFixed(2) : "--"}
                 </Text>
-                <Text style={st.kwhUnit}>kWh</Text>
+                <Text style={st.scKwhUnit}>kWh</Text>
               </View>
             </View>
-            <View style={[st.comparisonPill, !isActive && { opacity: 0.4 }]}>
-              <Ionicons name="trending-down" size={scale(13)} color="#2563EB" />
+            <View style={[st.scDelta, !isActive && { opacity: 0.5 }]}>
+              <Ionicons name="trending-down" size={scale(14)} color="#FFFFFF" />
               <View>
-                <Text style={st.comparisonValue}>{consumptionDelta}</Text>
-                <Text style={st.comparisonLabel}>vs yesterday</Text>
+                <Text style={st.scDeltaValue}>{consumptionDelta}</Text>
+                <Text style={st.scDeltaLabel}>vs yesterday</Text>
               </View>
             </View>
           </View>
-          <View
-            style={[
-              st.comparisonTrack,
-              !isActive && { backgroundColor: c.line },
-            ]}
-          >
+          <View style={st.scTrack}>
             <View
-              style={[
-                st.comparisonFill,
-                !isActive && { backgroundColor: c.muted, width: "0%" },
-              ]}
+              style={[st.scFill, !isActive && { width: "0%" }]}
             />
           </View>
-          <Text
-            style={[
-              st.comparisonDetail,
-              {
-                color:
-                  mode === "dark"
-                    ? "rgba(255,255,255,0.5)"
-                    : "rgba(10,42,74,0.5)",
-              },
-            ]}
-          >
-            {yesterdayKwh} kWh yesterday
-          </Text>
-          <View style={st.statsDivider} />
-          <View style={st.statsRow}>
-            {stats.map((s, i) => (
-              <View
-                key={s.label}
-                style={[
-                  st.statCell,
-                  i > 0 && {
-                    borderLeftWidth: 1,
-                    borderLeftColor:
-                      mode === "dark"
-                        ? "rgba(255,255,255,0.14)"
-                        : "rgba(10,42,74,0.12)",
-                  },
-                ]}
-              >
-                <Text
-                  style={[
-                    st.statLabel,
-                    {
-                      color:
-                        mode === "dark"
-                          ? "rgba(255,255,255,0.55)"
-                          : "rgba(10,42,74,0.5)",
-                    },
-                  ]}
-                >
-                  {s.label}
-                </Text>
-                <View style={st.statValueRow}>
-                  <Text style={[st.statValue, { color: c.text }]}>
-                    {s.value}
-                  </Text>
-                  <Text style={st.statUnit}>{s.unit}</Text>
+          <Text style={st.scSub}>{yesterdayKwh} kWh yesterday</Text>
+
+          <View style={st.scTiles}>
+            {stats.map((s, i) => {
+              const icon = (
+                {
+                  VOLTAGE: "flash",
+                  POWER: "speedometer",
+                  BATTERY: "battery-charging",
+                } as const
+              )[s.label as "VOLTAGE" | "POWER" | "BATTERY"];
+              return (
+                <View key={s.label} style={[st.scTile, i > 0 && st.scTileDivider]}>
+                  <View style={st.scTileIcon}>
+                    <Ionicons name={icon} size={scale(15)} color="#EA580C" />
+                  </View>
+                  <View style={st.scTileValueRow}>
+                    <Text style={st.scTileValue} numberOfLines={1}>
+                      {s.value}
+                    </Text>
+                    <Text style={st.scTileUnit}>{s.unit}</Text>
+                  </View>
+                  <Text style={st.scTileLabel}>{s.label}</Text>
                 </View>
-              </View>
-            ))}
+              );
+            })}
           </View>
-        </Glass>
+        </LinearGradient>
       </EnterView>
 
       <EnterView delay={170} style={st.chartSection}>
@@ -584,12 +625,12 @@ export default function HomeScreen() {
             </View>
             <View style={st.chartMetric}>
               <Text
-                style={[st.chartMetricValue, !isActive && { color: c.muted }]}
+                style={[st.chartMetricValue, { color: mode === "dark" ? "#FB923C" : "#C2410C" }, !isActive && { color: c.muted }]}
               >
                 {isActive ? todayKwh.toFixed(2) : "--"}
               </Text>
               <Text
-                style={[st.chartMetricUnit, !isActive && { color: c.muted }]}
+                style={[st.chartMetricUnit, { color: mode === "dark" ? "#FB923C" : "#C2410C" }, !isActive && { color: c.muted }]}
               >
                 kWh
               </Text>
@@ -604,8 +645,13 @@ export default function HomeScreen() {
             >
               <Defs>
                 <SvgGradient id="energyFill" x1="0" y1="0" x2="0" y2="1">
-                  <Stop offset="0" stopColor="#2DD4BF" stopOpacity="0.28" />
-                  <Stop offset="1" stopColor="#2DD4BF" stopOpacity="0" />
+                  <Stop offset="0" stopColor="#F97316" stopOpacity="0.38" />
+                  <Stop offset="1" stopColor="#F97316" stopOpacity="0" />
+                </SvgGradient>
+                <SvgGradient id="energyLine" x1="0" y1="0" x2="1" y2="0">
+                  <Stop offset="0" stopColor="#FDBA74" />
+                  <Stop offset="0.5" stopColor="#FB923C" />
+                  <Stop offset="1" stopColor="#EA580C" />
                 </SvgGradient>
               </Defs>
               {[24, 54, 84, 114].map((y) => (
@@ -615,7 +661,7 @@ export default function HomeScreen() {
                   y1={y}
                   x2="320"
                   y2={y}
-                  stroke={mode === "dark" ? "#FFFFFF" : "#0A2A4A"}
+                  stroke={mode === "dark" ? "#FFFFFF" : "#2B1205"}
                   strokeOpacity="0.09"
                   strokeWidth="1"
                 />
@@ -629,7 +675,7 @@ export default function HomeScreen() {
               <Path
                 d={isActive ? activeChartPath : flatChartPath}
                 fill="none"
-                stroke={isActive ? "#2DD4BF" : c.muted}
+                stroke={isActive ? "url(#energyLine)" : c.muted}
                 strokeWidth={isActive ? "3" : "2"}
                 strokeLinecap="round"
                 strokeDasharray={isActive ? "" : "6,6"}
@@ -639,7 +685,7 @@ export default function HomeScreen() {
                 y1="131"
                 x2="320"
                 y2="131"
-                stroke={mode === "dark" ? "#FFFFFF" : "#0A2A4A"}
+                stroke={mode === "dark" ? "#FFFFFF" : "#2B1205"}
                 strokeOpacity="0.16"
                 strokeWidth="1"
               />
@@ -654,206 +700,122 @@ export default function HomeScreen() {
         </Glass>
       </EnterView>
 
-      <EnterView delay={270}>
-        <Glass
-          mode={mode}
-          style={[st.zonesCard, !isActive && { opacity: 0.65 }]}
+      <EnterView delay={270} style={st.zonesSection}>
+        <View
+          pointerEvents={isActive ? "auto" : "none"}
+          style={[!isActive && { opacity: 0.6 }]}
         >
-          <View pointerEvents={isActive ? "auto" : "none"}>
+          <View style={[st.zonesCard, { backgroundColor: c.surface, borderColor: c.line }]}>
             <View style={st.zonesHeader}>
-              <View style={st.zonesTitleGroup}>
-                <View
-                  style={[
-                    st.zonesAccent,
-                    !isActive && { backgroundColor: c.muted },
-                  ]}
-                />
-                <View>
-                  <Text
+              <View style={{ flex: 1 }}>
+                <Text style={[st.zonesTitle, { color: c.text }]}>My zones</Text>
+                <View style={st.zonesSubRow}>
+                  <View
                     style={[
-                      st.zonesEyebrow,
-                      {
-                        color:
-                          mode === "dark"
-                            ? "rgba(255,255,255,0.52)"
-                            : "rgba(10,42,74,0.52)",
-                      },
+                      st.zonesLiveDot,
+                      !isActive && { backgroundColor: c.muted },
                     ]}
-                  >
-                    CONNECTED SPACES
-                  </Text>
-                  <Text style={[st.zonesTitle, { color: c.text }]}>
-                    My zones
+                  />
+                  <Text style={[st.zonesSubText, { color: c.muted }]}>
+                    {isActive ? zones.filter((zone) => zone.on).length : 0} of {zones.length} active · {isActive ? "Online" : "Standby"}
                   </Text>
                 </View>
               </View>
               <Pressable
                 onPress={() => router.push("/pages/schedule")}
-                style={st.manageButton}
-              >
-                <Text
-                  style={[
-                    st.manageText,
-                    { color: mode === "dark" ? "#FFFFFF" : "#0B63B7" },
-                  ]}
-                >
-                  Manage
-                </Text>
-                <Ionicons
-                  name="arrow-forward"
-                  size={scale(13)}
-                  color={mode === "dark" ? "#FFFFFF" : "#0B63B7"}
-                />
-              </Pressable>
-            </View>
-            <View
-              style={[
-                st.zonesSummary,
-                {
-                  backgroundColor:
-                    mode === "dark"
-                      ? "rgba(255,255,255,0.06)"
-                      : "rgba(11,99,183,0.07)",
-                },
-              ]}
-            >
-              <Ionicons
-                name="radio-outline"
-                size={scale(14)}
-                color={
-                  isActive ? (mode === "dark" ? "#FFFFFF" : "#0B63B7") : c.muted
-                }
-              />
-              <Text style={[st.zonesSummaryText, { color: c.text }]}>
-                {isActive ? zones.filter((zone) => zone.on).length : 0} of{" "}
-                {zones.length} zones active
-              </Text>
-              <View
                 style={[
-                  st.zonesLiveDot,
-                  !isActive && { backgroundColor: c.muted },
-                ]}
-              />
-              <Text
-                style={[
-                  st.zonesLiveText,
+                  st.manageButton,
                   {
-                    color: isActive
-                      ? mode === "dark"
-                        ? "rgba(255,255,255,0.62)"
-                        : "#0B63B7"
-                      : c.muted,
+                    backgroundColor:
+                      mode === "dark"
+                        ? "rgba(255,255,255,0.08)"
+                        : "rgba(249,115,22,0.10)",
                   },
                 ]}
               >
-                {isActive ? "ONLINE" : "STANDBY"}
-              </Text>
+                <Text style={[st.manageText, { color: mode === "dark" ? c.orange : "#C2410C" }]}>Manage</Text>
+                <Ionicons name="arrow-forward" size={scale(13)} color={mode === "dark" ? c.orange : "#C2410C"} />
+              </Pressable>
             </View>
             {zones.length === 0 && (
-              <Text
-                style={{
-                  color:
-                    mode === "dark"
-                      ? "rgba(255,255,255,0.4)"
-                      : "rgba(10,42,74,0.4)",
-                  fontSize: scale(10),
-                  fontFamily: fonts.medium,
-                  textAlign: "center",
-                  paddingVertical: scale(16),
-                }}
-              >
-                No zones yet
-              </Text>
+              <Text style={[st.zoneEmpty, { color: c.muted }]}>No zones yet</Text>
             )}
-            {zones.map((z, i) => (
-              <View key={z.id} style={st.zoneRow}>
-                {i > 0 && <View style={st.zoneDivider} />}
-                <Pressable
-                  onPress={() =>
-                    router.push(
-                      `/pages/zones/${z.id}?name=${encodeURIComponent(z.name)}&source=${encodeURIComponent(z.source)}&detail=${encodeURIComponent(z.detail)}&on=${z.on}` as Href,
-                    )
-                  }
-                  style={{
-                    paddingVertical: scale(12),
-                    paddingHorizontal: scale(14),
-                  }}
-                >
-                  <View
-                    style={{
-                      flexDirection: "row",
-                      alignItems: "center",
-                      alignSelf: "stretch",
-                    }}
-                  >
+            {zones.map((z, index) => {
+            const live = isActive && z.on;
+            const src = SOURCE_META[z.source] ?? SOURCE_META.Battery;
+            return (
+              <Pressable
+                key={z.id}
+                onPress={() =>
+                  router.push(
+                    `/pages/zones/${z.id}?name=${encodeURIComponent(z.name)}&source=${encodeURIComponent(z.source)}&detail=${encodeURIComponent(z.detail)}&on=${z.on}` as Href,
+                  )
+                }
+                style={({ pressed }) => [
+                  st.zoneRow,
+                  index > 0 && [
+                    st.zoneRowDivider,
+                    { borderTopColor: mode === "dark" ? "rgba(255,255,255,0.08)" : "rgba(10,42,74,0.07)" },
+                  ],
+                  pressed && { opacity: 0.9 },
+                ]}
+              >
+                  {live ? (
+                    <LinearGradient
+                      colors={["#FB923C", "#EA580C"]}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                      style={st.zoneIconChip}
+                    >
+                      <Ionicons name="bulb" size={scale(16)} color="#FFFFFF" />
+                    </LinearGradient>
+                  ) : (
                     <View
                       style={[
-                        st.zoneIcon,
+                        st.zoneIconChip,
                         {
                           backgroundColor:
                             mode === "dark"
-                              ? "rgba(255,255,255,0.06)"
-                              : "rgba(10,42,74,0.05)",
+                              ? "rgba(255,255,255,0.08)"
+                              : "rgba(10,42,74,0.06)",
                         },
-                        isActive &&
-                          z.on && {
-                            backgroundColor: accent(0.16),
-                            borderColor: accent(0.45),
-                          },
                       ]}
                     >
-                      <Ionicons
-                        name="bulb"
-                        size={scale(15)}
-                        color={
-                          isActive && z.on
-                            ? accent()
-                            : mode === "dark"
-                              ? "rgba(255,255,255,0.35)"
-                              : "rgba(10,42,74,0.3)"
-                        }
-                      />
+                      <Ionicons name="bulb-outline" size={scale(16)} color={c.muted} />
                     </View>
-                    <View style={{ flex: 1, marginLeft: scale(11) }}>
-                      <Text
-                        style={{
-                          color: c.text,
-                          fontSize: scale(12.5),
-                          fontFamily: fonts.bold,
-                        }}
-                      >
-                        {z.name}
-                      </Text>
-                      <Text
-                        style={{
-                          color:
-                            mode === "dark"
-                              ? "rgba(255,255,255,0.55)"
-                              : "rgba(10,42,74,0.5)",
-                          fontSize: scale(9.5),
-                          fontFamily: fonts.medium,
-                          marginTop: 1,
-                        }}
-                      >
-                        {z.source} · {z.detail}
+                  )}
+
+                  <View style={st.zoneInfo}>
+                    <Text style={[st.zoneName, { color: c.text }]} numberOfLines={1}>
+                      {z.name}
+                    </Text>
+                    <View style={st.zoneSubRow}>
+                      <View style={[st.zoneSourceChip, { backgroundColor: src.tint }]}>
+                        <Ionicons name={src.icon} size={scale(9)} color={src.color} />
+                        <Text style={[st.zoneSourceText, { color: src.color }]}>{z.source}</Text>
+                      </View>
+                      <Text style={[st.zoneDetail, { color: c.muted }]} numberOfLines={1}>
+                        {z.detail}
                       </Text>
                     </View>
-                    <Toggle
-                      on={isActive && z.on}
-                      onToggle={() =>
-                        setZones((zs) =>
-                          zs.map((x) =>
-                            x.id === z.id ? { ...x, on: !x.on } : x,
-                          ),
-                        )
-                      }
-                    />
                   </View>
-                </Pressable>
-              </View>
-            ))}
+
+                  <ZoneSwitch
+                    on={live}
+                    mode={mode}
+                    onToggle={() =>
+                      setZones((zs) =>
+                        zs.map((x) =>
+                          x.id === z.id ? { ...x, on: !x.on } : x,
+                        ),
+                      )
+                    }
+                  />
+              </Pressable>
+            );
+          })}
           </View>
-        </Glass>
+        </View>
       </EnterView>
 
       {/* ============ REAL SYSTEM STATUS INDICATOR ============ */}
@@ -875,7 +837,7 @@ export default function HomeScreen() {
                     color:
                       mode === "dark"
                         ? "rgba(255,255,255,0.45)"
-                        : "rgba(120,130,150,0.9)",
+                        : "rgba(43,18,5,0.62)",
                   },
                 ]}
               >
@@ -1212,13 +1174,40 @@ export default function HomeScreen() {
 }
 
 const st = StyleSheet.create({
-  topBarBleed: {
+  // Hero: top bar + battery health on a shared orange glow
+  hero: {
     marginHorizontal: -20,
-    paddingHorizontal: 18,
-    borderBottomWidth: 1,
-    borderBottomColor: "#F97316",
+    paddingHorizontal: 20,
+    paddingBottom: scale(26),
+    position: "relative",
+    zIndex: 10, // keeps the notification dropdown above the cards below
   },
-  heroBleed: { marginHorizontal: -20 },
+  heroTopBar: { zIndex: 5 },
+  heroBody: { zIndex: 1, alignItems: "center", marginTop: scale(6) },
+  heroLabelRow: { flexDirection: "row", alignItems: "center", gap: scale(6) },
+  heroLabel: { fontSize: scale(10.5), letterSpacing: 0.4, fontFamily: fonts.bold },
+  heroNumberRow: { flexDirection: "row", alignItems: "baseline", marginTop: scale(6) },
+  heroNumber: {
+    fontSize: scale(72),
+    lineHeight: scale(78),
+    letterSpacing: -2,
+    fontFamily: fonts.extrabold,
+  },
+  heroUnit: { fontSize: scale(24), marginLeft: scale(3), fontFamily: fonts.extrabold },
+  heroDesc: {
+    fontSize: scale(9.5),
+    textAlign: "center",
+    marginTop: scale(10),
+    fontFamily: fonts.medium,
+  },
+  heroTrack: {
+    alignSelf: "stretch",
+    height: scale(6),
+    borderRadius: 99,
+    overflow: "hidden",
+    marginTop: scale(16),
+  },
+  heroFill: { height: "100%", borderRadius: 99 },
 
   // Offline Banner Styles
   offlineNotice: {
@@ -1242,7 +1231,7 @@ const st = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     gap: scale(6),
-    backgroundColor: "#0B63B7",
+    backgroundColor: "#F97316",
     paddingVertical: scale(9),
     borderRadius: scale(8),
   },
@@ -1404,7 +1393,7 @@ const st = StyleSheet.create({
     fontFamily: fonts.extrabold,
   },
   kwhUnit: {
-    color: "#2563EB",
+    color: "#EA580C",
     fontSize: scale(12),
     fontFamily: fonts.extrabold,
   },
@@ -1414,18 +1403,18 @@ const st = StyleSheet.create({
     gap: scale(6),
     borderRadius: scale(12),
     borderWidth: 1,
-    borderColor: "rgba(37,99,235,0.24)",
-    backgroundColor: "rgba(37,99,235,0.10)",
+    borderColor: "rgba(249,115,22,0.24)",
+    backgroundColor: "rgba(249,115,22,0.10)",
     paddingHorizontal: scale(9),
     paddingVertical: scale(7),
   },
   comparisonValue: {
-    color: "#2563EB",
+    color: "#EA580C",
     fontSize: scale(11),
     fontFamily: fonts.extrabold,
   },
   comparisonLabel: {
-    color: "#1D4ED8",
+    color: "#EA580C",
     fontSize: scale(7.5),
     marginTop: scale(1),
     fontFamily: fonts.bold,
@@ -1434,14 +1423,14 @@ const st = StyleSheet.create({
     height: scale(5),
     borderRadius: 99,
     overflow: "hidden",
-    backgroundColor: "rgba(37,99,235,0.12)",
+    backgroundColor: "rgba(249,115,22,0.12)",
     marginTop: scale(11),
   },
   comparisonFill: {
     width: "90%",
     height: "100%",
     borderRadius: 99,
-    backgroundColor: "#2563EB",
+    backgroundColor: "#EA580C",
   },
   comparisonDetail: {
     fontSize: scale(8.5),
@@ -1450,84 +1439,145 @@ const st = StyleSheet.create({
   },
   statsDivider: {
     height: 1,
-    backgroundColor: "rgba(37,99,235,0.16)",
+    backgroundColor: "rgba(249,115,22,0.16)",
     marginVertical: scale(11),
   },
-  zonesCard: {
-    borderRadius: scale(20),
-    padding: scale(14),
-    marginTop: scale(18),
+  // ---- stats (solid orange gradient) ----
+  scCard: {
+    borderRadius: scale(22),
+    padding: scale(16),
     overflow: "hidden",
-    shadowColor: "#0A2A4A",
-    shadowOpacity: 0.1,
-    shadowRadius: scale(12),
-    shadowOffset: { width: 0, height: 5 },
-    elevation: 3,
+    shadowColor: "#EA580C",
+    shadowOpacity: 0.32,
+    shadowRadius: scale(16),
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 7,
   },
+  scSheenA: {
+    position: "absolute",
+    top: scale(-60),
+    right: scale(-40),
+    width: scale(170),
+    height: scale(170),
+    borderRadius: scale(85),
+    backgroundColor: "rgba(255,255,255,0.10)",
+  },
+  scSheenB: {
+    position: "absolute",
+    bottom: scale(-70),
+    left: scale(-50),
+    width: scale(150),
+    height: scale(150),
+    borderRadius: scale(75),
+    backgroundColor: "rgba(255,255,255,0.06)",
+  },
+  scTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  scEyebrow: { color: "rgba(255,255,255,0.92)", fontSize: scale(9.5), fontFamily: fonts.semibold },
+  scKwhRow: { flexDirection: "row", alignItems: "baseline", gap: scale(4), marginTop: scale(2) },
+  scKwh: { color: "#FFFFFF", fontSize: scale(32), letterSpacing: -0.8, fontFamily: fonts.extrabold },
+  scKwhUnit: { color: "rgba(255,255,255,0.95)", fontSize: scale(12), fontFamily: fonts.bold },
+  scDelta: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: scale(7),
+    backgroundColor: "rgba(255,255,255,0.18)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.32)",
+    borderRadius: scale(12),
+    paddingHorizontal: scale(10),
+    paddingVertical: scale(7),
+  },
+  scDeltaValue: { color: "#FFFFFF", fontSize: scale(11.5), fontFamily: fonts.extrabold },
+  scDeltaLabel: { color: "rgba(255,255,255,0.92)", fontSize: scale(7.5), fontFamily: fonts.medium },
+  scTrack: {
+    height: scale(5),
+    borderRadius: 99,
+    backgroundColor: "rgba(255,255,255,0.22)",
+    overflow: "hidden",
+    marginTop: scale(12),
+  },
+  scFill: { width: "68%", height: "100%", borderRadius: 99, backgroundColor: "#FFFFFF" },
+  scSub: { color: "rgba(255,255,255,0.92)", fontSize: scale(8.5), marginTop: scale(5), fontFamily: fonts.medium },
+  scTiles: {
+    flexDirection: "row",
+    marginTop: scale(14),
+    paddingTop: scale(14),
+    borderTopWidth: 1,
+    borderTopColor: "rgba(255,255,255,0.24)",
+  },
+  scTile: { flex: 1, alignItems: "center" },
+  scTileDivider: { borderLeftWidth: 1, borderLeftColor: "rgba(255,255,255,0.24)" },
+  scTileIcon: {
+    width: scale(28),
+    height: scale(28),
+    borderRadius: scale(9),
+    backgroundColor: "#FFFFFF",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: scale(9),
+    shadowColor: "#0A2A4A",
+    shadowOpacity: 0.25,
+    shadowRadius: scale(6),
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
+  },
+  scTileValueRow: { flexDirection: "row", alignItems: "baseline", gap: scale(2) },
+  scTileValue: { color: "#FFFFFF", fontSize: scale(17), fontFamily: fonts.extrabold, flexShrink: 1 },
+  scTileUnit: { color: "rgba(255,255,255,0.95)", fontSize: scale(9), fontFamily: fonts.bold },
+  scTileLabel: { color: "rgba(255,255,255,0.92)", fontSize: scale(7.5), letterSpacing: 1.1, marginTop: scale(2), fontFamily: fonts.bold },
+
+  // ---- zones (one compact container, rows split by hairlines) ----
+  zonesSection: { marginTop: scale(18) },
   zonesHeader: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginBottom: scale(12),
+    marginBottom: scale(4),
+    paddingHorizontal: scale(12),
+    paddingTop: scale(10),
   },
-  zonesTitleGroup: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: scale(9),
-  },
-  zonesAccent: {
-    width: scale(4),
-    height: scale(31),
-    borderRadius: 3,
-    backgroundColor: "#0B63B7",
-  },
-  zonesEyebrow: {
-    fontSize: scale(7.5),
-    letterSpacing: 1.3,
-    fontFamily: fonts.extrabold,
-  },
-  zonesTitle: {
-    fontSize: scale(18),
-    marginTop: scale(2),
-    fontFamily: fonts.extrabold,
-  },
+  zonesTitle: { fontSize: scale(16), fontFamily: fonts.extrabold, letterSpacing: -0.2 },
+  zonesSubRow: { flexDirection: "row", alignItems: "center", gap: scale(5), marginTop: scale(2) },
+  zonesLiveDot: { width: scale(5), height: scale(5), borderRadius: scale(3), backgroundColor: "#22C55E" },
+  zonesSubText: { fontSize: scale(8.5), fontFamily: fonts.medium },
   manageButton: {
     flexDirection: "row",
     alignItems: "center",
     gap: scale(4),
     paddingHorizontal: scale(9),
-    paddingVertical: scale(7),
-    borderRadius: scale(9),
-    backgroundColor: "rgba(11,99,183,0.08)",
+    paddingVertical: scale(6),
+    borderRadius: 99,
   },
-  manageText: { fontSize: scale(9), fontFamily: fonts.bold },
-  zonesSummary: {
+  manageText: { fontSize: scale(9.5), fontFamily: fonts.bold },
+  zonesCard: {
+    borderRadius: scale(18),
+    borderWidth: 1,
+    overflow: "hidden",
+    paddingBottom: scale(3),
+  },
+  zoneEmpty: { fontSize: scale(10), fontFamily: fonts.medium, textAlign: "center", paddingVertical: scale(16) },
+  zoneRow: { flexDirection: "row", alignItems: "center", gap: scale(8), paddingVertical: scale(8), paddingHorizontal: scale(12) },
+  zoneRowDivider: { borderTopWidth: 1 },
+  zoneIconChip: {
+    width: scale(34),
+    height: scale(34),
+    borderRadius: scale(11),
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  zoneInfo: { flex: 1 },
+  zoneName: { fontSize: scale(12), fontFamily: fonts.extrabold },
+  zoneSubRow: { flexDirection: "row", alignItems: "center", gap: scale(6), marginTop: scale(3) },
+  zoneDetail: { fontSize: scale(8.5), fontFamily: fonts.medium },
+  zoneSourceChip: {
     flexDirection: "row",
     alignItems: "center",
-    gap: scale(6),
-    borderRadius: scale(11),
-    paddingHorizontal: scale(10),
-    paddingVertical: scale(8),
-    marginBottom: scale(2),
+    gap: scale(3),
+    borderRadius: 99,
+    paddingHorizontal: scale(6),
+    paddingVertical: scale(2),
   },
-  zonesSummaryText: { flex: 1, fontSize: scale(9), fontFamily: fonts.semibold },
-  zonesLiveDot: {
-    width: scale(6),
-    height: scale(6),
-    borderRadius: scale(3),
-    backgroundColor: "#22C55E",
-  },
-  zonesLiveText: {
-    fontSize: scale(7),
-    letterSpacing: 0.8,
-    fontFamily: fonts.extrabold,
-  },
-  zoneRow: { position: "relative" },
-  zoneDivider: {
-    height: 1,
-    backgroundColor: "rgba(10,42,74,0.09)",
-    marginLeft: scale(56),
-  },
+  zoneSourceText: { fontSize: scale(8), fontFamily: fonts.bold },
   chartSection: { marginTop: scale(12) },
   chartCard: {
     borderRadius: scale(18),
@@ -1548,13 +1598,13 @@ const st = StyleSheet.create({
   },
   chartMetric: { alignItems: "flex-end" },
   chartMetricValue: {
-    color: "#0F9F98",
+    color: "#EA580C",
     fontSize: scale(19),
     lineHeight: scale(21),
     fontFamily: fonts.extrabold,
   },
   chartMetricUnit: {
-    color: "#0F9F98",
+    color: "#EA580C",
     fontSize: scale(8),
     fontFamily: fonts.bold,
   },
@@ -1652,7 +1702,7 @@ const st = StyleSheet.create({
   },
   statValue: { fontSize: scale(16), fontFamily: fonts.extrabold },
   statUnit: {
-    color: "#2563EB",
+    color: "#EA580C",
     fontSize: scale(9),
     fontFamily: fonts.extrabold,
   },
