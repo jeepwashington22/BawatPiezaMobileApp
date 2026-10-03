@@ -24,15 +24,15 @@ export const scale = (v: number) => Math.round(v * S * 100) / 100;
 /* ------------------------- mode-aware brand colours ----------------------- */
 
 /**
- * Brand accent. Light mode keeps the house gold; dark mode is a strict
- * black-and-white theme, so the same accent resolves to pure white at the same
- * opacity (a 30% gold hairline becomes a 30% white hairline).
+ * Brand accent. Light mode keeps the house gold; dark mode now uses the house
+ * orange so loaders, ticks, toggles and active states stay warm instead of
+ * collapsing to pure white.
  *
  * Use this anywhere the brand colour is mixed with transparency — plain
  * `GOLD` / `NAVY` constants are light-mode values only.
  */
 export function brandAccent(mode: Mode, alpha = 1): string {
-  return mode === 'dark' ? `rgba(255, 255, 255, ${alpha})` : `rgba(246, 196, 69, ${alpha})`;
+  return mode === 'dark' ? `rgba(249, 115, 22, ${alpha})` : `rgba(246, 196, 69, ${alpha})`;
 }
 
 /**

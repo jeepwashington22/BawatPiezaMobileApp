@@ -31,10 +31,14 @@ const RIGHT: NavItem[] = [
 ];
 const CENTER = { label: 'Quick overrides' };
 
+/** Brand orange — drives the active tab and the raised Quick Overrides action. */
+const ORANGE = '#F97316';
+const ORANGE_DEEP = '#EA580C';
+
 export function BottomNav() {
   const router = useRouter();
   const pathname = usePathname();
-  const { colors: c, fonts: f, mode } = useTheme();
+  const { colors: c, fonts: f } = useTheme();
   const insets = useSafeAreaInsets();
   const [showOverrides, setShowOverrides] = React.useState(false);
 
@@ -54,10 +58,10 @@ export function BottomNav() {
         accessibilityState={{ selected: active }}
         accessibilityLabel={label}
       >
-        <Ionicons name={active ? activeIcon : icon} size={22} color={active ? c.text : c.muted} />
+        <Ionicons name={active ? activeIcon : icon} size={22} color={active ? ORANGE : c.muted} />
         <Text
           numberOfLines={2}
-          style={[styles.label, { color: active ? c.text : c.muted, fontFamily: active ? f.bold : f.medium }]}
+          style={[styles.label, { color: active ? ORANGE : c.muted, fontFamily: active ? f.bold : f.medium }]}
         >
           {label}
         </Text>
@@ -87,15 +91,15 @@ export function BottomNav() {
           styles.centerBtn,
           {
             borderColor: c.tabBar,
-            backgroundColor: mode === 'dark' ? '#FFFFFF' : '#F97316',
-            shadowColor: mode === 'dark' ? '#000000' : '#EA580C',
+            backgroundColor: ORANGE,
+            shadowColor: ORANGE_DEEP,
           },
           pressed && styles.centerBtnPressed,
         ]}
         accessibilityRole="button"
         accessibilityLabel={CENTER.label}
       >
-        <Ionicons name="flash" size={26} color={mode === 'dark' ? '#000000' : '#FFFFFF'} />
+        <Ionicons name="flash" size={26} color="#FFFFFF" />
       </Pressable>
 
       {RIGHT.map(renderItem)}

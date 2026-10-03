@@ -399,23 +399,20 @@ export function SideMenu({
               accessibilityLabel="Sign out"
               style={({ pressed }) => [
                 styles.signOut,
-                // light keeps the red destructive tint; the B/W dark theme uses
-                // a plain hairline + surface instead of a hue
-                mode === 'dark'
-                  ? { borderColor: c.line, backgroundColor: c.surfaceMuted }
-                  : {
-                      borderColor: 'rgba(220, 38, 38, 0.35)',
-                      backgroundColor: 'rgba(220, 38, 38, 0.08)',
-                    },
+                // red destructive tint in both themes — signing out is a danger action
+                {
+                  borderColor: 'rgba(220, 38, 38, 0.35)',
+                  backgroundColor: 'rgba(220, 38, 38, 0.08)',
+                },
                 pressed && { opacity: 0.8 },
               ]}
             >
               <Ionicons
                 name="log-out-outline"
                 size={scale(16)}
-                color={mode === 'dark' ? c.text : c.danger}
+                color={c.danger}
               />
-              <Text style={[styles.signOutText, { color: mode === 'dark' ? c.text : c.danger }]}>
+              <Text style={[styles.signOutText, { color: c.danger }]}>
                 Sign out
               </Text>
             </Pressable>

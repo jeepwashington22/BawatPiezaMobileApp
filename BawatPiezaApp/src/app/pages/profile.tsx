@@ -18,7 +18,6 @@ type HubButton = {
   label: string;
   sub: string;
   href: Href;
-  accent?: string;
 };
 
 type HubSection = { title: string; items: HubButton[] };
@@ -26,27 +25,32 @@ type HubSection = { title: string; items: HubButton[] };
 const SECTIONS: HubSection[] = [
   {
     title: 'AUDIT TRAIL',
-    items: [{ icon: 'flash-outline', label: 'History/Activity Log', sub: 'Action timestamps', href: '/pages/activity' as Href, accent: '#F97316' }],
+    items: [{ icon: 'flash-outline', label: 'History/Activity Log', sub: 'Action timestamps', href: '/pages/activity' as Href }],
   },
   {
     title: 'DEVICE MANAGEMENT',
     items: [
-      { icon: 'wifi-outline', label: 'Connections', sub: '2 devices paired', href: '/pages/device', accent: '#F97316' },
-      { icon: 'flash-outline', label: 'Connection', sub: 'Online', href: '/pages/device', accent: '#F97316' },
-      { icon: 'people-outline', label: 'Manage Access', sub: '2 invited · 1 pending', href: '/pages/accounts', accent: '#F97316' },
-      { icon: 'options-outline', label: 'System Thresholds', sub: 'Tile floor, degradation & watch list rules', href: '/pages/preferences', accent: '#F97316' },
+      { icon: 'wifi-outline', label: 'Connections', sub: '2 devices paired', href: '/pages/device' },
+      { icon: 'flash-outline', label: 'Connection', sub: 'Online', href: '/pages/device' },
+      { icon: 'people-outline', label: 'Manage Access', sub: '2 invited · 1 pending', href: '/pages/accounts' },
+      { icon: 'options-outline', label: 'System Thresholds', sub: 'Tile floor, degradation & watch list rules', href: '/pages/preferences' },
     ],
   },
   {
     title: 'UTILITY & RATES',
     items: [
-      { icon: 'wifi-outline', label: 'Meralco', sub: 'Current Provider', href: '/pages/preferences', accent: '#F97316' },
-      { icon: 'flash-outline', label: 'Electricity Rate', sub: 'Auto-synced from database', href: '/pages/energy', accent: '#F97316' },
+      { icon: 'wifi-outline', label: 'Meralco', sub: 'Current Provider', href: '/pages/preferences' },
+      { icon: 'flash-outline', label: 'Electricity Rate', sub: 'Auto-synced from database', href: '/pages/energy' },
     ],
   },
   {
     title: 'APP SETTINGS',
-    items: [{ icon: 'person-circle-outline', label: 'Profile', sub: 'Edit account', href: '/pages/edit-profile', accent: '#F97316' }],
+    items: [
+      { icon: 'person-circle-outline', label: 'Profile', sub: 'Edit account', href: '/pages/edit-profile' },
+      { icon: 'options-outline', label: 'Preferences', sub: 'Theme, units & notifications', href: '/pages/preferences' },
+      { icon: 'information-circle-outline', label: 'About app', sub: 'Version, components & credits', href: '/pages/about' },
+      { icon: 'help-circle-outline', label: 'FAQ', sub: 'Frequently asked questions', href: '/pages/faq' as Href },
+    ],
   },
 ];
 
@@ -212,7 +216,7 @@ export default function ProfileScreen() {
             </View>
           )}
           <View style={styles.profileCameraBadge}>
-            <Ionicons name={uploadingAvatar ? 'hourglass-outline' : 'camera-outline'} size={12} color={PRUSSIAN} />
+            <Ionicons name={uploadingAvatar ? 'hourglass-outline' : 'camera-outline'} size={12} color={c.text} />
           </View>
         </Pressable>
         <Text style={styles.profileHeaderName}>{displayName}</Text>
@@ -231,7 +235,7 @@ export default function ProfileScreen() {
               accessibilityLabel={b.label}
             >
               <View style={styles.hubIcon}>
-                <Ionicons name={b.icon} size={18} color={b.accent ?? PRUSSIAN} />
+                <Ionicons name={b.icon} size={18} color={c.text} />
               </View>
               <View style={styles.hubText}>
                 <Text style={styles.hubLabel}>{b.label}</Text>
@@ -266,8 +270,8 @@ export default function ProfileScreen() {
         onRequestClose={handleLogoutCancel}
       >
         <View style={[styles.modalOverlay, { backgroundColor: 'rgba(0, 0, 0, 0.5)' }]}>
-          <View style={[styles.modalContent, { backgroundColor: '#FFFFFF', borderRadius: 16, padding: 20, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8, elevation: 5 }]}>
-            <Text style={[styles.modalTitle, { color: PRUSSIAN, fontSize: 18, fontWeight: '800', marginBottom: 8, textAlign: 'center' }]}>Log out</Text>
+          <View style={[styles.modalContent, { backgroundColor: c.surface, borderRadius: 16, padding: 20, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8, elevation: 5 }]}>
+            <Text style={[styles.modalTitle, { color: c.text, fontSize: 18, fontWeight: '800', marginBottom: 8, textAlign: 'center' }]}>Log out</Text>
             <Text style={[styles.modalText, { color: MUTED, fontSize: 14, lineHeight: 20, marginBottom: 20, textAlign: 'center' }]}>
               Are you sure you want to sign out of your account?
             </Text>
@@ -298,7 +302,7 @@ export default function ProfileScreen() {
       >
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
-            <Text style={[styles.modalTitle, { color: PRUSSIAN }]}>Save profile picture?</Text>
+            <Text style={[styles.modalTitle, { color: c.text }]}>Save profile picture?</Text>
             <View style={styles.modalPreviewWrap}>
               {pendingImage ? (
                 <Image source={{ uri: pendingImage.uri }} style={styles.modalPreview} />
@@ -361,9 +365,9 @@ const makeStyles = (c: ThemeColors, f: any) => {
   profileHeader: { alignItems: 'center', marginBottom: 8 },
   profileAvatar: { width: 62, height: 62, borderRadius: 31, borderWidth: 2, borderColor: BUTTER },
   profileAvatarPlaceholder: { width: 62, height: 62, borderRadius: 31, backgroundColor: BUTTER, alignItems: 'center', justifyContent: 'center' },
-  profileAvatarText: { color: PRUSSIAN, fontSize: 24, fontFamily: f.extrabold },
+  profileAvatarText: { color: c.onAccentSoft, fontSize: 24, fontFamily: f.extrabold },
   profileCameraBadge: { position: 'absolute', right: -2, bottom: -2, width: 22, height: 22, borderRadius: 11, backgroundColor: c.surface, borderWidth: 1, borderColor: LINE, alignItems: 'center', justifyContent: 'center' },
-  profileHeaderName: { color: PRUSSIAN, fontSize: 15, fontFamily: f.extrabold, marginTop: 7 },
+  profileHeaderName: { color: c.text, fontSize: 15, fontFamily: f.extrabold, marginTop: 7 },
   profileHeaderEmail: { color: MUTED, fontSize: 10, fontFamily: f.medium, marginTop: 2 },
   section: { marginBottom: 2 },
   sectionTitle: { color: MUTED, fontSize: 11, letterSpacing: 1.2, fontWeight: '800', fontFamily: f.extrabold, marginTop: 10, marginBottom: 8 },
@@ -385,7 +389,7 @@ const makeStyles = (c: ThemeColors, f: any) => {
     borderWidth: 2,
     borderColor: BUTTER,
   },
-  avatarText: { color: PRUSSIAN, fontSize: 32, fontWeight: '900', fontFamily: f.extrabold },
+  avatarText: { color: c.text, fontSize: 32, fontWeight: '900', fontFamily: f.extrabold },
   camBadge: {
     position: 'absolute',
     right: 0,
@@ -400,7 +404,7 @@ const makeStyles = (c: ThemeColors, f: any) => {
     justifyContent: 'center',
   },
   tapHint: { color: MUTED, fontSize: 11, marginTop: 8 },
-  heroName: { color: PRUSSIAN, fontSize: 19, fontWeight: '900', fontFamily: f.extrabold },
+  heroName: { color: c.text, fontSize: 19, fontWeight: '900', fontFamily: f.extrabold },
   heroEmail: { color: MUTED, fontSize: 12, marginTop: 2 },
   roleChip: {
     backgroundColor: 'rgba(246, 196, 69, 0.28)',
@@ -409,7 +413,7 @@ const makeStyles = (c: ThemeColors, f: any) => {
     paddingVertical: 4,
     marginTop: 6,
   },
-  roleChipText: { color: PRUSSIAN, fontSize: 11, fontWeight: '800', fontFamily: f.extrabold, textTransform: 'capitalize' },
+  roleChipText: { color: c.text, fontSize: 11, fontWeight: '800', fontFamily: f.extrabold, textTransform: 'capitalize' },
   hubBtn: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -432,13 +436,13 @@ const makeStyles = (c: ThemeColors, f: any) => {
     marginRight: 10,
   },
   hubText: { flex: 1 },
-  hubLabel: { color: PRUSSIAN, fontSize: 12, fontWeight: '800', fontFamily: f.extrabold },
+  hubLabel: { color: c.text, fontSize: 12, fontWeight: '800', fontFamily: f.extrabold },
   hubSub: { color: MUTED, fontSize: 10, marginTop: 2 },
   onlineState: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   onlineDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: '#1764B0' },
-  onlineText: { color: PRUSSIAN, fontSize: 10, fontFamily: f.bold },
+  onlineText: { color: c.text, fontSize: 10, fontFamily: f.bold },
   rateState: { alignItems: 'flex-end' },
-  rateValue: { color: PRUSSIAN, fontSize: 12, fontFamily: f.extrabold },
+  rateValue: { color: c.text, fontSize: 12, fontFamily: f.extrabold },
   rateActive: { color: '#1764B0', fontSize: 8, letterSpacing: 0.8, fontFamily: f.extrabold, marginTop: 2 },
   logoutBtn: {
     backgroundColor: DANGER,
@@ -459,7 +463,7 @@ const makeStyles = (c: ThemeColors, f: any) => {
   },
   modalContent: {
     width: '85%',
-    backgroundColor: '#FFFFFF',
+    backgroundColor: c.surface,
     borderRadius: 16,
     padding: 20,
     shadowColor: '#000',

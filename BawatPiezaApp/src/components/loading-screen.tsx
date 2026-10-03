@@ -1,4 +1,5 @@
 import { StyleSheet, View } from 'react-native';
+import { useTheme } from '../theme';
 import { TileLoader, type TileLoaderProps } from './tile-loader';
 
 /**
@@ -10,8 +11,9 @@ export function LoadingScreen({
   label = 'Harvesting energy...',
   size = 'md',
 }: Pick<TileLoaderProps, 'label' | 'size'>) {
+  const { colors: c } = useTheme();
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: c.bg }]}>
       <TileLoader label={label} size={size} />
     </View>
   );
@@ -22,6 +24,5 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#F4F4F4',
   },
 });

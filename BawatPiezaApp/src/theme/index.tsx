@@ -62,13 +62,13 @@ export const LightTheme: ThemeColors = {
 };
 
 /**
- * Dark mode is a strict black-and-white theme.
+ * Dark mode — black canvas with warm orange accents.
  *
- * There is deliberately no navy, no gold and no semantic hue here: the canvas
- * is pure black, surfaces are near-black, type is white and every accent is
- * white. Emphasis comes from contrast, border weight and type weight instead of
- * colour, which is why `danger` / `ok` / `orange` are neutral too — destructive
- * and live states are marked by copy and iconography, not by red/green.
+ * The canvas stays pure black and surfaces near-black so OLED screens stay
+ * deep, but the brand accent is the house orange (not white): buttons, active
+ * states, loaders and highlights all resolve to orange for a warm, premium dark
+ * look. `danger` stays red for destructive actions such as signing out, and
+ * `ok` is green for healthy / live states.
  */
 export const DarkTheme: ThemeColors = {
   bg: '#000000',
@@ -78,15 +78,15 @@ export const DarkTheme: ThemeColors = {
   text: '#FFFFFF',
   textSoft: 'rgba(255, 255, 255, 0.80)',
   muted: 'rgba(255, 255, 255, 0.52)',
-  accent: '#FFFFFF', // white-on-black is the action colour in a B/W theme
-  onAccent: '#000000',
-  accentSoft: 'rgba(255, 255, 255, 0.12)',
+  accent: '#F97316', // house orange is the action colour in dark mode
+  onAccent: '#FFFFFF',
+  accentSoft: 'rgba(249, 115, 22, 0.18)',
   onAccentSoft: '#FFFFFF',
-  butter: '#FFFFFF',
-  orange: '#E5E5E5',
-  danger: '#FFFFFF',
-  onDanger: '#000000',
-  ok: '#FFFFFF',
+  butter: '#F97316',
+  orange: '#F97316',
+  danger: '#EF4444',
+  onDanger: '#FFFFFF',
+  ok: '#22C55E',
   tabBar: 'rgba(8, 8, 8, 0.97)',
 };
 

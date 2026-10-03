@@ -120,12 +120,12 @@ export function TileLoader({ label = 'Harvesting energy...', size = 'md' }: Tile
             width: dims.box,
             height: dims.box,
             opacity: boltAnim,
-            backgroundColor: mode === 'dark' ? '#FFFFFF' : '#0A2A4A',
-            shadowColor: mode === 'dark' ? '#FFFFFF' : '#0A2A4A',
+            backgroundColor: mode === 'dark' ? '#F97316' : '#0A2A4A',
+            shadowColor: mode === 'dark' ? '#EA580C' : '#0A2A4A',
           },
         ]}
       >
-        <Ionicons name="flash" size={dims.bolt} color={mode === 'dark' ? '#000000' : '#F6C445'} />
+        <Ionicons name="flash" size={dims.bolt} color={mode === 'dark' ? '#FFFFFF' : '#F6C445'} />
       </Animated.View>
 
       {label ? (
