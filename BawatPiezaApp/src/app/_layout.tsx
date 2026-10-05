@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { Platform, View } from "react-native";
-import { Slot, usePathname, useRouter, useSegments } from "expo-router";
+import { Stack, usePathname, useRouter, useSegments } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import {
   useFonts,
@@ -166,7 +166,14 @@ export default function RootLayout() {
       <View style={{ flex: 1 }}>
         {/* Only mount the Network & MQTT banner if we ARE NOT configuring a hub */}
         {!isSetupScreen && <NetworkBanner />}
-        <Slot />
+        <Stack
+          screenOptions={{
+            headerShown: false,
+            animation: "slide_from_right",
+            animationDuration: 280,
+            gestureEnabled: true,
+          }}
+        />
       </View>
     </ThemeProvider>
   );

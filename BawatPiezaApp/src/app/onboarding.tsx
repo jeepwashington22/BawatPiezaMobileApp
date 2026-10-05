@@ -42,9 +42,9 @@ const HERO_H = SCREEN_H * 0.56;
 const ONBOARDING_SEEN_KEY = "bawatpieza.onboarding.seen";
 
 /* ------------------------------ brand tokens ------------------------------ */
-const ACCENT = "#F45B49"; // primary action red — matches the reference CTA
-const INK = "#0F2137"; // headings
-const INK_SOFT = "rgba(15,33,55,0.58)"; // body copy
+const ACCENT = "#F97316";
+const INK = "#FFFFFF";
+const INK_SOFT = "rgba(255,255,255,0.68)";
 
 /* --------------------------------- slides --------------------------------- */
 
@@ -362,14 +362,14 @@ export default function OnboardingScreen({ onDone }: { onDone?: () => void }) {
 /* --------------------------------- styles --------------------------------- */
 
 const st = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: "#FFFFFF" },
+  screen: { flex: 1, backgroundColor: "#120705" },
   pager: { flex: 1 },
 
   /* hero art (video / placeholder / AI) */
   hero: {
     width: "100%",
     height: HERO_H,
-    backgroundColor: "#F4F6F8",
+    backgroundColor: "#2A0D06",
     overflow: "hidden",
   },
   heroScrim: {
@@ -384,20 +384,20 @@ const st = StyleSheet.create({
   placeholder: {
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#F5F7FA",
+    backgroundColor: "#351207",
     borderBottomWidth: 1,
     borderBottomColor: "rgba(15,33,55,0.06)",
   },
   placeholderText: {
     marginTop: scale(10),
-    color: "rgba(15,33,55,0.42)",
+    color: "rgba(255,255,255,0.48)",
     fontSize: scale(12),
     fontFamily: fonts.medium,
   },
   aiVisual: {
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#FDF3F1",
+    backgroundColor: "#351207",
   },
   aiOrb: {
     width: scale(132),
@@ -429,14 +429,14 @@ const st = StyleSheet.create({
     alignItems: "center",
   },
   title: {
-    color: INK,
+    color: "#FFFFFF",
     fontSize: scale(25),
     fontFamily: fonts.extrabold,
     textAlign: "center",
     marginBottom: scale(10),
   },
   body: {
-    color: INK_SOFT,
+    color: "rgba(255,255,255,0.68)",
     fontSize: scale(12.5),
     lineHeight: scale(19),
     fontFamily: fonts.medium,
@@ -467,7 +467,7 @@ const st = StyleSheet.create({
     elevation: 2,
   },
   skipText: {
-    color: ACCENT,
+    color: "#F97316",
     fontSize: scale(12.5),
     fontFamily: fonts.bold,
     marginRight: scale(2),

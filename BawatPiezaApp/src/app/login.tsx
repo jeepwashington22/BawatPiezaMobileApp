@@ -16,15 +16,13 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { fonts } from '../theme';
 import { Ionicons } from '@expo/vector-icons';
-import { supabase } from '../lib/supabase';
+import { isGoogleSignInCancelled, signInWithGoogle, supabase } from '../lib/supabase';
 
-const PRUSSIAN = '#0A2A4A';
-const PRUSSIAN_SOFT = '#345271';
+const ORANGE = '#F97316';
+const ORANGE_DARK = '#C2410C';
 const BUTTER = '#F6C445';
 const MUTED = 'rgba(255, 255, 255, 0.72)';
 const LINE = 'rgba(255, 255, 255, 0.12)';
-const SURFACE = 'rgba(15, 23, 36, 0.72)';
-const INPUT_BG = 'rgba(255, 255, 255, 0.05)';
 
 export default function LoginScreen() {
   const router = useRouter();
@@ -33,6 +31,7 @@ export default function LoginScreen() {
   const [showPassword, setShowPassword] = useState(false);
   const [remember, setRemember] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [googleSubmitting, setGoogleSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const handleLogin = async () => {
@@ -79,39 +78,37 @@ export default function LoginScreen() {
     }
   };
 
+  const handleGoogleLogin = async () => {
+    setGoogleSubmitting(true);
+    setError(null);
+    try {
+      await signInWithGoogle();
+      router.replace('/provisioning');
+    } catch (authError) {
+      if (!isGoogleSignInCancelled(authError)) {
+        const message = authError instanceof Error ? authError.message : 'Unable to sign in with Google right now.';
+        setError(message);
+        Alert.alert('Google sign-in failed', message);
+      }
+    } finally {
+      setGoogleSubmitting(false);
+    }
+  };
+
   return (
     <View style={styles.container}>
-      <LinearGradient colors={['#050A15', '#0B1628', '#0F1F33']} style={StyleSheet.absoluteFill} />
-
-      <View pointerEvents="none" style={styles.bgOrb1} />
-      <View pointerEvents="none" style={styles.bgOrb2} />
-      <View pointerEvents="none" style={styles.bgOrb3} />
-      <View pointerEvents="none" style={styles.grid} />
-
-      <View pointerEvents="none" style={styles.floatIconLeft}>
-        <Ionicons name="leaf-outline" size={52} color="rgba(246, 196, 69, 0.12)" />
-      </View>
-      <View pointerEvents="none" style={styles.floatIconTopRight}>
-        <Ionicons name="flash-outline" size={46} color="rgba(255,255,255,0.08)" />
-      </View>
-      <View pointerEvents="none" style={styles.floatIconBottomLeft}>
-        <Ionicons name="leaf-outline" size={46} color="rgba(246, 196, 69, 0.12)" />
-      </View>
-      <View pointerEvents="none" style={styles.floatIconBottomRight}>
-        <Ionicons name="flash-outline" size={52} color="rgba(255,255,255,0.08)" />
-      </View>
+      <LinearGradient colors={['#8F350E', '#2A0D06', '#120705']} style={StyleSheet.absoluteFill} />
 
       <SafeAreaView style={styles.safeArea}>
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.flex}>
           <View style={styles.brandWrap}>
             <Image source={require('../../assets/images/LOGO3.png')} style={styles.logo} resizeMode="contain" />
-            <Text style={styles.brandSubtitle}>Piezo Technology - Kinetic Energy to Electricity</Text>
+            <Text style={styles.welcomeText}>Welcome back</Text>
+            <Text style={styles.heroTitle}>Sign In</Text>
+            <Text style={styles.heroSubtitle}>Access your BawatPieza account</Text>
           </View>
 
           <View style={styles.card}>
-            <Text style={styles.title}>Welcome back</Text>
-            <Text style={styles.subtitle}>Sign in to your BawatPieza account to continue.</Text>
-
             <Text style={styles.label}>Email</Text>
             <View style={styles.inputBox}>
               <Ionicons name="mail-outline" size={18} color="rgba(255,255,255,0.45)" style={styles.inputIcon} />
@@ -126,12 +123,7 @@ export default function LoginScreen() {
               />
             </View>
 
-            <View style={styles.passwordHeader}>
-              <Text style={styles.label}>Password</Text>
-              <TouchableOpacity onPress={() => router.push('/forgot-password')}>
-                <Text style={styles.linkText}>Forgot password?</Text>
-              </TouchableOpacity>
-            </View>
+            <Text style={styles.label}>Password</Text>
             <View style={styles.inputBox}>
               <Ionicons name="lock-closed-outline" size={18} color="rgba(255,255,255,0.45)" style={styles.inputIcon} />
               <TextInput
@@ -155,12 +147,15 @@ export default function LoginScreen() {
                 </View>
                 <Text style={styles.rememberText}>Remember me</Text>
               </TouchableOpacity>
+              <TouchableOpacity onPress={() => router.push('/forgot-password')}>
+                <Text style={styles.linkText}>Forgot password?</Text>
+              </TouchableOpacity>
             </View>
 
             {error ? <Text style={styles.errorText}>{error}</Text> : null}
 
             <TouchableOpacity style={styles.primaryButton} onPress={handleLogin} activeOpacity={0.9} disabled={submitting}>
-              <LinearGradient colors={[PRUSSIAN, PRUSSIAN_SOFT]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.primaryButtonInner}>
+              <LinearGradient colors={[ORANGE, ORANGE_DARK]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.primaryButtonInner}>
                 {submitting ? (
                   <ActivityIndicator color="#FFFFFF" size="small" />
                 ) : (
@@ -178,9 +173,13 @@ export default function LoginScreen() {
               <View style={styles.divider} />
             </View>
 
-            <TouchableOpacity style={styles.googleButton} activeOpacity={0.9}>
-              <Ionicons name="logo-google" size={18} color="#EA4335" />
-              <Text style={styles.googleButtonText}>Continue with Google</Text>
+            <TouchableOpacity style={styles.googleButton} activeOpacity={0.9} onPress={handleGoogleLogin} disabled={googleSubmitting || submitting}>
+              {googleSubmitting ? (
+                <ActivityIndicator size="small" color="#EA4335" />
+              ) : (
+                <Ionicons name="logo-google" size={18} color="#EA4335" />
+              )}
+              <Text style={styles.googleButtonText}>{googleSubmitting ? 'Connecting to Google...' : 'Continue with Google'}</Text>
             </TouchableOpacity>
 
             <View style={styles.footerRow}>
@@ -206,124 +205,44 @@ const styles = StyleSheet.create({
   },
   flex: {
     flex: 1,
-    justifyContent: 'center',
+    justifyContent: 'flex-start',
     alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingVertical: 24,
-  },
-  bgOrb1: {
-    position: 'absolute',
-    top: -140,
-    left: -70,
-    width: 360,
-    height: 360,
-    borderRadius: 180,
-    backgroundColor: 'rgba(246, 196, 69, 0.18)',
-  },
-  bgOrb2: {
-    position: 'absolute',
-    bottom: -120,
-    right: -80,
-    width: 380,
-    height: 380,
-    borderRadius: 190,
-    backgroundColor: 'rgba(246, 196, 69, 0.10)',
-  },
-  bgOrb3: {
-    position: 'absolute',
-    left: '50%',
-    top: '28%',
-    width: 320,
-    height: 320,
-    borderRadius: 160,
-    backgroundColor: 'rgba(168, 184, 255, 0.08)',
-    transform: [{ translateX: -160 }],
-  },
-  grid: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    opacity: 0.08,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
-  },
-  floatIconLeft: {
-    position: 'absolute',
-    left: '10%',
-    top: '18%',
-  },
-  floatIconTopRight: {
-    position: 'absolute',
-    right: '12%',
-    top: '22%',
-  },
-  floatIconBottomLeft: {
-    position: 'absolute',
-    left: '14%',
-    bottom: '16%',
-  },
-  floatIconBottomRight: {
-    position: 'absolute',
-    right: '10%',
-    bottom: '24%',
+    paddingHorizontal: 18,
+    paddingTop: 0,
+    paddingBottom: 24,
   },
   brandWrap: {
+    width: '100%',
     alignItems: 'center',
-    marginBottom: 24,
+    paddingTop: 20,
+    paddingBottom: 14,
     zIndex: 1,
   },
-  logo: { width: 270, height: 150, marginBottom: 2 },
-  brandSubtitle: {
-    marginTop: 10,
-    color: MUTED,
-    fontSize: 11,
-    letterSpacing: 1.8,
-    textTransform: 'uppercase',
-    fontWeight: '700', fontFamily: fonts.bold,
-    textAlign: 'center',
-  },
+  logo: { width: 190, height: 170, marginBottom: 1 },
+  welcomeText: { color: 'rgba(255,255,255,0.62)', fontSize: 10, letterSpacing: 1.1, textTransform: 'uppercase', fontFamily: fonts.bold, marginTop: 1 },
+  heroTitle: { color: '#FFFFFF', fontSize: 25, lineHeight: 30, fontFamily: fonts.extrabold, marginTop: 2 },
+  heroSubtitle: { color: 'rgba(255,255,255,0.68)', fontSize: 10, fontFamily: fonts.medium, marginTop: 4 },
   card: {
     width: '100%',
     maxWidth: 420,
-    backgroundColor: SURFACE,
-    borderRadius: 28,
-    borderWidth: 1,
-    borderColor: LINE,
-    paddingVertical: 26,
-    paddingHorizontal: 24,
-    shadowColor: '#000000',
-    shadowOpacity: 0.45,
-    shadowRadius: 30,
-    shadowOffset: { width: 0, height: 20 },
+    backgroundColor: 'transparent',
+    paddingVertical: 16,
+    paddingHorizontal: 4,
     zIndex: 1,
-  },
-  title: {
-    fontSize: 30,
-    fontWeight: '800', fontFamily: fonts.extrabold,
-    color: '#FFFFFF',
-    letterSpacing: -0.8,
-    marginBottom: 8,
-  },
-  subtitle: {
-    fontSize: 14,
-    color: MUTED,
-    marginBottom: 20,
   },
   label: {
     color: 'rgba(255,255,255,0.82)',
-    fontSize: 13,
+    fontSize: 11,
     fontWeight: '600', fontFamily: fonts.semibold,
-    marginBottom: 8,
+    marginBottom: 6,
   },
   inputBox: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: INPUT_BG,
-    borderRadius: 14,
+    backgroundColor: 'rgba(255,255,255,0.075)',
+    borderRadius: 5,
     borderWidth: 1,
-    borderColor: LINE,
+    borderColor: 'rgba(255,255,255,0.08)',
     paddingHorizontal: 14,
     paddingVertical: 12,
     marginBottom: 14,
@@ -331,24 +250,21 @@ const styles = StyleSheet.create({
   inputIcon: { marginRight: 10 },
   input: {
     flex: 1,
-    fontSize: 15,
+    fontSize: 14,
     color: '#FFFFFF',
     paddingVertical: 2,
   },
-  passwordHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
   linkText: {
     color: BUTTER,
-    fontSize: 12,
+    fontSize: 10,
     fontWeight: '700', fontFamily: fonts.bold,
   },
   rememberRow: {
-    marginTop: 2,
-    marginBottom: 18,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 1,
+    marginBottom: 16,
   },
   checkboxWrap: {
     flexDirection: 'row',
@@ -371,7 +287,7 @@ const styles = StyleSheet.create({
   },
   rememberText: {
     color: 'rgba(255,255,255,0.75)',
-    fontSize: 13,
+    fontSize: 11,
     fontWeight: '500', fontFamily: fonts.medium,
   },
   errorText: {
@@ -387,9 +303,9 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   primaryButton: {
-    borderRadius: 14,
+    borderRadius: 7,
     overflow: 'hidden',
-    marginBottom: 20,
+    marginBottom: 18,
   },
   primaryButtonInner: {
     flexDirection: 'row',
@@ -399,7 +315,7 @@ const styles = StyleSheet.create({
   },
   primaryButtonText: {
     color: '#FFFFFF',
-    fontSize: 15,
+    fontSize: 13,
     fontWeight: '800', fontFamily: fonts.extrabold,
     marginRight: 8,
   },
@@ -424,15 +340,15 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: 14,
+    borderRadius: 7,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.12)',
-    backgroundColor: 'rgba(255,255,255,0.04)',
+    borderColor: 'rgba(255,255,255,0.16)',
+    backgroundColor: 'rgba(255,255,255,0.075)',
     paddingVertical: 14,
   },
   googleButtonText: {
     color: '#FFFFFF',
-    fontSize: 14,
+    fontSize: 12,
     fontWeight: '700', fontFamily: fonts.bold,
     marginLeft: 10,
   },
@@ -442,6 +358,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginTop: 20,
   },
-  footerText: { color: MUTED, fontSize: 13 },
-  footerLink: { color: BUTTER, fontSize: 13, fontWeight: '800', fontFamily: fonts.extrabold, marginLeft: 4 },
+  footerText: { color: MUTED, fontSize: 11 },
+  footerLink: { color: BUTTER, fontSize: 11, fontWeight: '800', fontFamily: fonts.extrabold, marginLeft: 4 },
 });

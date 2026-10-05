@@ -16,10 +16,10 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { fonts } from '../theme';
 
-const PRUSSIAN = '#0A2A4A';
-const PRUSSIAN_SOFT = '#3B5B7A';
-const MUTED = 'rgba(10, 42, 74, 0.62)';
-const LINE = 'rgba(10, 42, 74, 0.12)';
+const ORANGE = '#F97316';
+const ORANGE_DARK = '#C2410C';
+const MUTED = 'rgba(255, 255, 255, 0.68)';
+const LINE = 'rgba(255, 255, 255, 0.14)';
 
 export default function SignupScreen() {
   const router = useRouter();
@@ -43,22 +43,20 @@ export default function SignupScreen() {
 
   return (
     <View style={styles.container}>
-      <LinearGradient colors={['#F4F4F4', '#EAF1F7', '#F4F4F4']} style={StyleSheet.absoluteFill} />
+      <LinearGradient colors={['#8F350E', '#2A0D06', '#120705']} style={StyleSheet.absoluteFill} />
 
       <SafeAreaView style={styles.safeArea}>
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.flex}>
           <View style={styles.header}>
             <Image source={require('../../assets/images/LOGO3.png')} style={styles.logo} resizeMode="contain" />
-            <Text style={styles.brandTitle}>Request access</Text>
-            <Text style={styles.brandSubtitle}>Admin invited accounts only</Text>
+            <Text style={styles.welcomeText}>Welcome</Text>
+            <Text style={styles.brandTitle}>Sign Up</Text>
+            <Text style={styles.brandSubtitle}>Let&apos;s create your account</Text>
           </View>
 
           <View style={styles.card}>
-            <Text style={styles.title}>Create your profile</Text>
-            <Text style={styles.subtitle}>The web backend creates and invites accounts from the admin dashboard.</Text>
-
             <View style={styles.inputBox}>
-              <Ionicons name="person-outline" size={18} color={MUTED} style={styles.inputIcon} />
+              <Ionicons name="person-outline" size={17} color="rgba(255,255,255,0.45)" style={styles.inputIcon} />
               <TextInput
                 style={styles.input}
                 placeholder="Full name"
@@ -69,7 +67,7 @@ export default function SignupScreen() {
             </View>
 
             <View style={styles.inputBox}>
-              <Ionicons name="mail-outline" size={18} color={MUTED} style={styles.inputIcon} />
+              <Ionicons name="mail-outline" size={17} color="rgba(255,255,255,0.45)" style={styles.inputIcon} />
               <TextInput
                 style={styles.input}
                 placeholder="Work email"
@@ -82,7 +80,7 @@ export default function SignupScreen() {
             </View>
 
             <View style={styles.inputBox}>
-              <Ionicons name="business-outline" size={18} color={MUTED} style={styles.inputIcon} />
+              <Ionicons name="business-outline" size={17} color="rgba(255,255,255,0.45)" style={styles.inputIcon} />
               <TextInput
                 style={styles.input}
                 placeholder="Company / team"
@@ -104,7 +102,7 @@ export default function SignupScreen() {
                   <Ionicons
                     name={item === 'admin' ? 'shield-checkmark-outline' : 'person-outline'}
                     size={16}
-                    color={role === item ? '#FFFFFF' : PRUSSIAN}
+                    color={role === item ? '#FFFFFF' : MUTED}
                   />
                   <Text style={[styles.roleButtonText, role === item && styles.roleButtonTextActive]}>
                     {item === 'admin' ? 'Administrator' : 'Staff'}
@@ -115,7 +113,7 @@ export default function SignupScreen() {
 
             <TouchableOpacity style={styles.primaryButton} onPress={handleRequestAccess} activeOpacity={0.9}>
               <LinearGradient
-                colors={[PRUSSIAN, PRUSSIAN_SOFT]}
+                colors={[ORANGE, ORANGE_DARK]}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 0 }}
                 style={styles.primaryButtonInner}
@@ -139,46 +137,38 @@ export default function SignupScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F4F4F4' },
+  container: { flex: 1, backgroundColor: '#120705' },
   safeArea: { flex: 1 },
   flex: {
     flex: 1,
-    justifyContent: 'center',
+    justifyContent: 'flex-start',
     alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingVertical: 24,
+    paddingHorizontal: 18,
+    paddingTop: 20,
+    paddingBottom: 24,
   },
-  header: { alignItems: 'center', marginBottom: 28 },
-  logo: { width: 230, height: 128, marginBottom: 10 },
-  brandTitle: { color: PRUSSIAN, fontSize: 32, fontWeight: '800', fontFamily: fonts.extrabold, letterSpacing: -0.8 },
+  header: { width: '100%', alignItems: 'center', paddingTop: 18, paddingBottom: 14 },
+  logo: { width: 190, height: 104, marginBottom: 1 },
+  welcomeText: { color: 'rgba(255,255,255,0.62)', fontSize: 10, letterSpacing: 1.1, textTransform: 'uppercase', fontFamily: fonts.bold, marginTop: 1 },
+  brandTitle: { color: '#FFFFFF', fontSize: 25, lineHeight: 30, fontFamily: fonts.extrabold, marginTop: 2 },
   brandSubtitle: {
-    marginTop: 8,
+    marginTop: 4,
     color: MUTED,
-    fontSize: 12,
-    letterSpacing: 1.5,
-    textTransform: 'uppercase',
-    fontWeight: '700', fontFamily: fonts.bold,
+    fontSize: 10,
+    fontFamily: fonts.medium,
   },
   card: {
     width: '100%',
     maxWidth: 420,
-    backgroundColor: 'rgba(255,255,255,0.72)',
-    borderRadius: 28,
-    borderWidth: 1,
-    borderColor: LINE,
-    padding: 24,
-    shadowColor: '#0A2A4A',
-    shadowOpacity: 0.08,
-    shadowRadius: 20,
-    shadowOffset: { width: 0, height: 10 },
+    backgroundColor: 'transparent',
+    paddingVertical: 16,
+    paddingHorizontal: 4,
   },
-  title: { fontSize: 28, fontWeight: '800', fontFamily: fonts.extrabold, color: PRUSSIAN, marginBottom: 8 },
-  subtitle: { color: MUTED, fontSize: 14, marginBottom: 20 },
   inputBox: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
+    backgroundColor: 'rgba(255,255,255,0.075)',
+    borderRadius: 5,
     borderWidth: 1,
     borderColor: LINE,
     paddingHorizontal: 14,
@@ -186,14 +176,14 @@ const styles = StyleSheet.create({
     marginBottom: 14,
   },
   inputIcon: { marginRight: 10 },
-  input: { flex: 1, fontSize: 15, color: PRUSSIAN, paddingVertical: 2 },
-  roleLabel: { color: PRUSSIAN, fontSize: 13, fontWeight: '800', fontFamily: fonts.bold, marginBottom: 8 },
+  input: { flex: 1, fontSize: 14, color: '#FFFFFF', paddingVertical: 2 },
+  roleLabel: { color: 'rgba(255,255,255,0.82)', fontSize: 11, fontWeight: '800', fontFamily: fonts.bold, marginBottom: 7 },
   roleRow: { flexDirection: 'row', gap: 10, marginBottom: 8 },
-  roleButton: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, minHeight: 44, borderRadius: 14, borderWidth: 1, borderColor: LINE, backgroundColor: '#FFFFFF' },
-  roleButtonActive: { backgroundColor: PRUSSIAN, borderColor: PRUSSIAN },
-  roleButtonText: { color: PRUSSIAN, fontSize: 12, fontWeight: '800', fontFamily: fonts.bold },
+  roleButton: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, minHeight: 42, borderRadius: 7, borderWidth: 1, borderColor: LINE, backgroundColor: 'rgba(255,255,255,0.06)' },
+  roleButtonActive: { backgroundColor: ORANGE_DARK, borderColor: ORANGE },
+  roleButtonText: { color: MUTED, fontSize: 11, fontWeight: '800', fontFamily: fonts.bold },
   roleButtonTextActive: { color: '#FFFFFF' },
-  primaryButton: { borderRadius: 16, overflow: 'hidden', marginTop: 8 },
+  primaryButton: { borderRadius: 7, overflow: 'hidden', marginTop: 8 },
   primaryButtonInner: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -201,9 +191,9 @@ const styles = StyleSheet.create({
     gap: 8,
     paddingVertical: 16,
   },
-  primaryButtonText: { color: '#FFFFFF', fontSize: 15, fontWeight: '800', fontFamily: fonts.extrabold },
-  footerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginTop: 18 },
-  footerText: { color: MUTED, fontSize: 13 },
-  footerLink: { color: PRUSSIAN, fontSize: 13, fontWeight: '800', fontFamily: fonts.extrabold, marginLeft: 4 },
+  primaryButtonText: { color: '#FFFFFF', fontSize: 13, fontWeight: '800', fontFamily: fonts.extrabold },
+  footerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginTop: 16 },
+  footerText: { color: MUTED, fontSize: 11 },
+  footerLink: { color: '#F6C445', fontSize: 11, fontWeight: '800', fontFamily: fonts.extrabold, marginLeft: 4 },
 });
 
