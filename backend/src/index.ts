@@ -8,6 +8,7 @@ import healthRouter from './routes/health.js';
 import emailRouter from './routes/email.js';
 import accountsRouter from './routes/accounts.js';
 import twoFactorRouter from './routes/twoFactor.js';
+import notificationsRouter from './routes/notifications.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { connectRedis, disconnectRedis } from './lib/redis.js';
 import { verifyMailer } from './lib/mailer.js';
@@ -29,6 +30,7 @@ app.use('/email', emailRouter);
 // works, but this keeps the intent explicit.
 app.use('/accounts/2fa', twoFactorRouter);
 app.use('/accounts', accountsRouter);
+app.use('/notifications', notificationsRouter);
 
 app.use((_req, res) => {
   res.status(404).json({ error: 'Not found' });

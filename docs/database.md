@@ -62,6 +62,22 @@ migration documents the account-enumeration trade-off.
 - Verification snippet in the migration header: uploading to another user's
   folder must fail.
 
+## `share_invites` + `notifications` tables (migration 008)
+
+The Shared Users two-step invite flow (see
+[features/shared-users.md](features/shared-users.md)):
+
+| Table | Key columns | Notes |
+| --- | --- | --- |
+| `share_invites` | `inviter_id`, `invitee_id`, `status` (`pending`/`accepted`/`declined`), `created_at`, `responded_at` | `unique (inviter_id, invitee_id)` — re-inviting after a decline re-opens the same row |
+| `notifications` | `user_id` (recipient), `actor_id`, `type` (`share_invite`/`share_accepted`/`share_declined`), `title`, `body`, `reference_id`, `read_at` | `reference_id` points at `share_invites.id` |
+
+RLS: `share_invites` is service-role only (all access through the backend);
+`notifications` lets the owner read/update their own rows. Backend endpoints:
+`GET /accounts/invitable`, `POST /accounts/invite`, `GET /accounts/invites`,
+`POST /accounts/invites/:id/accept|decline`, `GET /notifications`,
+`POST /notifications/read`.
+
 ## Edge function — `welcome-email`
 
 `backend/supabase/functions/welcome-email/` (Deno). Wired by migration
@@ -91,7 +107,7 @@ storage.objects (bucket "avatars") ── policies in 007
 ## Changing the schema
 
 1. Add a new numbered migration file in `backend/supabase/migrations/`
-   (next number: `008_…`).
+   (next number: `009_…`).
 2. Run it in the Supabase SQL Editor.
 3. Update this document and the API docs if endpoints/fields change.
 4. Restart the backend — no code changes needed for new columns unless the

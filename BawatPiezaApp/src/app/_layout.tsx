@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { Platform, View } from "react-native";
-import { Slot, useSegments } from "expo-router";
+import { Slot, usePathname, useRouter, useSegments } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import {
   useFonts,
@@ -50,6 +50,8 @@ function notifyWebHostOfSignIn(): void {
 export default function RootLayout() {
   // useSegments returns an array of the current route's folders/files
   const segments = useSegments();
+  const pathname = usePathname();
+  const router = useRouter();
 
   const [fontsLoaded] = useFonts({
     Poppins_400Regular,
@@ -67,6 +69,25 @@ export default function RootLayout() {
   useEffect(() => {
     let isMounted = true;
 
+    const isPublicRoute = () => {
+      const route = pathname.toLowerCase();
+      return (
+        route === "/" ||
+        route === "/index" ||
+        route === "/login" ||
+        route === "/signup" ||
+        route === "/forgot-password" ||
+        route === "/oauth" ||
+        route === "/onboarding"
+      );
+    };
+
+    const sendUnauthenticatedUserToLogin = () => {
+      if (isMounted && !isPublicRoute()) {
+        router.replace("/login");
+      }
+    };
+
     // Check for existing session on mount (handles OAuth redirect)
     const checkExistingSession = async () => {
       try {
@@ -80,9 +101,12 @@ export default function RootLayout() {
           // A Google sign-up may have parked a Terms acceptance that still
           // needs to be attached to the account.
           void flushPendingTermsAcceptance();
+        } else {
+          sendUnauthenticatedUserToLogin();
         }
       } catch (err) {
         console.error("Session check error:", err);
+        sendUnauthenticatedUserToLogin();
       }
     };
 
@@ -92,6 +116,10 @@ export default function RootLayout() {
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === "SIGNED_OUT" || ((event === "INITIAL_SESSION" || event === "TOKEN_REFRESHED") && !session?.user)) {
+        sendUnauthenticatedUserToLogin();
+        return;
+      }
       if (event !== "SIGNED_IN" || !session?.user || !isMounted) return;
 
       console.log("User signed in:", session.user.email);
@@ -120,7 +148,7 @@ export default function RootLayout() {
       isMounted = false;
       subscription.unsubscribe();
     };
-  }, []);
+  }, [pathname, router]);
 
   if (!fontsLoaded) return null;
 

@@ -26,6 +26,7 @@ export default function SignupScreen() {
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [company, setCompany] = useState('');
+  const [role, setRole] = useState<'staff' | 'admin'>('staff');
 
   const handleRequestAccess = () => {
     if (!fullName.trim() || !email.trim()) {
@@ -35,7 +36,7 @@ export default function SignupScreen() {
 
     Alert.alert(
       'Access request sent',
-      'Your request is queued. An admin will create your BawatPieza account and send the invite link to your email.',
+      `Your ${role === 'admin' ? 'administrator' : 'staff'} request is queued. An admin will create your BawatPieza account and send the invite link to your email.`,
     );
     router.replace('/');
   };
@@ -89,6 +90,27 @@ export default function SignupScreen() {
                 value={company}
                 onChangeText={setCompany}
               />
+            </View>
+
+            <Text style={styles.roleLabel}>Account role</Text>
+            <View style={styles.roleRow}>
+              {(['staff', 'admin'] as const).map((item) => (
+                <TouchableOpacity
+                  key={item}
+                  onPress={() => setRole(item)}
+                  style={[styles.roleButton, role === item && styles.roleButtonActive]}
+                  activeOpacity={0.85}
+                >
+                  <Ionicons
+                    name={item === 'admin' ? 'shield-checkmark-outline' : 'person-outline'}
+                    size={16}
+                    color={role === item ? '#FFFFFF' : PRUSSIAN}
+                  />
+                  <Text style={[styles.roleButtonText, role === item && styles.roleButtonTextActive]}>
+                    {item === 'admin' ? 'Administrator' : 'Staff'}
+                  </Text>
+                </TouchableOpacity>
+              ))}
             </View>
 
             <TouchableOpacity style={styles.primaryButton} onPress={handleRequestAccess} activeOpacity={0.9}>
@@ -165,6 +187,12 @@ const styles = StyleSheet.create({
   },
   inputIcon: { marginRight: 10 },
   input: { flex: 1, fontSize: 15, color: PRUSSIAN, paddingVertical: 2 },
+  roleLabel: { color: PRUSSIAN, fontSize: 13, fontWeight: '800', fontFamily: fonts.bold, marginBottom: 8 },
+  roleRow: { flexDirection: 'row', gap: 10, marginBottom: 8 },
+  roleButton: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, minHeight: 44, borderRadius: 14, borderWidth: 1, borderColor: LINE, backgroundColor: '#FFFFFF' },
+  roleButtonActive: { backgroundColor: PRUSSIAN, borderColor: PRUSSIAN },
+  roleButtonText: { color: PRUSSIAN, fontSize: 12, fontWeight: '800', fontFamily: fonts.bold },
+  roleButtonTextActive: { color: '#FFFFFF' },
   primaryButton: { borderRadius: 16, overflow: 'hidden', marginTop: 8 },
   primaryButtonInner: {
     flexDirection: 'row',

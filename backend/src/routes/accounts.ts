@@ -561,11 +561,414 @@ router.post('/resend-invite', requireAuth, requireAdmin, async (req, res, next) 
 });
 
 /**
- * GET /accounts
- * Admin-only. Lists accounts from the user_accounts table (synced with auth.users).
+ * Shared-user (invite) flow
+ * ---------------------------------------------------------------------------
+ * Two-step: the inviter picks an existing account -> a 'pending' share invite
+ * plus an in-app notification for the invitee; once the invitee accepts, the
+ * row flips to 'accepted' (they are now a shared user) and the inviter is
+ * notified. All rows go through the service-role client, so no client-side
+ * RLS policy is involved (see migration 008).
  */
-router.get('/', requireAuth, requireAdmin, async (req, res, next) => {
+
+/** Inserts an in-app notification row. Failures are logged, never thrown —
+ * a missing badge must not roll back the invite itself. */
+async function pushNotification(opts: {
+  userId: string;
+  actorId?: string | null;
+  type: 'share_invite' | 'share_accepted' | 'share_declined';
+  title: string;
+  body: string;
+  referenceId?: string | null;
+}): Promise<void> {
+  const { error } = await supabase.from('notifications').insert({
+    user_id: opts.userId,
+    actor_id: opts.actorId ?? null,
+    type: opts.type,
+    title: opts.title,
+    body: opts.body,
+    reference_id: opts.referenceId ?? null,
+  });
+  if (error) console.error('[accounts] notification insert failed:', error.message);
+}
+
+/** Display name for a user_accounts row, falling back to the email. */
+function fullNameOf(row: { firstname?: string | null; lastname?: string | null; name?: string | null; email?: string | null }): string {
+  return (
+    row.name ?? [row.firstname, row.lastname].filter(Boolean).join(' ') ?? row.email ?? 'Someone'
+  );
+}
+
+const inviteSchema = z.object({ inviteeId: z.string().uuid() });
+
+/**
+ * GET /accounts/invitable
+ * Active accounts the signed-in user can still invite: excludes self and any
+ * pair that already has a pending or accepted share invite (a declined invite
+ * may be sent again — it just flips the existing row back to pending).
+ */
+router.get('/invitable', requireAuth, async (req, res, next) => {
   try {
+    const me = req.user!.id;
+
+    const { data, error } = await supabase
+      .from('user_accounts')
+      .select('id, firstname, middlename, lastname, role, email, status')
+      .eq('status', 'active')
+      .neq('id', me)
+      .order('firstname', { ascending: true });
+    if (error) throw createHttpError(500, error.message);
+
+    const { data: invites, error: invErr } = await supabase
+      .from('share_invites')
+      .select('inviter_id, invitee_id, status')
+      .or(`inviter_id.eq.${me},invitee_id.eq.${me}`);
+    if (invErr) throw createHttpError(500, invErr.message);
+
+    const blocked = new Set(
+      (invites ?? [])
+        .filter((i) => i.status === 'pending' || i.status === 'accepted')
+        .map((i) => (i.inviter_id === me ? i.invitee_id : i.inviter_id)),
+    );
+
+    res.json({
+      ok: true,
+      accounts: (data ?? [])
+        .filter((a) => !blocked.has(a.id))
+        .map((a) => ({
+          id: a.id,
+          firstname: a.firstname,
+          middlename: a.middlename ?? '',
+          lastname: a.lastname,
+          name: [a.firstname, a.lastname].filter(Boolean).join(' '),
+          role: a.role,
+          email: a.email,
+        })),
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /accounts/invite
+ * Creates (or re-opens) a pending share invite for an existing active account
+ * and sends the invitee an in-app notification.
+ */
+router.post('/invite', requireAuth, async (req, res, next) => {
+  try {
+    const parsed = inviteSchema.safeParse(req.body);
+    if (!parsed.success) {
+      throw createHttpError(400, 'A valid inviteeId (uuid) is required.', parsed.error.flatten());
+    }
+    const me = req.user!.id;
+    const { inviteeId } = parsed.data;
+    if (inviteeId === me) throw createHttpError(400, 'You cannot invite yourself.');
+
+    const { data: invitee, error: invErr } = await supabase
+      .from('user_accounts')
+      .select('id, firstname, lastname, email, status')
+      .eq('id', inviteeId)
+      .maybeSingle();
+    if (invErr) throw createHttpError(500, invErr.message);
+    if (!invitee) throw createHttpError(404, 'That account no longer exists.');
+    if (invitee.status !== 'active') {
+      throw createHttpError(409, `${invitee.email} has not activated their account yet.`);
+    }
+
+    // Reusing a declined row is allowed; a pending/accepted pair is a 409.
+    const { data: existing, error: exErr } = await supabase
+      .from('share_invites')
+      .select('id, status')
+      .eq('inviter_id', me)
+      .eq('invitee_id', inviteeId)
+      .maybeSingle();
+    if (exErr) throw createHttpError(500, exErr.message);
+    if (existing && existing.status === 'pending') {
+      throw createHttpError(409, 'You already invited this user. Waiting for their response.');
+    }
+    if (existing && existing.status === 'accepted') {
+      throw createHttpError(409, 'This user is already one of your shared users.');
+    }
+
+    let inviteId: string;
+    if (existing) {
+      const { data: reopened, error: upErr } = await supabase
+        .from('share_invites')
+        .update({ status: 'pending', created_at: new Date().toISOString(), responded_at: null })
+        .eq('id', existing.id)
+        .select('id')
+        .single();
+      if (upErr) throw createHttpError(500, upErr.message);
+      inviteId = reopened!.id;
+    } else {
+      const { data: created, error: insErr } = await supabase
+        .from('share_invites')
+        .insert({ inviter_id: me, invitee_id: inviteeId, status: 'pending' })
+        .select('id')
+        .single();
+      if (insErr) throw createHttpError(500, insErr.message);
+      inviteId = created!.id;
+    }
+
+    const { data: inviterRow } = await supabase
+      .from('user_accounts')
+      .select('firstname, lastname, email')
+      .eq('id', me)
+      .maybeSingle();
+
+    await pushNotification({
+      userId: inviteeId,
+      actorId: me,
+      type: 'share_invite',
+      title: 'You have been invited as a shared user',
+      body: `${fullNameOf(inviterRow ?? {})} invited you to share their BawatPieza account. Open Shared Users to accept or decline.`,
+      referenceId: inviteId,
+    });
+
+    res.status(201).json({
+      ok: true,
+      invite: { id: inviteId, status: 'pending' },
+      message: `${fullNameOf(invitee)} was invited. They will show as a shared user once they accept.`,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET /accounts/invites
+ * The signed-in user's invite context: `received` (pending invites awaiting
+ * their response) and `sent` (everything they have sent, with status).
+ */
+router.get('/invites', requireAuth, async (req, res, next) => {
+  try {
+    const me = req.user!.id;
+
+    const { data, error } = await supabase
+      .from('share_invites')
+      .select('id, inviter_id, invitee_id, status, created_at, responded_at')
+      .or(`inviter_id.eq.${me},invitee_id.eq.${me}`)
+      .order('created_at', { ascending: false });
+    if (error) throw createHttpError(500, error.message);
+
+    const rows = data ?? [];
+    const otherIds = [...new Set(rows.map((r) => (r.inviter_id === me ? r.invitee_id : r.inviter_id)))];
+    let people: { id: string; firstname: string; lastname: string; email: string }[] = [];
+    if (otherIds.length) {
+      const { data: found, error: pErr } = await supabase
+        .from('user_accounts')
+        .select('id, firstname, lastname, email')
+        .in('id', otherIds);
+      if (pErr) throw createHttpError(500, pErr.message);
+      people = found ?? [];
+    }
+    const byId = new Map(people.map((p) => [p.id, p]));
+
+    const project = (r: (typeof rows)[number], side: 'received' | 'sent') => {
+      const otherId = r.inviter_id === me ? r.invitee_id : r.inviter_id;
+      const person = byId.get(otherId);
+      return {
+        id: r.id,
+        status: r.status,
+        created_at: r.created_at,
+        responded_at: r.responded_at,
+        counterpart: {
+          id: otherId,
+          name: person ? fullNameOf(person) : 'Unknown user',
+          email: person?.email ?? null,
+        },
+        side,
+      };
+    };
+
+    res.json({
+      ok: true,
+      received: rows.filter((r) => r.invitee_id === me && r.status === 'pending').map((r) => project(r, 'received')),
+      sent: rows.filter((r) => r.inviter_id === me).map((r) => project(r, 'sent')),
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/** Loads one invite and asserts the caller is the pending invitee. */
+async function consumeInviteForResponse(inviteId: string, userId: string) {
+  const { data: invite, error } = await supabase
+    .from('share_invites')
+    .select('id, inviter_id, invitee_id, status')
+    .eq('id', inviteId)
+    .maybeSingle();
+  if (error) throw createHttpError(500, error.message);
+  if (!invite) throw createHttpError(404, 'This invite no longer exists.');
+  if (invite.invitee_id !== userId) throw createHttpError(403, 'This invite was not sent to you.');
+  if (invite.status !== 'pending') throw createHttpError(409, 'This invite has already been answered.');
+  return invite;
+}
+
+/** Caller's own display name, for notification copy. */
+async function callerName(userId: string): Promise<string> {
+  const { data } = await supabase
+    .from('user_accounts')
+    .select('firstname, lastname, email')
+    .eq('id', userId)
+    .maybeSingle();
+  return fullNameOf(data ?? {});
+}
+
+/**
+ * POST /accounts/invites/:id/accept
+ * The invitee accepts -> they become a shared user and the inviter is
+ * notified in-app.
+ */
+router.post('/invites/:id/accept', requireAuth, async (req, res, next) => {
+  try {
+    const me = req.user!.id;
+    const invite = await consumeInviteForResponse(String(req.params.id), me);
+
+    const { error: upErr } = await supabase
+      .from('share_invites')
+      .update({ status: 'accepted', responded_at: new Date().toISOString() })
+      .eq('id', invite.id);
+    if (upErr) throw createHttpError(500, upErr.message);
+
+    await pushNotification({
+      userId: invite.inviter_id,
+      actorId: me,
+      type: 'share_accepted',
+      title: 'Invite accepted',
+      body: `${await callerName(me)} accepted your invite and is now one of your shared users.`,
+      referenceId: invite.id,
+    });
+
+    res.json({
+      ok: true,
+      invite: { id: invite.id, status: 'accepted' },
+      message: 'Access granted — you are now a shared user.',
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /accounts/invites/:id/decline
+ * The invitee declines; the inviter is notified in-app and may re-invite
+ * later (the row flips back to pending on the next POST /accounts/invite).
+ */
+router.post('/invites/:id/decline', requireAuth, async (req, res, next) => {
+  try {
+    const me = req.user!.id;
+    const invite = await consumeInviteForResponse(String(req.params.id), me);
+
+    const { error: upErr } = await supabase
+      .from('share_invites')
+      .update({ status: 'declined', responded_at: new Date().toISOString() })
+      .eq('id', invite.id);
+    if (upErr) throw createHttpError(500, upErr.message);
+
+    await pushNotification({
+      userId: invite.inviter_id,
+      actorId: me,
+      type: 'share_declined',
+      title: 'Invite declined',
+      body: `${await callerName(me)} declined your shared-user invite. You can invite them again later.`,
+      referenceId: invite.id,
+    });
+
+    res.json({
+      ok: true,
+      invite: { id: invite.id, status: 'declined' },
+      message: 'Invite declined.',
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET /accounts
+ * Lists accounts from the user_accounts table (synced with auth.users).
+ * Account creation and invite management remain admin-only below/above.
+ * Each row carries `share`: the share-invite relationship with the caller
+ * ('none' | 'pending_sent' | 'pending_received' | 'shared'), so the app can
+ * badge shared users without a second request.
+ *
+ * `?shared=1` narrows the result to the caller's ACCEPTED share relationships
+ * only (the mobile account tab's Shared Users view) — accounts that never
+ * completed the handshake are not fetched at all. Without the flag the full
+ * list is returned, so other consumers (web dashboard) are unaffected.
+ */
+router.get('/', requireAuth, async (req, res, next) => {
+  try {
+    const me = req.user!.id;
+    // Only the account tab opts into the narrow scope; it is the sole
+    // consumer that must see accepted shared users and nothing else.
+    const sharedOnly = req.query.shared === '1' || req.query.shared === 'true';
+
+    // Share-invite rows involving the caller, folded into a per-account badge.
+    // Fetched first because `?shared=1` decides WHICH accounts to load.
+    const { data: invites, error: invErr } = await supabase
+      .from('share_invites')
+      .select('inviter_id, invitee_id, status, responded_at')
+      .or(`inviter_id.eq.${me},invitee_id.eq.${me}`);
+    if (invErr) throw createHttpError(500, invErr.message);
+
+    const shareOf = new Map<string, string>();
+    const sharedSince = new Map<string, string | null>();
+    for (const i of invites ?? []) {
+      const other = i.inviter_id === me ? i.invitee_id : i.inviter_id;
+      if (i.status === 'accepted') {
+        shareOf.set(other, 'shared');
+        sharedSince.set(other, i.responded_at ?? null);
+      } else if (i.inviter_id === me) {
+        shareOf.set(other, i.status === 'pending' ? 'pending_sent' : 'declined_sent');
+      } else {
+        shareOf.set(other, i.status === 'pending' ? 'pending_received' : 'declined_received');
+      }
+    }
+
+    if (sharedOnly) {
+      // Accepted relationships only — accounts with no completed handshake
+      // are never selected from user_accounts in the first place.
+      const sharedIds = [...shareOf.entries()]
+        .filter(([, status]) => status === 'shared')
+        .map(([id]) => id);
+
+      if (sharedIds.length === 0) {
+        res.json({ ok: true, accounts: [] });
+        return;
+      }
+
+      const { data, error } = await supabase
+        .from('user_accounts')
+        .select('id, firstname, middlename, lastname, role, contactNo, email, status, is_active, created_at')
+        .in('id', sharedIds)
+        .order('created_at', { ascending: false });
+      if (error) throw createHttpError(500, error.message);
+
+      res.json({
+        ok: true,
+        accounts: (data ?? []).map((a) => ({
+          id: a.id,
+          firstname: a.firstname,
+          middlename: a.middlename ?? '',
+          lastname: a.lastname,
+          name: [a.firstname, a.lastname].filter(Boolean).join(' '),
+          role: a.role,
+          contactNo: a.contactNo ?? '',
+          email: a.email,
+          status: a.status,
+          is_active: a.is_active,
+          created_at: a.created_at,
+          created: a.created_at,
+          createdTime: new Date(a.created_at).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+          share: 'shared',
+          shared_since: sharedSince.get(a.id) ?? null,
+        })),
+      });
+      return;
+    }
+
     const { data, error } = await supabase
             .from('user_accounts')
       .select('id, firstname, middlename, lastname, role, contactNo, email, status, is_active, created_at')
@@ -588,6 +991,7 @@ router.get('/', requireAuth, requireAdmin, async (req, res, next) => {
         created_at: a.created_at,
         created: a.created_at,
         createdTime: new Date(a.created_at).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+        share: a.id === me ? 'self' : (shareOf.get(a.id) ?? 'none'),
       })),
     });
   } catch (err) {

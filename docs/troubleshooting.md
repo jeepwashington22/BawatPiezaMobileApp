@@ -121,11 +121,18 @@ connected Supabase project to enable the optional email availability check.
 
 ## Shared Users page shows a connection hint
 
-`pages/accounts.tsx` calls `GET /accounts` which is **admin-only**. A
-`403 Admin privileges required` means the signed-in user's role metadata is
-`staff`. Roles come from `user_metadata.role` on the Supabase user — set them
-in the Supabase dashboard (Auth → Users → user metadata) or create the account
-via the admin invite flow.
+`pages/accounts.tsx` calls `GET /accounts` (and `GET /accounts/invites`),
+both behind `requireAuth`. A `401 Session is invalid or has expired` means
+the app's Supabase session and the backend disagree — sign out and back in.
+Account **creation** (`POST /accounts`) is still admin-only; a
+`403 Admin privileges required` there means the signed-in user's role metadata
+is `staff`. Roles come from `user_metadata.role` on the Supabase user — set
+them in the Supabase dashboard (Auth → Users → user metadata) or create the
+account via the admin invite flow.
+
+If the invite popup says no users are available, `GET /accounts/invitable`
+returned an empty list: every other active account already has a pending or
+accepted invite with you (declined ones become available again).
 
 ## Google Sign-In: the browser opens and never comes back to the app
 

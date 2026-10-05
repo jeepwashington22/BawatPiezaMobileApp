@@ -1,164 +1,155 @@
-import { fonts, useTheme, type ThemeColors } from '../../theme';
-import { useEffect, useMemo, useState } from 'react';
+import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
+import { useLocalSearchParams } from 'expo-router';
 import { ScreenShell } from '../../components/screen-shell';
-import { TileLoader } from '../../components/tile-loader';
-import { ContentCard } from '../../components/content-card';
+import { TopBar } from '../../components/top-bar';
+import { HeroGlow } from '../../components/hero-glow';
+import { scale } from '../../components/glass-ui';
+import { fonts, useTheme, type ThemeColors } from '../../theme';
 
-const MUTED = 'rgba(10, 42, 74, 0.62)';
-const DAY_LABELS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+const DAY_LABELS = ['M', 'T', 'W', 'Th', 'F', 'S', 'S'];
+const TIME_OPTIONS = ['6:00 PM', '7:00 PM', '8:00 PM', '9:00 PM'];
 
-// Same month builder as web schedule page (Monday-first)
-function buildMonth(date: Date): (number | null)[] {
-  const year = date.getFullYear();
-  const month = date.getMonth();
-  const first = new Date(year, month, 1);
-  const daysInMonth = new Date(year, month + 1, 0).getDate();
-  const offset = (first.getDay() + 6) % 7;
-  const cells: (number | null)[] = Array.from({ length: offset }, () => null);
-  for (let d = 1; d <= daysInMonth; d++) cells.push(d);
-  while (cells.length % 7 !== 0) cells.push(null);
-  return cells;
-}
+type ScreenStyles = ReturnType<typeof makeStyles>;
 
 export default function ScheduleScreen() {
-  const { colors: c, fonts: f } = useTheme();
+  const { colors: c, mode } = useTheme();
   const styles = makeStyles(c);
-  const PRUSSIAN = c.accent;
-  const BUTTER = c.butter;
-  const MUTED = c.muted;
-  const LINE = c.line;
-  const DANGER = c.danger;
-  const WHITE = c.onAccent;
-  const OK = c.ok;
-  const BAD = c.danger;
-  const today = useMemo(() => new Date(), []);
-  const [loading, setLoading] = useState(true);
-  const [monthCursor, setMonthCursor] = useState(new Date(today.getFullYear(), today.getMonth(), 1));
-  const [selectedDate, setSelectedDate] = useState<number>(today.getDate());
-  const [operatingDays, setOperatingDays] = useState<boolean[]>([true, true, true, true, true, false, false]);
+  const params = useLocalSearchParams<{ name?: string }>();
+  const zoneName = params.name || '1F Room 101 - Right Wing';
+  const [operatingDays, setOperatingDays] = useState([true, true, true, true, true, false, false]);
+  const [lightsOn, setLightsOn] = useState('6:00 PM');
+  const [lightsOff, setLightsOff] = useState('6:00 AM');
+  const [alwaysOn, setAlwaysOn] = useState(false);
+  const [priority, setPriority] = useState('High');
+  const [autoSwitch, setAutoSwitch] = useState(true);
+  const [saved, setSaved] = useState(false);
 
-  useEffect(() => {
-    const t = setTimeout(() => setLoading(false), 600);
-    return () => clearTimeout(t);
-  }, []);
-
-  if (loading) {
-    return (
-      <ScreenShell title="Schedule" showBack>
-        <View style={styles.loaderWrap}>
-          <TileLoader label="Loading schedule" size="lg" />
-        </View>
-      </ScreenShell>
-    );
-  }
-
-  const monthCells = buildMonth(monthCursor);
-  const monthLabel = monthCursor.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-  const isThisMonth =
-    monthCursor.getMonth() === today.getMonth() && monthCursor.getFullYear() === today.getFullYear();
-
-  function shiftMonth(delta: number) {
-    setMonthCursor(new Date(monthCursor.getFullYear(), monthCursor.getMonth() + delta, 1));
-  }
-  function toggleDay(i: number) {
-    setOperatingDays((prev) => prev.map((v, idx) => (idx === i ? !v : v)));
-  }
+  const heroInk = mode === 'dark' ? '#FFFFFF' : '#2B1205';
+  const heroSoft = mode === 'dark' ? 'rgba(255,255,255,0.7)' : 'rgba(43,18,5,0.66)';
+  const cycleTime = (value: string, setValue: (next: string) => void) => {
+    const index = TIME_OPTIONS.indexOf(value);
+    setValue(TIME_OPTIONS[(index + 1) % TIME_OPTIONS.length]);
+  };
 
   return (
-    <ScreenShell title="Schedule" showBack>
-      <ContentCard
-        title={monthLabel}
-        eyebrow="Availability Calendar"
-        action={
-          <View style={styles.monthNav}>
-            <Pressable style={styles.navBtn} onPress={() => shiftMonth(-1)} hitSlop={6}>
-              <Text style={styles.navBtnText}>‹</Text>
-            </Pressable>
-            <Pressable style={styles.navBtn} onPress={() => shiftMonth(1)} hitSlop={6}>
-              <Text style={styles.navBtnText}>›</Text>
-            </Pressable>
-          </View>
-        }
-      >
-        <View style={styles.weekRow}>
-          {DAY_LABELS.map((d, i) => (
-            <Text key={i} style={styles.dayLabel}>{d}</Text>
-          ))}
+    <ScreenShell scroll>
+      <View style={styles.hero}>
+        <HeroGlow mode={mode} intensity={1} bleedBottom={scale(30)} />
+        <TopBar gutter={0} title="Scheduling" showBack glass />
+        <View style={styles.heroBody}>
+          <Text style={[styles.heroEyebrow, { color: heroSoft }]}>ZONE</Text>
+          <Text style={[styles.heroTitle, { color: heroInk }]}>Scheduling</Text>
         </View>
-        <View style={styles.calGrid}>
-          {monthCells.map((d, i) => {
-            const isToday = isThisMonth && d === today.getDate();
-            const isSelected = isThisMonth && d === selectedDate;
-            return (
-              <Pressable
-                key={i}
-                disabled={d === null}
-                onPress={() => d !== null && setSelectedDate(d)}
-                style={[styles.calCell, isToday && styles.calToday, isSelected && !isToday && styles.calSelected]}
-              >
-                <Text style={[styles.calText, isToday && styles.calTextToday]}>{d ?? ''}</Text>
-              </Pressable>
-            );
-          })}
-        </View>
-      </ContentCard>
+      </View>
 
-      <ContentCard eyebrow="Weekly">
-        <View style={styles.weekRow}>
-          {operatingDays.map((on, i) => (
+      <View style={styles.zoneCard}>
+        <Text style={styles.zoneName}>{zoneName}</Text>
+        <Text style={styles.zoneSub}>Custom schedule, priority &amp; power source</Text>
+      </View>
+
+      <SectionLabel text="OPERATING DAYS" c={c} />
+      <View style={styles.card}>
+        <Text style={styles.caption}>Which days this schedule applies</Text>
+        <View style={styles.daysRow}>
+          {DAY_LABELS.map((day, index) => (
             <Pressable
-              key={i}
-              onPress={() => toggleDay(i)}
-              style={[styles.dayToggle, on && styles.dayToggleOn]}
-              accessibilityRole="button"
+              key={`${day}-${index}`}
+              accessibilityLabel={`${day} operating day`}
+              onPress={() => setOperatingDays((current) => current.map((on, i) => i === index ? !on : on))}
+              style={[styles.dayButton, operatingDays[index] ? styles.dayButtonActive : null]}
             >
-              <Text style={[styles.dayToggleText, on && styles.dayToggleTextOn]}>{DAY_LABELS[i]}</Text>
+              <Text style={[styles.dayText, operatingDays[index] ? styles.dayTextActive : null]}>{day}</Text>
             </Pressable>
           ))}
         </View>
-      </ContentCard>
+      </View>
+
+      <View style={styles.sectionHeading}>
+        <SectionLabel text="OPERATING HOURS" c={c} />
+        <Text style={styles.tapHint}>Tap to change</Text>
+      </View>
+      <View style={styles.card}>
+        <Text style={styles.caption}>Custom ON/OFF window for this zone</Text>
+        <View style={styles.timeRow}>
+          <TimeBox label="LIGHTS ON" value={lightsOn} onPress={() => cycleTime(lightsOn, setLightsOn)} styles={styles} />
+          <Ionicons name="arrow-forward" size={scale(14)} color={c.muted} />
+          <TimeBox label="LIGHTS OFF" value={lightsOff} onPress={() => cycleTime(lightsOff, setLightsOff)} styles={styles} />
+        </View>
+        <ToggleRow label="Always On" sublabel="Ignore schedule, stay lit 24/7" value={alwaysOn} onPress={() => setAlwaysOn((current) => !current)} styles={styles} />
+      </View>
+
+      <SectionLabel text="PRIORITY LEVEL" c={c} />
+      <View style={styles.priorityRow}>
+        {['Low', 'Medium', 'High'].map((item) => (
+          <Pressable key={item} onPress={() => setPriority(item)} style={[styles.priorityButton, priority === item ? styles.priorityActive : null]}>
+            <Text style={[styles.priorityText, priority === item ? styles.priorityTextActive : null]}>{item}</Text>
+          </Pressable>
+        ))}
+      </View>
+
+      <View style={styles.cardCompact}>
+        <ToggleRow label="Follow Auto-Switch" sublabel="Let the system pick source automatically" value={autoSwitch} onPress={() => setAutoSwitch((current) => !current)} styles={styles} />
+      </View>
+
+      <Pressable onPress={() => setSaved(true)}>
+        <LinearGradient colors={['#F9A51A', '#F15A24']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.saveButton}>
+          <Text style={styles.saveText}>{saved ? 'Zone Settings Saved' : 'Save Zone Settings'}</Text>
+        </LinearGradient>
+      </Pressable>
     </ScreenShell>
   );
 }
 
-const makeStyles = (c: ThemeColors) => {
-  const PRUSSIAN = c.accent;
-  const MUTED = c.muted;
-  const LINE = c.line;
-  const BUTTER = c.butter;
-  const DANGER = c.danger;
-  const WHITE = c.onAccent;
-  return StyleSheet.create({
-  loaderWrap: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  monthNav: { flexDirection: 'row', gap: 8 },
-  navBtn: {
-    width: 30, height: 30, borderRadius: 9,
-    borderWidth: 1, borderColor: LINE,
-    alignItems: 'center', justifyContent: 'center',
-  },
-  navBtnText: { color: PRUSSIAN, fontSize: 18, fontWeight: '800', fontFamily: fonts.extrabold, lineHeight: 20 },
-  weekRow: { flexDirection: 'row', gap: 4 },
-  dayLabel: { flex: 1, textAlign: 'center', color: MUTED, fontSize: 11, fontWeight: '800', fontFamily: fonts.extrabold },
-  calGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: 8 },
-  calCell: {
-    width: '13%', aspectRatio: 1, borderRadius: 9,
-    alignItems: 'center', justifyContent: 'center',
-  },
-  calToday: { backgroundColor: PRUSSIAN },
-  calSelected: { borderWidth: 2, borderColor: BUTTER },
-  calText: { color: PRUSSIAN, fontSize: 12, fontWeight: '600', fontFamily: fonts.semibold },
-  calTextToday: { color: WHITE, fontWeight: '800', fontFamily: fonts.extrabold },
-  dayToggle: {
-    flex: 1, aspectRatio: 1, borderRadius: 12, maxWidth: 44,
-    borderWidth: 1, borderColor: LINE,
-    alignItems: 'center', justifyContent: 'center',
-  },
-  dayToggleOn: { backgroundColor: PRUSSIAN, borderColor: PRUSSIAN },
-  dayToggleText: { color: MUTED, fontSize: 13, fontWeight: '800', fontFamily: fonts.extrabold },
-  dayToggleTextOn: { color: WHITE },
-  });
-};
+function SectionLabel({ text, c }: { text: string; c: ThemeColors }) {
+  return <Text style={{ color: c.muted, fontSize: scale(10), letterSpacing: 1.1, fontFamily: fonts.extrabold, marginTop: scale(13), marginBottom: scale(7) }}>{text}</Text>;
+}
 
+function TimeBox({ label, value, onPress, styles }: { label: string; value: string; onPress: () => void; styles: ScreenStyles }) {
+  return <Pressable onPress={onPress} style={styles.timeBox}><Text style={styles.timeLabel}>{label}</Text><Text style={styles.timeValue}>{value}</Text></Pressable>;
+}
 
+function ToggleRow({ label, sublabel, value, onPress, styles }: { label: string; sublabel: string; value: boolean; onPress: () => void; styles: ScreenStyles }) {
+  return <View style={styles.toggleRow}><View style={styles.toggleCopy}><Text style={styles.toggleLabel}>{label}</Text><Text style={styles.toggleSub}>{sublabel}</Text></View><Pressable accessibilityRole="switch" accessibilityState={{ checked: value }} onPress={onPress} style={[styles.toggle, value ? styles.toggleOn : null]}><View style={[styles.toggleThumb, value ? styles.toggleThumbOn : null]} /></Pressable></View>;
+}
 
+const makeStyles = (c: ThemeColors) => StyleSheet.create({
+  hero: { marginHorizontal: -20, paddingHorizontal: 20, paddingBottom: scale(22), position: 'relative' },
+  heroBody: { alignItems: 'center', marginTop: scale(2) },
+  heroEyebrow: { fontSize: scale(9), letterSpacing: 1.3, fontFamily: fonts.extrabold },
+  heroTitle: { fontSize: scale(22), lineHeight: scale(28), fontFamily: fonts.extrabold, marginTop: scale(2) },
+  zoneCard: { alignItems: 'center', backgroundColor: c.surface, borderRadius: scale(18), paddingVertical: scale(16), paddingHorizontal: scale(12), marginTop: scale(9), shadowColor: '#0A2A4A', shadowOpacity: 0.08, shadowRadius: 10, shadowOffset: { width: 0, height: 4 }, elevation: 3 },
+  zoneName: { color: c.text, fontSize: scale(12), fontFamily: fonts.extrabold, textAlign: 'center' },
+  zoneSub: { color: c.muted, fontSize: scale(9), fontFamily: fonts.medium, marginTop: scale(4), textAlign: 'center' },
+  card: { backgroundColor: c.surface, borderRadius: scale(18), padding: scale(13), shadowColor: '#0A2A4A', shadowOpacity: 0.07, shadowRadius: 10, shadowOffset: { width: 0, height: 4 }, elevation: 2 },
+  cardCompact: { backgroundColor: c.surface, borderRadius: scale(17), paddingHorizontal: scale(13), paddingVertical: scale(5), marginTop: scale(13) },
+  caption: { color: c.muted, fontSize: scale(9), fontFamily: fonts.medium, marginBottom: scale(10) },
+  daysRow: { flexDirection: 'row', justifyContent: 'space-between', gap: scale(5) },
+  dayButton: { flex: 1, height: scale(27), borderRadius: scale(14), alignItems: 'center', justifyContent: 'center', backgroundColor: c.bg, borderWidth: 1, borderColor: c.line },
+  dayButtonActive: { backgroundColor: '#0B55A1', borderColor: '#0B55A1' },
+  dayText: { color: c.muted, fontSize: scale(9), fontFamily: fonts.extrabold },
+  dayTextActive: { color: '#FFFFFF' },
+  sectionHeading: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  tapHint: { color: c.muted, fontSize: scale(8), fontFamily: fonts.extrabold, marginTop: scale(13) },
+  timeRow: { flexDirection: 'row', alignItems: 'center', gap: scale(9) },
+  timeBox: { flex: 1, alignItems: 'center', justifyContent: 'center', minHeight: scale(55), borderRadius: scale(12), backgroundColor: c.bg },
+  timeLabel: { color: c.muted, fontSize: scale(7.5), fontFamily: fonts.extrabold },
+  timeValue: { color: c.text, fontSize: scale(15), fontFamily: fonts.extrabold, marginTop: scale(3) },
+  toggleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: scale(5) },
+  toggleCopy: { flex: 1 },
+  toggleLabel: { color: c.text, fontSize: scale(10), fontFamily: fonts.extrabold },
+  toggleSub: { color: c.muted, fontSize: scale(8), fontFamily: fonts.medium, marginTop: scale(2) },
+  toggle: { width: scale(36), height: scale(22), borderRadius: scale(12), backgroundColor: c.line, padding: scale(3), justifyContent: 'center' },
+  toggleOn: { backgroundColor: '#0B55A1' },
+  toggleThumb: { width: scale(16), height: scale(16), borderRadius: scale(8), backgroundColor: '#FFFFFF' },
+  toggleThumbOn: { alignSelf: 'flex-end' },
+  priorityRow: { flexDirection: 'row', gap: scale(8) },
+  priorityButton: { flex: 1, minHeight: scale(42), borderRadius: scale(22), backgroundColor: c.surface, alignItems: 'center', justifyContent: 'center' },
+  priorityActive: { backgroundColor: '#0B55A1' },
+  priorityText: { color: c.muted, fontSize: scale(10), fontFamily: fonts.extrabold },
+  priorityTextActive: { color: '#FFFFFF' },
+  saveButton: { minHeight: scale(44), borderRadius: scale(13), alignItems: 'center', justifyContent: 'center', marginTop: scale(16), marginBottom: scale(10), shadowColor: '#F15A24', shadowOpacity: 0.25, shadowRadius: 10, shadowOffset: { width: 0, height: 5 }, elevation: 4 },
+  saveText: { color: '#FFFFFF', fontSize: scale(11), fontFamily: fonts.extrabold },
+});

@@ -24,7 +24,7 @@ it makes, and its current data status.
 | Profile hub + avatar | `/pages/profile` | [profile-management.md](profile-management.md) | 🟢 live |
 | My Account / edit profile | `/pages/edit-profile` | [profile-management.md](profile-management.md) | 🟢 live |
 | Preferences & theme | `/pages/preferences` | [preferences.md](preferences.md) | 🟡 mixed |
-| Shared Users (admin) | `/pages/accounts` | [shared-users.md](shared-users.md) | 🟢 live |
+| Shared Users (invite & accept) | `/pages/accounts` | [shared-users.md](shared-users.md) | 🟢 live |
 | Device diagnostics | `/pages/device` | [device-diagnostics.md](device-diagnostics.md) | 🟢 live |
 | About | `/pages/about` | [about.md](about.md) | static |
 

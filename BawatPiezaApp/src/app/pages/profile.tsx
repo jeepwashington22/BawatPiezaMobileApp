@@ -33,7 +33,7 @@ const SECTIONS: HubSection[] = [
       { icon: 'wifi-outline', label: 'Connections', sub: '2 devices paired', href: '/pages/device' },
       { icon: 'flash-outline', label: 'Connection', sub: 'Online', href: '/pages/device' },
       { icon: 'people-outline', label: 'Manage Access', sub: '2 invited · 1 pending', href: '/pages/accounts' },
-      { icon: 'options-outline', label: 'System Thresholds', sub: 'Tile floor, degradation & watch list rules', href: '/pages/preferences' },
+      { icon: 'options-outline', label: 'System Thresholds', sub: 'Tile floor, degradation & watch list rules', href: '/pages/thresholds' },
     ],
   },
   {

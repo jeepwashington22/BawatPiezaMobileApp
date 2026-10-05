@@ -14,7 +14,7 @@ export default function ZoneDetailScreen() {
   const router = useRouter();
   const { colors: c, mode } = useTheme();
   const styles = makeStyles(c);
-  const params = useLocalSearchParams<{ name?: string; source?: string; detail?: string; on?: string }>();
+  const params = useLocalSearchParams<{ id: string; name?: string; source?: string; detail?: string; on?: string }>();
   const [enabled, setEnabled] = useState(params.on !== 'false');
 
   const zoneName = params.name || 'Zone Detail';
@@ -99,11 +99,13 @@ export default function ZoneDetailScreen() {
         </Pressable>
       </View>
 
-      <LinearGradient colors={['#0B63B7', '#0A2A4A']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.actionButton}>
+      <Pressable onPress={() => router.push(`/pages/zones/${params.id}/runtime-calculator?name=${encodeURIComponent(zoneName)}&source=${encodeURIComponent(source)}`)}>
+        <LinearGradient colors={['#0B63B7', '#0A2A4A']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.actionButton}>
         <Text style={styles.actionText}>Open Runtime Calculator</Text>
         <Ionicons name="chevron-forward" size={17} color="#FFFFFF" />
-      </LinearGradient>
-      <Pressable style={[styles.actionButton, styles.secondaryAction]} onPress={() => router.push('/pages/schedule')}>
+        </LinearGradient>
+      </Pressable>
+      <Pressable style={[styles.actionButton, styles.secondaryAction]} onPress={() => router.push(`/pages/schedule?name=${encodeURIComponent(zoneName)}`)}>
         <Text style={styles.secondaryActionText}>Configure Schedule &amp; Priority</Text>
         <Ionicons name="chevron-forward" size={17} color="#0B63B7" />
       </Pressable>
