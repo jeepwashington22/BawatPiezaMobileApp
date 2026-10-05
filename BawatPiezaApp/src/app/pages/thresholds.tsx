@@ -196,7 +196,7 @@ const makeStyles = (c: ThemeColors) => StyleSheet.create({
   editButton: { minHeight: scale(46), flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: scale(7), backgroundColor: c.accent, borderRadius: scale(14), marginTop: scale(14), marginBottom: scale(12) },
   editButtonText: { color: c.onAccent, fontSize: scale(11), fontFamily: fonts.extrabold },
   modalOverlay: { flex: 1, justifyContent: 'flex-end' },
-  modalBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(5,15,28,0.48)' },
+  modalBackdrop: { ...StyleSheet.absoluteFill, backgroundColor: 'rgba(5,15,28,0.48)' },
   sheet: { backgroundColor: c.bg, borderTopLeftRadius: scale(26), borderTopRightRadius: scale(26), paddingHorizontal: scale(20), paddingTop: scale(13), paddingBottom: scale(20), shadowColor: '#000', shadowOpacity: 0.2, shadowRadius: 20, shadowOffset: { width: 0, height: -8 }, elevation: 12 },
   sheetHandle: { alignSelf: 'center', width: scale(43), height: scale(4), borderRadius: 4, backgroundColor: c.line, marginBottom: scale(13) },
   sheetTitle: { color: c.text, fontSize: scale(15), fontFamily: fonts.extrabold },
