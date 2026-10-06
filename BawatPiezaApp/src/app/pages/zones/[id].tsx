@@ -10,16 +10,29 @@ import { useTheme, type ThemeColors } from '../../../theme';
 import { fonts } from '../../../theme';
 import { scale } from '../../../components/glass-ui';
 
+const ZONE_OPTIONS = [
+  { id: '1', name: 'Light #1', source: 'Battery', detail: 'Auto-off in 22m', on: true },
+  { id: '2', name: 'Light #2', source: 'Grid', detail: 'Stable · 318 W', on: true },
+  { id: '3', name: 'Light #3', source: 'Solar', detail: 'Panel charging', on: false },
+];
+
 export default function ZoneDetailScreen() {
   const router = useRouter();
   const { colors: c, mode } = useTheme();
   const styles = makeStyles(c);
   const params = useLocalSearchParams<{ id: string; name?: string; source?: string; detail?: string; on?: string }>();
+  const initialZoneIndex = Math.max(0, ZONE_OPTIONS.findIndex((zone) => zone.name === params.name));
+  const [zoneIndex, setZoneIndex] = useState(initialZoneIndex);
   const [enabled, setEnabled] = useState(params.on !== 'false');
 
-  const zoneName = params.name || 'Zone Detail';
-  const source = params.source || 'Battery';
-  const detail = params.detail || 'Stable operation';
+  const zone = ZONE_OPTIONS[zoneIndex];
+  const zoneName = zone.name;
+  const source = zone.source;
+  const detail = zone.detail;
+  const selectZone = (nextIndex: number) => {
+    setZoneIndex(nextIndex);
+    setEnabled(ZONE_OPTIONS[nextIndex].on);
+  };
 
   // Hero (glow header) colours — theme-aware ink so the glow stays legible on
   // BOTH themes (mirrors the home hero). Light mode sits on a pale peach glow,
@@ -40,11 +53,29 @@ export default function ZoneDetailScreen() {
         </View>
 
         <View style={styles.heroBody}>
-          <View style={styles.heroLabelRow}>
-            <Ionicons name="battery-charging" size={scale(14)} color={heroInkSoft} />
-            <Text style={[styles.heroLabel, { color: heroInkSoft }]} numberOfLines={1}>
-              {zoneName}
-            </Text>
+          <View style={styles.zonePager}>
+            <Pressable
+              accessibilityLabel="Previous zone"
+              disabled={zoneIndex === 0}
+              onPress={() => selectZone(Math.max(0, zoneIndex - 1))}
+              style={[styles.pagerButton, zoneIndex === 0 && styles.pagerButtonDisabled]}
+            >
+              <Ionicons name="chevron-back" size={scale(17)} color={heroInkSoft} />
+            </Pressable>
+            <View style={styles.heroLabelRow}>
+              <Ionicons name="battery-charging" size={scale(14)} color={heroInkSoft} />
+              <Text style={[styles.heroLabel, { color: heroInkSoft }]} numberOfLines={1}>
+                {zoneName}
+              </Text>
+            </View>
+            <Pressable
+              accessibilityLabel="Next zone"
+              disabled={zoneIndex === ZONE_OPTIONS.length - 1}
+              onPress={() => selectZone(Math.min(ZONE_OPTIONS.length - 1, zoneIndex + 1))}
+              style={[styles.pagerButton, zoneIndex === ZONE_OPTIONS.length - 1 && styles.pagerButtonDisabled]}
+            >
+              <Ionicons name="chevron-forward" size={scale(17)} color={heroInkSoft} />
+            </Pressable>
           </View>
 
           <View style={styles.heroNumberRow}>
@@ -56,58 +87,61 @@ export default function ZoneDetailScreen() {
             Powered by {source} · {detail}
           </Text>
 
-          <View style={[styles.heroTrack, { backgroundColor: heroTrack }]}>
-            <LinearGradient
-              colors={heroFillColors}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 0 }}
-              style={styles.heroFill}
-            />
+              <View style={[styles.heroTrack, { backgroundColor: heroTrack }]}>
+                <LinearGradient
+                  colors={heroFillColors}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={styles.heroFill}
+                />
+              </View>
+          <View style={styles.smartSwitchContainer}>
+              <View style={styles.smartSwitchHeader}>
+                <Ionicons name="flash" size={scale(12)} color={heroInkSoft} />
+                <Text style={[styles.smartSwitchLabel, { color: heroInkSoft }]}>SMART SWITCH</Text>
+              </View>
+              <View style={styles.topSwitchRow}>
+                <Pressable onPress={() => setEnabled(true)} style={styles.switchButton}>
+                  {enabled ? (
+                    <LinearGradient colors={['#FFB347', '#F97316', '#EA580C']} start={{ x: 0.1, y: 0 }} end={{ x: 0.9, y: 1 }} style={styles.switchFill}>
+                      <Ionicons name="power" size={scale(15)} color="#FFFFFF" />
+                      <Text style={styles.switchTextActive}>ON</Text>
+                    </LinearGradient>
+                  ) : <><Ionicons name="power-outline" size={scale(15)} color={heroInkSoft} /><Text style={styles.switchText}>ON</Text></>}
+                </Pressable>
+                <Pressable onPress={() => setEnabled(false)} style={styles.switchButton}>
+                  {!enabled ? (
+                    <LinearGradient colors={['#FFB347', '#F97316', '#EA580C']} start={{ x: 0.1, y: 0 }} end={{ x: 0.9, y: 1 }} style={styles.switchFill}>
+                      <Ionicons name="power" size={scale(15)} color="#FFFFFF" />
+                      <Text style={styles.switchTextActive}>OFF</Text>
+                    </LinearGradient>
+                  ) : <><Ionicons name="power-outline" size={scale(15)} color={heroInkSoft} /><Text style={styles.switchText}>OFF</Text></>}
+                </Pressable>
+              </View>
           </View>
         </View>
       </View>
 
       <Text style={styles.sectionLabel}>LIVE READOUT</Text>
-      <LinearGradient
-        colors={mode === 'dark' ? ['#9A3412', '#EA580C', '#F97316'] : ['#C2410C', '#EA580C', '#F97316']}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={styles.statsCard}
-      >
+      <>
         <Readout icon="flash" value="24.6" unit="V" label="VOLTAGE" color="#1764B0" />
         <View style={styles.statsDivider} />
         <Readout icon="flash" value="62" unit="W" label="LOAD" color="#F59E0B" />
         <View style={styles.statsDivider} />
         <Readout icon="time-outline" value="6h 40m" unit="" label="RUNTIME LEFT" color="#F97316" />
-      </LinearGradient>
+      </>
 
-      <Text style={styles.sectionLabel}>SMART SWITCHING</Text>
-      <View style={styles.switchRow}>
-        <Pressable onPress={() => setEnabled(true)} style={styles.switchButton}>
-          {enabled ? (
-            <LinearGradient colors={['#FFB347', '#F97316', '#EA580C']} start={{ x: 0.1, y: 0 }} end={{ x: 0.9, y: 1 }} style={styles.switchFill}>
-              <Text style={styles.switchTextActive}>ON</Text>
-            </LinearGradient>
-          ) : <Text style={styles.switchText}>ON</Text>}
-        </Pressable>
-        <Pressable onPress={() => setEnabled(false)} style={styles.switchButton}>
-          {!enabled ? (
-            <LinearGradient colors={['#FFB347', '#F97316', '#EA580C']} start={{ x: 0.1, y: 0 }} end={{ x: 0.9, y: 1 }} style={styles.switchFill}>
-              <Text style={styles.switchTextActive}>OFF</Text>
-            </LinearGradient>
-          ) : <Text style={styles.switchText}>OFF</Text>}
-        </Pressable>
-      </View>
-
-      <Pressable onPress={() => router.push(`/pages/zones/${params.id}/runtime-calculator?name=${encodeURIComponent(zoneName)}&source=${encodeURIComponent(source)}`)}>
-        <LinearGradient colors={['#0B63B7', '#0A2A4A']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.actionButton}>
+      <Pressable onPress={() => router.push(`/pages/zones/${zone.id}/runtime-calculator?name=${encodeURIComponent(zoneName)}&source=${encodeURIComponent(source)}`)}>
+        <LinearGradient colors={['#FFB347', '#F97316', '#EA580C']} start={{ x: 0.1, y: 0 }} end={{ x: 0.9, y: 1 }} style={styles.actionButton}>
         <Text style={styles.actionText}>Open Runtime Calculator</Text>
         <Ionicons name="chevron-forward" size={17} color="#FFFFFF" />
         </LinearGradient>
       </Pressable>
-      <Pressable style={[styles.actionButton, styles.secondaryAction]} onPress={() => router.push(`/pages/schedule?name=${encodeURIComponent(zoneName)}`)}>
-        <Text style={styles.secondaryActionText}>Configure Schedule &amp; Priority</Text>
-        <Ionicons name="chevron-forward" size={17} color="#0B63B7" />
+      <Pressable onPress={() => router.push(`/pages/schedule?name=${encodeURIComponent(zoneName)}`)}>
+        <LinearGradient colors={['#FFB347', '#F97316', '#EA580C']} start={{ x: 0.1, y: 0 }} end={{ x: 0.9, y: 1 }} style={styles.actionButton}>
+          <Text style={styles.actionText}>Configure Schedule &amp; Priority</Text>
+          <Ionicons name="chevron-forward" size={17} color="#FFFFFF" />
+        </LinearGradient>
       </Pressable>
     </ScreenShell>
   );
@@ -117,21 +151,18 @@ function Readout({ icon, value, unit, label, color }: { icon: keyof typeof Ionic
   const { colors: c, mode } = useTheme();
   const styles = makeStyles(c);
   return (
-    <LinearGradient
-      colors={mode === 'dark' ? ['#9A3412', '#EA580C', '#F97316'] : ['#C2410C', '#EA580C', '#F97316']}
-      start={{ x: 0, y: 0 }}
-      end={{ x: 1, y: 1 }}
-      style={styles.readoutCard}
-    >
+    <View style={[styles.readoutCard, { backgroundColor: mode === 'dark' ? 'rgba(255,255,255,0.10)' : 'rgba(255,255,255,0.58)' }]}>
       <View style={[styles.readoutIcon, { backgroundColor: `${color}18` }]}>
         <Ionicons name={icon} size={13} color={color} />
       </View>
-      <View style={styles.valueRow}>
-        <Text style={styles.readoutValue}>{value}</Text>
-        {unit ? <Text style={styles.readoutUnit}>{unit}</Text> : null}
+      <View style={styles.readoutInfo}>
+        <View style={styles.valueRow}>
+          <Text style={styles.readoutValue}>{value}</Text>
+          {unit ? <Text style={styles.readoutUnit}>{unit}</Text> : null}
+        </View>
+        <Text style={styles.readoutLabel}>{label}</Text>
       </View>
-      <Text style={styles.readoutLabel}>{label}</Text>
-    </LinearGradient>
+    </View>
   );
 }
 
@@ -140,6 +171,9 @@ const makeStyles = (c: ThemeColors) => StyleSheet.create({
   hero: { marginHorizontal: -20, paddingHorizontal: 20, paddingBottom: scale(26), position: 'relative', zIndex: 10 },
   heroTopBar: { zIndex: 5 },
   heroBody: { zIndex: 1, alignItems: 'center', marginTop: scale(6) },
+  zonePager: { width: '100%', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  pagerButton: { width: scale(30), height: scale(30), borderRadius: scale(10), alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(255,255,255,0.14)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.22)' },
+  pagerButtonDisabled: { opacity: 0.35 },
   heroLabelRow: { flexDirection: 'row', alignItems: 'center', gap: scale(6) },
   heroLabel: { fontSize: scale(12), letterSpacing: 0.4, fontFamily: fonts.extrabold },
   heroNumberRow: { flexDirection: 'row', alignItems: 'baseline', marginTop: scale(6) },
@@ -148,22 +182,23 @@ const makeStyles = (c: ThemeColors) => StyleSheet.create({
   heroDesc: { fontSize: scale(9.5), textAlign: 'center', marginTop: scale(10), fontFamily: fonts.medium },
   heroTrack: { alignSelf: 'stretch', height: scale(6), borderRadius: 99, overflow: 'hidden', marginTop: scale(16) },
   heroFill: { width: '82%', height: '100%', borderRadius: 99 },
+  smartSwitchContainer: { alignSelf: 'stretch', marginTop: scale(12), padding: scale(8), borderRadius: scale(14), backgroundColor: 'rgba(255,255,255,0.12)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.24)' },
   sectionLabel: { color: c.muted, fontSize: scale(10), letterSpacing: 1.3, fontFamily: fonts.extrabold, marginTop: scale(13), marginBottom: scale(7), marginLeft: scale(2) },
-  switchRow: { flexDirection: 'row', gap: scale(7) },
-  switchButton: { flex: 1, height: scale(46), borderRadius: scale(13), backgroundColor: c.surface, borderWidth: 1, borderColor: c.line, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
-  switchFill: { width: '100%', height: '100%', alignItems: 'center', justifyContent: 'center' },
+  smartSwitchHeader: { flexDirection: 'row', alignItems: 'center', gap: scale(5), marginTop: scale(5) },
+  smartSwitchLabel: { fontSize: scale(8), letterSpacing: 1, fontFamily: fonts.extrabold },
+  topSwitchRow: { flexDirection: 'row', gap: scale(7), marginTop: scale(4) },
+  switchButton: { flex: 1, height: scale(34), flexDirection: 'row', gap: scale(5), borderRadius: scale(10), backgroundColor: 'rgba(255,255,255,0.18)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.28)', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
+  switchFill: { width: '100%', height: '100%', flexDirection: 'row', gap: scale(5), alignItems: 'center', justifyContent: 'center' },
   switchText: { color: c.muted, fontSize: scale(11), fontFamily: fonts.extrabold },
   switchTextActive: { color: '#FFFFFF', fontSize: scale(11), fontFamily: fonts.extrabold },
-  statsCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: c.surface, borderRadius: scale(19), borderWidth: 1, borderColor: c.line, paddingVertical: scale(14), paddingHorizontal: scale(7), shadowColor: '#EA580C', shadowOpacity: 0.12, shadowRadius: scale(12), shadowOffset: { width: 0, height: 5 }, elevation: 4 },
-  statsDivider: { width: 1, height: scale(48), backgroundColor: c.line },
-  readoutCard: { flex: 1, minHeight: scale(78), alignItems: 'center', justifyContent: 'center', padding: scale(6), marginHorizontal: scale(3), borderRadius: scale(13), overflow: 'hidden' },
-  readoutIcon: { width: scale(28), height: scale(28), borderRadius: scale(8), backgroundColor: 'rgba(255,255,255,0.20)', alignItems: 'center', justifyContent: 'center', marginBottom: scale(6) },
+  statsDivider: { width: '100%', height: 1, backgroundColor: c.line, marginVertical: scale(5) },
+  readoutCard: { width: '100%', minHeight: scale(56), flexDirection: 'row', alignItems: 'center', paddingHorizontal: scale(12), paddingVertical: scale(8), borderRadius: scale(13), borderWidth: 1, borderColor: c.line, shadowColor: '#0B63B7', shadowOpacity: 0.08, shadowRadius: scale(8), shadowOffset: { width: 0, height: 3 }, elevation: 2, overflow: 'hidden' },
+  readoutIcon: { width: scale(28), height: scale(28), borderRadius: scale(8), backgroundColor: 'rgba(255,255,255,0.20)', alignItems: 'center', justifyContent: 'center', marginRight: scale(10) },
+  readoutInfo: { alignItems: 'flex-start' },
   valueRow: { flexDirection: 'row', alignItems: 'baseline', gap: 3 },
   readoutValue: { color: '#FFFFFF', fontSize: scale(17), fontFamily: fonts.extrabold },
   readoutUnit: { color: 'rgba(255,255,255,0.90)', fontSize: scale(9), fontFamily: fonts.medium },
   readoutLabel: { color: 'rgba(255,255,255,0.84)', fontSize: scale(7.5), letterSpacing: 0.5, fontFamily: fonts.bold, marginTop: 3 },
   actionButton: { minHeight: scale(46), flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: scale(6), borderRadius: scale(13), marginTop: scale(12), paddingHorizontal: scale(12), overflow: 'hidden' },
   actionText: { color: '#FFFFFF', fontSize: scale(11), fontFamily: fonts.extrabold },
-  secondaryAction: { backgroundColor: c.surface, borderWidth: 1, borderColor: '#0B63B7' },
-  secondaryActionText: { color: '#0B63B7', fontSize: scale(11), fontFamily: fonts.extrabold },
 });

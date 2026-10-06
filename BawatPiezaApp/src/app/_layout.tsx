@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { Platform, View } from "react-native";
 import { Stack, usePathname, useRouter, useSegments } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
@@ -14,7 +14,6 @@ import {
 import { ThemeProvider } from "../theme";
 import { NetworkBanner } from "../components/network-banner";
 import { supabase, flushPendingTermsAcceptance } from "../lib/supabase";
-import type { AuthChangeEvent } from "@supabase/supabase-js";
 
 // Keep the splash visible until fonts + root layout are ready,
 // then hide it so the app (login screen) is actually rendered.
@@ -52,6 +51,7 @@ export default function RootLayout() {
   const segments = useSegments();
   const pathname = usePathname();
   const router = useRouter();
+  const pathnameRef = useRef(pathname);
 
   const [fontsLoaded] = useFonts({
     Poppins_400Regular,
@@ -62,6 +62,10 @@ export default function RootLayout() {
   });
 
   useEffect(() => {
+    pathnameRef.current = pathname;
+  }, [pathname]);
+
+  useEffect(() => {
     if (fontsLoaded) SplashScreen.hideAsync();
   }, [fontsLoaded]);
 
@@ -70,7 +74,7 @@ export default function RootLayout() {
     let isMounted = true;
 
     const isPublicRoute = () => {
-      const route = pathname.toLowerCase();
+      const route = pathnameRef.current.toLowerCase();
       return (
         route === "/" ||
         route === "/index" ||
@@ -148,7 +152,7 @@ export default function RootLayout() {
       isMounted = false;
       subscription.unsubscribe();
     };
-  }, [pathname, router]);
+  }, [router]);
 
   if (!fontsLoaded) return null;
 
@@ -169,8 +173,7 @@ export default function RootLayout() {
         <Stack
           screenOptions={{
             headerShown: false,
-            animation: "slide_from_right",
-            animationDuration: 280,
+            animation: "none",
             gestureEnabled: true,
           }}
         />
