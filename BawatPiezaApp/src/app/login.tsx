@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Image,
@@ -17,6 +17,7 @@ import { useRouter } from 'expo-router';
 import { fonts } from '../theme';
 import { Ionicons } from '@expo/vector-icons';
 import { isGoogleSignInCancelled, signInWithGoogle, supabase } from '../lib/supabase';
+import { useAuth } from '../hooks/use-auth';
 
 const ORANGE = '#F97316';
 const ORANGE_DARK = '#C2410C';
@@ -26,6 +27,7 @@ const LINE = 'rgba(255, 255, 255, 0.12)';
 
 export default function LoginScreen() {
   const router = useRouter();
+  const { ready, isLoggedIn } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -33,6 +35,12 @@ export default function LoginScreen() {
   const [submitting, setSubmitting] = useState(false);
   const [googleSubmitting, setGoogleSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Session-based: a logged-in user landing on /login (e.g. via a link)
+  // goes straight to /home instead of seeing the sign-in form.
+  useEffect(() => {
+    if (ready && isLoggedIn) router.replace('/home');
+  }, [ready, isLoggedIn, router]);
 
   const handleLogin = async () => {
     const trimmedEmail = email.trim();

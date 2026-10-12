@@ -4,8 +4,8 @@ import { View, StyleSheet, Pressable, Animated } from "react-native";
 import { AppText as Text } from "../../components/app-text";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter, type Href } from "expo-router";
-import { supabase } from "../../lib/supabase";
 import { ScreenShell } from "../../components/screen-shell";
+import { useAuth } from "../../hooks/use-auth";
 import { TopBar } from "../../components/top-bar";
 import { HeroGlow } from "../../components/hero-glow";
 import { LoadingScreen } from "../../components/loading-screen";
@@ -169,9 +169,9 @@ function ZoneSwitch({
 
 export default function HomeScreen() {
   const { colors: c, mode } = useTheme();
+  const { ready, isLoggedIn } = useAuth();
   const router = useRouter();
   const accent = (alpha = 1) => brandAccent(mode, alpha);
-  const [checking, setChecking] = useState(true);
   const [batteryPct] = useState(87.4);
   const [livePower] = useState(315);
   const [displayVoltage] = useState("224.50");
@@ -204,18 +204,8 @@ export default function HomeScreen() {
   ]);
   const [activeTile, setActiveTile] = useState<number | null>(null);
 
-  useEffect(() => {
-    const loadSession = async () => {
-      const { data } = await supabase.auth.getSession();
-      if (!data.session) {
-        router.replace("/");
-        return;
-      }
-      setChecking(false);
-    };
-    loadSession();
-  }, [router]);
-
+  // Session-based: the AuthGate already redirects logged-out users to /login,
+  // so here we only hold the loader until the shared session check finishes.
   useEffect(() => {
     Animated.timing(consumptionTransition, {
       toValue: showConsumptionGraph ? 1 : 0,
@@ -224,7 +214,7 @@ export default function HomeScreen() {
     }).start();
   }, [consumptionTransition, showConsumptionGraph]);
 
-  if (checking) {
+  if (!ready || !isLoggedIn) {
     return <LoadingScreen label="Verifying session" />;
   }
 

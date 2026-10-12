@@ -6,7 +6,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { useRouter, type Href } from 'expo-router';
 import { ScreenShell } from '../../components/screen-shell';
 import { TileLoader } from '../../components/tile-loader';
-import { supabase } from '../../lib/supabase';
+import { supabase, signOut } from '../../lib/supabase';
 import { useTheme, fonts, type ThemeColors } from '../../theme';
 
 const MUTED = 'rgba(10, 42, 74, 0.62)';
@@ -167,15 +167,15 @@ export default function ProfileScreen() {
 
   const handleLogoutConfirm = async () => {
     try {
-      // Clear the Supabase session completely
-      const { error } = await supabase.auth.signOut();
-      if (error) throw error;
+      // Session-based: clear the Supabase session completely (the AuthGate
+      // then locks every protected link until the next successful login).
+      await signOut();
       
       // Clear any cached user data
       setShowLogoutModal(false);
       
       // Redirect to login screen
-      router.replace('/');
+      router.replace('/login');
     } catch (error) {
       Alert.alert('Error', 'Could not sign out. Please try again.');
       setShowLogoutModal(false);

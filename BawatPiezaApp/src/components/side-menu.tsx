@@ -23,7 +23,7 @@ import Animated, {
 
 import { fonts, type Mode, useTheme } from '../theme';
 import { NAV_SECTIONS, activeNavLabel, type NavItem } from '../constants/navigation';
-import { supabase } from '../lib/supabase';
+import { signOut } from '../lib/supabase';
 import { brandAccent, scale } from './glass-ui';
 
 /**
@@ -214,11 +214,13 @@ export function SideMenu({
   const handleSignOut = async () => {
     onClose();
     try {
-      await supabase.auth.signOut();
+      // Session-based: clear the Supabase session + Google cache so every
+      // protected link locks again until the next successful login.
+      await signOut();
     } catch {
       // Session may already be gone locally — still return to the login gate.
     }
-    router.replace('/');
+    router.replace('/login');
   };
 
   return (
