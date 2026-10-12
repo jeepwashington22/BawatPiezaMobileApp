@@ -4,10 +4,10 @@ import {
   Modal,
   ScrollView,
   StyleSheet,
-  Text,
   TouchableOpacity,
   View,
 } from 'react-native';
+import { AppText as Text } from './app-text';
 import { Ionicons } from '@expo/vector-icons';
 import { fonts } from '../theme';
 import { useTermsReading } from '../hooks/use-terms-reading';

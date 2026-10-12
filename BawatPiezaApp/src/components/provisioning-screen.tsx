@@ -8,11 +8,11 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
-  Text,
   TextInput,
   View,
   useWindowDimensions,
 } from "react-native";
+import { AppText as Text } from "./app-text";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import {
@@ -24,7 +24,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { SafeAreaView } from "react-native-safe-area-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
-import { Card, scale } from "./glass-ui";
+import { scale } from "./glass-ui";
 import { fonts, useTheme, type Mode, type ThemeColors } from "../theme";
 import type { IoniconName } from "../lib/network";
 
@@ -63,7 +63,6 @@ const STEPS: Step[] = [
 ];
 
 const ACTIVE_STEP = 0;
-const TOTAL_STEPS = 2;
 
 const fs = (v: number) => Math.max(scale(v), v * 0.9);
 const COLUMN_MAX = 560;
@@ -71,16 +70,6 @@ const COLUMN_MAX = 560;
 function themePalette(mode: Mode, c: ThemeColors) {
   const dark = mode === "dark";
   return {
-    hero: (dark ? ["#1D1D1D", "#000000"] : ["#12406E", "#0A2A4A"]) as [
-      string,
-      string,
-    ],
-    heroBorder: dark ? "rgba(255,255,255,0.14)" : "rgba(255,255,255,0.10)",
-    heroHalo: dark ? "rgba(255,255,255,0.05)" : "rgba(255,255,255,0.08)",
-    heroEyebrow: dark ? "rgba(255,255,255,0.60)" : c.butter,
-    heroIconBg: dark ? "rgba(255,255,255,0.08)" : "rgba(255,255,255,0.14)",
-    heroIconBorder: dark ? "rgba(255,255,255,0.16)" : "rgba(255,255,255,0.18)",
-    heroFill: dark ? "#FFFFFF" : c.butter,
     liveDot: dark ? "#FFFFFF" : "#5CE08A",
     liveDotRing: dark ? "#000000" : "#12406E",
     cta: (dark ? ["#FFFFFF", "#D9D9D9"] : ["#F5C245", "#E0A315"]) as [
@@ -132,7 +121,6 @@ export function ProvisioningScreen() {
   const compact = width < 375;
   const wide = width >= 700;
   const gutter = wide ? 24 : compact ? 14 : 20;
-  const heroMinHeight = Math.max(148, Math.min(height * 0.24, 196));
   const scanFrame = Math.round(Math.min(width - 76, height * 0.38, 272));
 
   // Initialize Tour Guide Safely with a new storage key
@@ -327,6 +315,19 @@ export function ProvisioningScreen() {
         >
           <View style={styles.column}>
             <View style={styles.topRow}>
+              <Pressable
+                onPress={() => router.back()}
+                accessibilityRole="button"
+                accessibilityLabel="Go back"
+                hitSlop={8}
+                style={({ pressed }) => [
+                  styles.backButton,
+                  { borderColor: c.line, backgroundColor: c.surface },
+                  pressed && styles.pressed,
+                ]}
+              >
+                <Ionicons name="arrow-back" size={fs(17)} color={c.text} />
+              </Pressable>
               <View style={[styles.brandMark, { backgroundColor: c.accent }]}>
                 <Ionicons name="flash" size={fs(19)} color={c.onAccent} />
               </View>
@@ -364,67 +365,6 @@ export function ProvisioningScreen() {
                 A few quick steps to bring your smart floor online.
               </Text>
             </View>
-
-            <LinearGradient
-              colors={p.hero}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={[
-                styles.hero,
-                { minHeight: heroMinHeight, borderColor: p.heroBorder },
-              ]}
-            >
-              <View
-                style={[styles.heroHalo, { backgroundColor: p.heroHalo }]}
-              />
-              <View style={styles.heroTop}>
-                <View
-                  style={[
-                    styles.heroIcon,
-                    {
-                      backgroundColor: p.heroIconBg,
-                      borderColor: p.heroIconBorder,
-                    },
-                  ]}
-                >
-                  <Ionicons name="wifi" size={fs(30)} color="#FFFFFF" />
-                  <View
-                    style={[
-                      styles.heroLiveDot,
-                      {
-                        backgroundColor: p.liveDot,
-                        borderColor: p.liveDotRing,
-                      },
-                    ]}
-                  />
-                </View>
-                <View style={styles.heroCopy}>
-                  <Text style={[styles.heroEyebrow, { color: p.heroEyebrow }]}>
-                    STEP 1 OF 2
-                  </Text>
-                  <Text style={styles.heroTitle}>Connect to the hub</Text>
-                  <Text style={styles.heroSubtitle}>
-                    Join BawatPieza-Setup, then return here to finish the
-                    connection.
-                  </Text>
-                </View>
-              </View>
-              <View style={styles.heroFooter}>
-                <View style={styles.heroTrack}>
-                  <View
-                    style={[
-                      styles.heroFill,
-                      { flex: ACTIVE_STEP + 1, backgroundColor: p.heroFill },
-                    ]}
-                  />
-                  <View style={{ flex: TOTAL_STEPS - ACTIVE_STEP - 1 }} />
-                </View>
-                <Text style={styles.heroPercent}>
-                  {Math.round(((ACTIVE_STEP + 1) / TOTAL_STEPS) * 100)}% of
-                  setup complete
-                </Text>
-              </View>
-            </LinearGradient>
 
             <View style={styles.steps}>
               {STEPS.map((step, index) => {
@@ -486,13 +426,7 @@ export function ProvisioningScreen() {
               })}
             </View>
 
-            <Card
-              mode={mode}
-              style={[
-                styles.card,
-                tourVisible && { borderColor: "#F97316", borderWidth: 2 },
-              ]}
-            >
+            <View style={styles.formSection}>
               <View style={styles.cardHead}>
                 <View style={styles.cardHeadCopy}>
                   <Text style={[styles.cardEyebrow, { color: c.orange }]}>
@@ -686,7 +620,7 @@ export function ProvisioningScreen() {
                   Your network details stay securely on this device.
                 </Text>
               </View>
-            </Card>
+            </View>
 
             <View style={styles.helperRow}>
               <Ionicons
@@ -959,6 +893,14 @@ const styles = StyleSheet.create({
     paddingTop: scale(8),
     marginBottom: scale(20),
   },
+  backButton: {
+    width: scale(32),
+    height: scale(32),
+    borderWidth: 1,
+    borderRadius: scale(10),
+    alignItems: "center",
+    justifyContent: "center",
+  },
   brandMark: {
     width: scale(40),
     height: scale(40),
@@ -1006,81 +948,6 @@ const styles = StyleSheet.create({
     fontFamily: fonts.medium,
   },
 
-  /* hero */
-  hero: {
-    borderRadius: scale(26),
-    borderWidth: 1,
-    padding: scale(18),
-    overflow: "hidden",
-    justifyContent: "space-between",
-    shadowColor: "#0A2A4A",
-    shadowOpacity: 0.22,
-    shadowRadius: scale(18),
-    shadowOffset: { width: 0, height: scale(10) },
-    elevation: 6,
-  },
-  heroHalo: {
-    position: "absolute",
-    width: scale(190),
-    height: scale(190),
-    borderRadius: 999,
-    right: scale(-64),
-    top: scale(-72),
-  },
-  heroTop: { flexDirection: "row", alignItems: "center", gap: scale(14) },
-  heroIcon: {
-    width: scale(64),
-    height: scale(64),
-    borderRadius: scale(22),
-    borderWidth: 1,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  heroLiveDot: {
-    position: "absolute",
-    width: scale(10),
-    height: scale(10),
-    borderRadius: 99,
-    right: scale(9),
-    top: scale(9),
-    borderWidth: 2,
-  },
-  heroCopy: { flex: 1 },
-  heroEyebrow: {
-    fontSize: fs(9.5),
-    letterSpacing: 1.8,
-    fontFamily: fonts.extrabold,
-  },
-  heroTitle: {
-    color: "#FFFFFF",
-    fontSize: fs(21),
-    lineHeight: fs(26),
-    marginTop: scale(4),
-    fontFamily: fonts.extrabold,
-  },
-  heroSubtitle: {
-    color: "rgba(255,255,255,0.76)",
-    fontSize: fs(11.5),
-    lineHeight: fs(17),
-    marginTop: scale(6),
-    fontFamily: fonts.medium,
-  },
-  heroFooter: { marginTop: scale(16) },
-  heroTrack: {
-    flexDirection: "row",
-    height: scale(6),
-    borderRadius: 99,
-    overflow: "hidden",
-    backgroundColor: "rgba(255,255,255,0.20)",
-  },
-  heroFill: { height: "100%", borderRadius: 99 },
-  heroPercent: {
-    color: "rgba(255,255,255,0.66)",
-    fontSize: fs(9.5),
-    letterSpacing: 0.8,
-    marginTop: scale(7),
-    fontFamily: fonts.bold,
-  },
   /* step indicator */
   steps: {
     flexDirection: "row",
@@ -1118,8 +985,8 @@ const styles = StyleSheet.create({
     fontFamily: fonts.bold,
   },
 
-  /* network card */
-  card: { padding: scale(18), borderRadius: scale(24) },
+  /* network form */
+  formSection: { paddingVertical: scale(2) },
   cardHead: { flexDirection: "row", alignItems: "flex-start", gap: scale(12) },
   cardHeadCopy: { flex: 1 },
   cardEyebrow: {

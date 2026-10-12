@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Image, Pressable, StyleSheet, View } from 'react-native';
+import { AppText as Text } from './app-text';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 

@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
+import { AppText } from './app-text';
 import { useTheme } from '../theme';
 import { Card, brandAccent, scale } from './glass-ui';
 
@@ -25,12 +26,12 @@ export function ContentCard({ title, eyebrow, action, children, style }: Content
             {eyebrow ? (
               <View style={styles.eyebrowRow}>
                 <View style={[styles.eyebrowTick, { backgroundColor: brandAccent(mode) }]} />
-                <Text style={[styles.eyebrow, { color: mode === 'dark' ? 'rgba(255,255,255,0.60)' : 'rgba(10,42,74,0.55)' }]}>
+                <AppText style={[styles.eyebrow, { color: mode === 'dark' ? 'rgba(255,255,255,0.60)' : 'rgba(10,42,74,0.55)' }]}>
                   {eyebrow}
-                </Text>
+                </AppText>
               </View>
             ) : null}
-            {title ? <Text style={[styles.title, { color: c.text }]}>{title}</Text> : null}
+            {title ? <AppText style={[styles.title, { color: c.text }]}>{title}</AppText> : null}
           </View>
           {action ?? null}
         </View>

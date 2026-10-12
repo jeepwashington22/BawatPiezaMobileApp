@@ -1,6 +1,7 @@
 import { fonts, useTheme, type ThemeColors } from '../../theme';
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, StyleSheet, View } from 'react-native';
+import { AppText as Text } from '../../components/app-text';
 import { ScreenShell } from '../../components/screen-shell';
 import { TileLoader } from '../../components/tile-loader';
 import { ContentCard } from '../../components/content-card';

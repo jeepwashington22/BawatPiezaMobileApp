@@ -1,9 +1,10 @@
 import { useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
 import { ScreenShell } from '../../components/screen-shell';
 import { ContentCard } from '../../components/content-card';
+import { AppText as Text } from '../../components/app-text';
 import { fonts, useTheme } from '../../theme';
 
 type QA = { q: string; a: string };

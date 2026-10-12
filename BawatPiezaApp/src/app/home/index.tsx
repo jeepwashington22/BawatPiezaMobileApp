@@ -1,6 +1,7 @@
 import { fonts, useTheme, type Mode } from "../../theme";
 import React, { useEffect, useState, useRef } from "react";
-import { View, Text, StyleSheet, Pressable, Animated } from "react-native";
+import { View, StyleSheet, Pressable, Animated } from "react-native";
+import { AppText as Text } from "../../components/app-text";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter, type Href } from "expo-router";
 import { supabase } from "../../lib/supabase";

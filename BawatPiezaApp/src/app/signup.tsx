@@ -2,7 +2,6 @@ import React, { useState } from 'react';
 import {
   View,
   Image,
-  Text,
   TextInput,
   TouchableOpacity,
   StyleSheet,
@@ -10,6 +9,7 @@ import {
   Platform,
   Alert,
 } from 'react-native';
+import { AppText as Text } from '../components/app-text';
 import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';

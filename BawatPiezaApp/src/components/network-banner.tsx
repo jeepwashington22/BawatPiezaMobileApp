@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Animated, StyleSheet, Text, View } from 'react-native';
+import { Animated, StyleSheet, View } from 'react-native';
+import { AppText as Text } from './app-text';
 import { Ionicons } from '@expo/vector-icons';
 import {
   NETWORK_ISSUE_INFO,

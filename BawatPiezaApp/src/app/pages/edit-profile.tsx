@@ -1,6 +1,7 @@
 import { fonts, useTheme, type ThemeColors } from '../../theme';
 import { useEffect, useState } from 'react';
-import { Alert, Image, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Alert, Image, StyleSheet, TextInput, TouchableOpacity, View } from 'react-native';
+import { AppText as Text } from '../../components/app-text';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { ScreenShell } from '../../components/screen-shell';

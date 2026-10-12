@@ -2,7 +2,6 @@ import React, { useState } from 'react';
 import {
   View,
   Image,
-  Text,
   TextInput,
   TouchableOpacity,
   StyleSheet,
@@ -11,6 +10,7 @@ import {
   Alert,
   ActivityIndicator,
 } from 'react-native';
+import { AppText as Text } from '../components/app-text';
 import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';

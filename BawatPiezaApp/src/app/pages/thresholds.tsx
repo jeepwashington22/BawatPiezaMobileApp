@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Ionicons } from '@expo/vector-icons';
-import { Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Modal, Pressable, StyleSheet, TextInput, View } from 'react-native';
+import { AppText as Text } from '../../components/app-text';
 import { LinearGradient } from 'expo-linear-gradient';
 import { ScreenShell } from '../../components/screen-shell';
 import { TopBar } from '../../components/top-bar';

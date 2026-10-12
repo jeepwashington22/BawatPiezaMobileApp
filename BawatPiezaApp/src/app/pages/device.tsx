@@ -3,11 +3,11 @@ import { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
   StyleSheet,
-  Text,
   View,
   Pressable,
   Modal,
 } from "react-native";
+import { AppText as Text } from "../../components/app-text";
 import { Ionicons } from "@expo/vector-icons";
 import { ScreenShell } from "../../components/screen-shell";
 import { ContentCard } from "../../components/content-card";

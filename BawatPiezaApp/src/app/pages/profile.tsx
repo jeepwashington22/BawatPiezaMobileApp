@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Image, Pressable, StyleSheet, Text, View, Modal } from 'react-native';
+import { ActivityIndicator, Alert, Image, Pressable, StyleSheet, View, Modal } from 'react-native';
+import { AppText as Text } from '../../components/app-text';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { useRouter, type Href } from 'expo-router';
@@ -30,8 +31,7 @@ const SECTIONS: HubSection[] = [
   {
     title: 'DEVICE MANAGEMENT',
     items: [
-      { icon: 'wifi-outline', label: 'Connections', sub: '2 devices paired', href: '/pages/device' },
-      { icon: 'flash-outline', label: 'Connection', sub: 'Online', href: '/pages/device' },
+      { icon: 'wifi-outline', label: 'Connections', sub: 'Manage paired devices', href: '/pages/device' },
       { icon: 'people-outline', label: 'Manage Access', sub: '2 invited · 1 pending', href: '/pages/accounts' },
       { icon: 'options-outline', label: 'System Thresholds', sub: 'Tile floor, degradation & watch list rules', href: '/pages/thresholds' },
     ],

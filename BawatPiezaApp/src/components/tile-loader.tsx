@@ -1,6 +1,7 @@
 ﻿import { useTheme } from '../theme';
 import { useEffect, useRef } from 'react';
-import { Animated, Easing, StyleSheet, Text, View } from 'react-native';
+import { Animated, Easing, StyleSheet, View } from 'react-native';
+import { AppText as Text } from './app-text';
 import { Ionicons } from '@expo/vector-icons';
 import { brandAccent } from './glass-ui';
 

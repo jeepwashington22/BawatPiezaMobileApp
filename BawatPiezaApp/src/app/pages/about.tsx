@@ -1,5 +1,6 @@
 import { fonts, useTheme, type ThemeColors } from '../../theme';
-import { Image, StyleSheet, Text, View } from 'react-native';
+import { Image, StyleSheet, View } from 'react-native';
+import { AppText as Text } from '../../components/app-text';
 import { Ionicons } from '@expo/vector-icons';
 import { ScreenShell } from '../../components/screen-shell';
 import { ContentCard } from '../../components/content-card';
@@ -18,7 +19,7 @@ export default function AboutScreen() {
   const OK = c.ok;
   const BAD = c.danger;
   return (
-    <ScreenShell>
+    <ScreenShell title="About" showBack>
       <View style={styles.hero}>
         <Image source={require('../../../assets/images/LOGO3.png')} style={styles.logo} resizeMode="contain" />
         <Text style={styles.tagline}>Waste Into Watts, Ions</Text>

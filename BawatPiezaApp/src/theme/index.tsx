@@ -92,6 +92,21 @@ export const DarkTheme: ThemeColors = {
 
 export type Mode = 'light' | 'dark';
 
+/* ---------------------------- Font-size preference ---------------------------- */
+// Body-text base size. Headings (>= 18px) stay fixed; everything below scales
+// proportionally so 16 = Small, 20 = Medium, 24 = Large.
+export type FontSizeOption = 16 | 20 | 24;
+
+export const FONT_SIZE_OPTIONS: { value: FontSizeOption; label: string; hint: string }[] = [
+  { value: 16, label: 'Small', hint: 'Compact 16px body' },
+  { value: 20, label: 'Medium', hint: 'Comfortable 20px body' },
+  { value: 24, label: 'Large', hint: 'Extra-readable 24px body' },
+];
+
+export const BASE_BODY_SIZE: FontSizeOption = 16;
+/** Headings at/above this size never scale — body-text-only mode. */
+export const HEADING_THRESHOLD = 18;
+
 /* ------------------------------ Theme context ----------------------------- */
 type ThemeContextValue = {
   mode: Mode;
@@ -99,26 +114,49 @@ type ThemeContextValue = {
   toggleMode: () => void;
   colors: ThemeColors;
   fonts: typeof fonts;
+  /** User's chosen body-text base size (16 | 20 | 24). */
+  fontSize: FontSizeOption;
+  setFontSize: (s: FontSizeOption) => void;
+  /**
+   * Scale a designed font size to the user's preference.
+   * Body-text only: sizes >= HEADING_THRESHOLD are returned unchanged.
+   */
+  fs: (designed: number) => number;
 };
 
 const ThemeContext = createContext<ThemeContextValue | null>(null);
 const STORAGE_KEY = 'bawatpieza.theme.mode';
+const FONT_SIZE_KEY = 'bawatpieza.theme.fontSize';
+
+function parseFontSize(raw: string | null): FontSizeOption {
+  if (raw === '20' || raw === '24') return Number(raw) as FontSizeOption;
+  return 16;
+}
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const [mode, setModeState] = useState<Mode>('light');
+  const [fontSize, setFontSizeState] = useState<FontSizeOption>(BASE_BODY_SIZE);
 
-  // Load persisted preference once.
+  // Load persisted preferences once.
   useEffect(() => {
     AsyncStorage.getItem(STORAGE_KEY)
       .then((saved) => {
         if (saved === 'dark' || saved === 'light') setModeState(saved);
       })
       .catch(() => {});
+    AsyncStorage.getItem(FONT_SIZE_KEY)
+      .then((saved) => setFontSizeState(parseFontSize(saved)))
+      .catch(() => {});
   }, []);
 
   const setMode = (m: Mode) => {
     setModeState(m);
     AsyncStorage.setItem(STORAGE_KEY, m).catch(() => {});
+  };
+
+  const setFontSize = (s: FontSizeOption) => {
+    setFontSizeState(s);
+    AsyncStorage.setItem(FONT_SIZE_KEY, String(s)).catch(() => {});
   };
 
   const value = useMemo<ThemeContextValue>(
@@ -128,8 +166,15 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       toggleMode: () => setMode(mode === 'light' ? 'dark' : 'light'),
       colors: mode === 'dark' ? DarkTheme : LightTheme,
       fonts,
+      fontSize,
+      setFontSize,
+      fs: (designed: number) => {
+        if (designed >= HEADING_THRESHOLD) return designed;
+        const scaled = (designed / BASE_BODY_SIZE) * fontSize;
+        return Math.round(scaled * 100) / 100;
+      },
     }),
-    [mode],
+    [mode, fontSize],
   );
 
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;

@@ -1,9 +1,10 @@
 import { useState } from 'react';
-import { Pressable, StyleSheet, Switch, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Switch, View } from 'react-native';
+import { AppText as Text } from '../../components/app-text';
 import { Ionicons } from '@expo/vector-icons';
 import { ScreenShell } from '../../components/screen-shell';
 import { ContentCard } from '../../components/content-card';
-import { fonts, useTheme, type Mode } from '../../theme';
+import { FONT_SIZE_OPTIONS, useTheme, type FontSizeOption, type Mode } from '../../theme';
 
 type Pref = { key: string; icon: keyof typeof Ionicons.glyphMap; label: string; sub: string; value: boolean };
 
@@ -20,7 +21,7 @@ const MODES: { key: Mode; icon: keyof typeof Ionicons.glyphMap; label: string; s
 ];
 
 export default function PreferencesScreen() {
-  const { colors: c, fonts: f, mode, setMode } = useTheme();
+  const { colors: c, fonts: f, mode, setMode, fontSize, setFontSize, fs } = useTheme();
   const [prefs, setPrefs] = useState(INITIAL);
 
   const toggle = (key: string) =>
@@ -62,6 +63,65 @@ export default function PreferencesScreen() {
         </View>
       </ContentCard>
 
+      {/* Font size — body-text base (16 / 20 / 24), persisted device-wide */}
+      <ContentCard eyebrow="Font size" title="Text size">
+        <View style={styles.sizeRow}>
+          {FONT_SIZE_OPTIONS.map((o) => {
+            const active = fontSize === o.value;
+            return (
+              <Pressable
+                key={o.value}
+                onPress={() => setFontSize(o.value as FontSizeOption)}
+                accessibilityRole="radio"
+                accessibilityState={{ selected: active }}
+                accessibilityLabel={`${o.label}, ${o.hint}`}
+                style={[
+                  styles.sizeCard,
+                  {
+                    backgroundColor: active ? c.accent : c.surfaceMuted,
+                    borderColor: active ? c.accent : c.line,
+                  },
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.sizePreview,
+                    {
+                      color: active ? c.onAccent : c.text,
+                      fontFamily: f.bold,
+                      fontSize: o.value >= 18 ? o.value : fs(o.value),
+                    },
+                  ]}
+                >
+                  Ag
+                </Text>
+                <Text
+                  style={[
+                    styles.modeLabel,
+                    { color: active ? c.onAccent : c.text, fontFamily: active ? f.bold : f.semibold },
+                  ]}
+                >
+                  {o.label}
+                </Text>
+                <Text
+                  style={[
+                    styles.modeSub,
+                    { color: active ? c.onAccent : c.muted, opacity: active ? 0.85 : 1, fontFamily: f.regular },
+                  ]}
+                >
+                  {o.value}px
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+        <View style={[styles.previewBox, { backgroundColor: c.surfaceMuted, borderColor: c.line }]}>
+          <Text style={{ color: c.text, fontFamily: f.regular, fontSize: fs(14), lineHeight: fs(14) * 1.5 }}>
+            Body text renders at {fontSize}px. Headings stay fixed so hierarchy is preserved.
+          </Text>
+        </View>
+      </ContentCard>
+
       {/* General preferences */}
       <ContentCard eyebrow="Settings">
         {prefs.map((p, i) => (
@@ -83,7 +143,7 @@ export default function PreferencesScreen() {
         ))}
       </ContentCard>
       <Text style={[styles.hint, { color: c.muted, fontFamily: f.regular }]}>
-        Theme is saved on this device and applied across the whole app.
+        Theme and text size are saved on this device and applied across the whole app.
       </Text>
     </ScreenShell>
   );
@@ -101,6 +161,22 @@ const styles = StyleSheet.create({
   },
   modeLabel: { fontSize: 14 },
   modeSub: { fontSize: 10, lineHeight: 14 },
+  sizeRow: { flexDirection: 'row', gap: 10 },
+  sizeCard: {
+    flex: 1,
+    borderRadius: 14,
+    borderWidth: 2,
+    padding: 12,
+    alignItems: 'center',
+    gap: 2,
+  },
+  sizePreview: { lineHeight: 30 },
+  previewBox: {
+    marginTop: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    padding: 12,
+  },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
