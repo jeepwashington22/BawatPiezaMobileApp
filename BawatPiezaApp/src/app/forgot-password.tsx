@@ -1,5 +1,6 @@
 ﻿import React, { useState } from 'react';
 import {
+  Image,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
@@ -17,9 +18,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { apiFetch } from '../lib/api';
 import { describeApiFailure } from '../lib/network';
 
-const PRUSSIAN = '#0A2A4A';
-const PRUSSIAN_SOFT = '#345271';
 const BUTTER = '#F6C445';
+const ORANGE_DARK = '#C2410C';
 const MUTED = 'rgba(255, 255, 255, 0.72)';
 const LINE = 'rgba(255, 255, 255, 0.12)';
 const INPUT_BG = 'rgba(255, 255, 255, 0.05)';
@@ -126,7 +126,8 @@ export default function ForgotPasswordScreen() {
 
   return (
     <View style={styles.container}>
-      <LinearGradient colors={['#050A15', '#0B1628', '#0F1F33']} style={StyleSheet.absoluteFill} />
+      <LinearGradient colors={['#8F350E', '#2A0D06', '#120705']} style={StyleSheet.absoluteFill} />
+
       <SafeAreaView style={styles.safeArea}>
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.flex}>
           <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
@@ -135,16 +136,19 @@ export default function ForgotPasswordScreen() {
               <Text style={styles.backText}>Back to sign in</Text>
             </TouchableOpacity>
 
-            <View style={styles.iconBadge}>
-              <Ionicons name="key-outline" size={26} color={BUTTER} />
+            <View style={styles.brandWrap}>
+              <Image source={require('../../assets/images/LOGO3.png')} style={styles.logo} resizeMode="contain" />
+              <View style={styles.iconBadge}>
+                <Ionicons name="key-outline" size={26} color={BUTTER} />
+              </View>
+              <Text style={styles.title}>Forgot password</Text>
+              <Text style={styles.subtitle}>
+                {step === 'email' && "We'll email you a 6-digit verification code."}
+                {step === 'otp' && `Enter the code sent to ${email}.`}
+                {step === 'reset' && 'Choose a new password for your account.'}
+                {step === 'done' && 'All set.'}
+              </Text>
             </View>
-            <Text style={styles.title}>Forgot password</Text>
-            <Text style={styles.subtitle}>
-              {step === 'email' && "We'll email you a 6-digit verification code."}
-              {step === 'otp' && `Enter the code sent to ${email}.`}
-              {step === 'reset' && 'Choose a new password for your account.'}
-              {step === 'done' && 'All set.'}
-            </Text>
 
             {info ? (
               <View style={styles.infoBox}>
@@ -248,12 +252,14 @@ export default function ForgotPasswordScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
+  container: { flex: 1, backgroundColor: '#120705' },
   safeArea: { flex: 1 },
   flex: { flex: 1 },
-  scroll: { flexGrow: 1, paddingHorizontal: 26, paddingTop: 18, paddingBottom: 40 },
-  backRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 30 },
+  scroll: { flexGrow: 1, justifyContent: 'center', paddingHorizontal: 26, paddingTop: 18, paddingBottom: 40 },
+  backRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
   backText: { color: MUTED, fontSize: 13, fontWeight: '600', fontFamily: fonts.semibold, marginLeft: 6 },
+  brandWrap: { alignItems: 'center', marginBottom: 18 },
+  logo: { width: 140, height: 140, marginBottom: 2 },
   iconBadge: {
     width: 54,
     height: 54,
@@ -263,10 +269,11 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(246, 196, 69, 0.3)',
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 16,
+    marginTop: 8,
+    marginBottom: 12,
   },
-  title: { fontSize: 28, fontWeight: '800', fontFamily: fonts.extrabold, color: '#FFFFFF', letterSpacing: -0.8, marginBottom: 6 },
-  subtitle: { fontSize: 13, color: MUTED, marginBottom: 22, lineHeight: 19 },
+  title: { fontSize: 28, fontWeight: '800', fontFamily: fonts.extrabold, color: '#FFFFFF', letterSpacing: -0.8, marginBottom: 6, textAlign: 'center' },
+  subtitle: { fontSize: 13, color: MUTED, marginBottom: 6, lineHeight: 19, textAlign: 'center' },
   infoBox: {
     backgroundColor: 'rgba(246, 196, 69, 0.1)',
     borderRadius: 12,
@@ -301,7 +308,7 @@ const styles = StyleSheet.create({
   },
   inputIcon: { marginRight: 10 },
   input: { flex: 1, fontSize: 15, color: '#FFFFFF', paddingVertical: 2 },
-  primaryButton: { borderRadius: 14, overflow: 'hidden', backgroundColor: PRUSSIAN_SOFT, marginTop: 6, marginBottom: 12 },
+  primaryButton: { borderRadius: 14, overflow: 'hidden', backgroundColor: ORANGE_DARK, marginTop: 6, marginBottom: 12 },
   primaryButtonInner: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 16 },
   primaryButtonText: { color: '#FFFFFF', fontSize: 15, fontWeight: '800', fontFamily: fonts.extrabold },
   secondaryButton: { alignItems: 'center', paddingVertical: 10 },
