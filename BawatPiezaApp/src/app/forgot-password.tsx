@@ -1,4 +1,4 @@
-﻿import React, { useState } from 'react';
+﻿import React, { useRef, useState } from 'react';
 import {
   Image,
   KeyboardAvoidingView,
@@ -32,7 +32,9 @@ export default function ForgotPasswordScreen() {
   const router = useRouter();
   const [step, setStep] = useState<Step>('email');
   const [email, setEmail] = useState('');
-  const [otp, setOtp] = useState('');
+  const [otpDigits, setOtpDigits] = useState<string[]>(['', '', '', '', '', '']);
+  const otpInputs = useRef<(TextInput | null)[]>([]);
+  const otp = otpDigits.join('');
   const [resetToken, setResetToken] = useState('');
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
@@ -56,12 +58,51 @@ export default function ForgotPasswordScreen() {
       const json = await res.json();
       if (!res.ok) throw new Error(json?.error?.message ?? json?.message ?? 'Failed to send code');
       setInfo(json?.message ?? 'Verification code sent.');
+      setOtpDigits(['', '', '', '', '', '']);
       setStep('otp');
     } catch (e) {
       setError(describeApiFailure(e, NETWORK_FALLBACK));
     } finally {
       setBusy(false);
     }
+  };
+
+  const setOtpDigit = (index: number, char: string) => {
+    const clean = char.replace(/[^0-9]/g, '');
+    setOtpDigits((prev) => {
+      const next = [...prev];
+      // Support paste / autofill of multiple digits into one box.
+      if (clean.length > 1) {
+        const chars = clean.slice(0, 6 - index).split('');
+        chars.forEach((c, offset) => {
+          next[index + offset] = c;
+        });
+        const focusIndex = Math.min(index + chars.length, 5);
+        requestAnimationFrame(() => otpInputs.current[focusIndex]?.focus());
+        return next;
+      }
+      next[index] = clean.slice(-1);
+      return next;
+    });
+    if (clean.length === 1 && index < 5) {
+      otpInputs.current[index + 1]?.focus();
+    }
+  };
+
+  const handleOtpKeyPress = (index: number, key: string) => {
+    if (key === 'Backspace' && !otpDigits[index] && index > 0) {
+      otpInputs.current[index - 1]?.focus();
+      setOtpDigits((prev) => {
+        const next = [...prev];
+        next[index - 1] = '';
+        return next;
+      });
+    }
+  };
+
+  const clearOtp = () => {
+    setOtpDigits(['', '', '', '', '', '']);
+    requestAnimationFrame(() => otpInputs.current[0]?.focus());
   };
 
   const verifyOtp = async () => {
@@ -192,15 +233,32 @@ export default function ForgotPasswordScreen() {
             {step === 'otp' && (
               <View>
                 <Text style={styles.label}>6-digit code (expires in 5 minutes)</Text>
-                <View style={styles.inputBox}>
-                  <Ionicons name="shield-checkmark-outline" size={18} color="rgba(255,255,255,0.45)" style={styles.inputIcon} />
-                  <TextInput
-                    {...inputProps(otp, setOtp)}
-                    placeholder="000000"
-                    keyboardType="number-pad"
-                    maxLength={6}
-                  />
+                <View style={styles.otpRow}>
+                  {otpDigits.map((digit, index) => (
+                    <TextInput
+                      key={index}
+                      ref={(el) => {
+                        otpInputs.current[index] = el;
+                      }}
+                      value={digit}
+                      onChangeText={(text) => setOtpDigit(index, text)}
+                      onKeyPress={({ nativeEvent }) => handleOtpKeyPress(index, nativeEvent.key)}
+                      keyboardType="number-pad"
+                      textContentType="oneTimeCode"
+                      autoComplete="sms-otp"
+                      maxLength={6}
+                      selectTextOnFocus
+                      autoFocus={index === 0}
+                      placeholder="0"
+                      placeholderTextColor="rgba(255,255,255,0.25)"
+                      style={[styles.otpBox, digit ? styles.otpBoxFilled : null]}
+                      textAlign="center"
+                    />
+                  ))}
                 </View>
+                <TouchableOpacity onPress={clearOtp} disabled={busy} style={styles.otpClearRow}>
+                  <Text style={styles.secondaryText}>Clear code</Text>
+                </TouchableOpacity>
                 <TouchableOpacity style={styles.primaryButton} onPress={verifyOtp} disabled={busy}>
                   <View style={styles.primaryButtonInner}>
                     <Text style={styles.primaryButtonText}>{busy ? 'Verifyingâ€¦' : 'Verify code'}</Text>
@@ -308,6 +366,23 @@ const styles = StyleSheet.create({
   },
   inputIcon: { marginRight: 10 },
   input: { flex: 1, fontSize: 15, color: '#FFFFFF', paddingVertical: 2 },
+  otpRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 8, marginBottom: 6 },
+  otpBox: {
+    flex: 1,
+    height: 54,
+    backgroundColor: INPUT_BG,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: LINE,
+    fontSize: 20,
+    fontWeight: '800',
+    fontFamily: fonts.extrabold,
+    color: '#FFFFFF',
+    textAlign: 'center',
+    paddingVertical: 0,
+  },
+  otpBoxFilled: { borderColor: 'rgba(246, 196, 69, 0.55)', backgroundColor: 'rgba(246, 196, 69, 0.08)' },
+  otpClearRow: { alignItems: 'flex-end', paddingVertical: 6, marginBottom: 6 },
   primaryButton: { borderRadius: 14, overflow: 'hidden', backgroundColor: ORANGE_DARK, marginTop: 6, marginBottom: 12 },
   primaryButtonInner: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 16 },
   primaryButtonText: { color: '#FFFFFF', fontSize: 15, fontWeight: '800', fontFamily: fonts.extrabold },
