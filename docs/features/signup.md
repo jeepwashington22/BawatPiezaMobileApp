@@ -9,18 +9,23 @@
 
 ## User flow
 
-1. User fills in **full name**, **email**, **password**, **confirm password**.
+1. User completes three steps:
+   - **First name**, optional **middle name**, and **last name**.
+   - **Email address** and Philippine **contact number**.
+   - **Password** and **confirm password**.
 2. Local validation runs first (`src/lib/validation.ts`) — nothing hits the
    network until the fields are sane:
    - email matches a practical `name@domain.tld` pattern,
-   - full name ≥ 2 characters,
+   - first and last name are valid,
+   - contact number uses the `+639XXXXXXXXX` format,
    - password ≥ **8** characters (Supabase's own minimum is 6; the app is
      stricter), password === confirm.
-3. The **Terms & Conditions modal** must be opened and read to the end before
-   the checkbox can be ticked (see [terms-and-conditions.md](terms-and-conditions.md)).
+3. The email step checks the `email_registered` RPC when migration
+   `006_email_registered.sql` is available. If the check is unavailable, the
+   final Supabase signup still reports duplicate email errors.
 4. On submit → `supabase.auth.signUp({ email, password, options.data })` with
-   user metadata: `full_name`, `firstname`, `lastname`, plus the Terms
-   acceptance (`terms_accepted_at`, `terms_version`).
+   user metadata: `full_name`, `firstname`, `middlename`, `lastname`, and
+   `contact_number`.
 5. The `handle_new_auth_user` trigger (migration 001/005) mirrors the metadata
    into the `user_accounts` table.
 6. A **welcome e-mail** is sent for brand-new accounts

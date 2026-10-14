@@ -16,7 +16,7 @@ type IconName = keyof typeof Ionicons.glyphMap;
 
 type TileDatum = { id: number; label: string; traffic: number };
 
-/** 3 x 3 walk-traffic field. 0 = quiet, 1 = saturated. */
+/** 3 x 2 walk-traffic field. 0 = quiet, 1 = saturated. */
 const TILES: TileDatum[] = [
   { id: 1, label: 'Tile 1', traffic: 0.92 },
   { id: 2, label: 'Tile 2', traffic: 0.24 },
@@ -24,25 +24,22 @@ const TILES: TileDatum[] = [
   { id: 4, label: 'Tile 4', traffic: 0.31 },
   { id: 5, label: 'Tile 5', traffic: 0.47 },
   { id: 6, label: 'Tile 6', traffic: 0.19 },
-  { id: 7, label: 'Tile 7', traffic: 0.78 },
-  { id: 8, label: 'Tile 8', traffic: 0.27 },
-  { id: 9, label: 'Tile 9', traffic: 0.71 },
 ];
 
 /** Walk-traffic ratio at or above which a tile is flagged in Diagnostic mode. */
 const FLAG_THRESHOLD = 0.75;
 
-const TILE_BLUE_RAMP = ['#17457F', '#1A4E8C', '#1E5A9C', '#2468B0', '#2E7AC7'];
+const TILE_ORANGE_RAMP = ['#7C2D12', '#9A3412', '#C2410C', '#EA580C', '#F97316'];
 const TILE_ORANGE = '#F97316';
 const PANEL_TOP = '#0C2A4C';
 const PANEL_BOTTOM = '#06182D';
 
 const PREDICTIVE = [
-  { tile: 'Tile 4', note: 'Flagged for inspection now', metric: '1.8 J/step' },
-  { tile: 'Tile 9', note: 'Flagged for inspection now', metric: '2.1 J/step' },
+  { tile: 'Tile 1', note: 'Flagged for inspection now', metric: '1.8 J/step' },
+  { tile: 'Tile 3', note: 'Flagged for inspection now', metric: '2.1 J/step' },
 ];
 const WATCHLIST = [
-  { tile: 'Tile 7', note: 'Projected below threshold in ~12 days', metric: '2.3 J/step now' },
+  { tile: 'Tile 5', note: 'Projected below threshold in ~12 days', metric: '2.3 J/step now' },
 ];
 const REMINDERS = [
   {
@@ -108,22 +105,24 @@ function Segmented({
 
 /* ------------------------------ tile rendering ------------------------------ */
 
-/** Maps a 0–1 traffic ratio onto the blue color ramp. */
+/** Maps a 0–1 traffic ratio onto the orange color ramp. */
 function getTileColor(traffic: number): string {
   const t = Math.min(1, Math.max(0, traffic));
-  const idx = Math.floor(t * (TILE_BLUE_RAMP.length - 1));
-  return TILE_BLUE_RAMP[idx];
+  const idx = Math.floor(t * (TILE_ORANGE_RAMP.length - 1));
+  return TILE_ORANGE_RAMP[idx];
 }
 
 function HeatTile({ tile, viewMode }: { tile: TileDatum; viewMode: ViewMode }) {
   const { mode } = useTheme();
   const flagged = tile.traffic >= FLAG_THRESHOLD;
-  const bg = viewMode === 'diagnostic' && flagged ? TILE_ORANGE : 'rgba(23,69,127,0.72)';
+  const bg = viewMode === 'diagnostic' && flagged ? TILE_ORANGE : getTileColor(tile.traffic);
 
   return (
-    <Card mode={mode} style={[styles.tileCard, { backgroundColor: bg, borderColor: viewMode === 'diagnostic' && flagged ? '#F97316' : 'rgba(255,255,255,0.16)' }]}>
+    <Card mode={mode} style={[styles.tileCard, { backgroundColor: bg, borderColor: viewMode === 'diagnostic' && flagged ? '#FDBA74' : 'rgba(255,255,255,0.22)' }]}>
+      <View pointerEvents="none" style={styles.tileSheen} />
+      <View pointerEvents="none" style={styles.tileDiagonal} />
       <View style={styles.tileInner}>
-        <Text style={[styles.tileLabel, { color: '#FFFFFF' }]}>{tile.label}</Text>
+        <Text style={[styles.tileLabel, { color: '#FFFFFF' }]}>{tile.label.toUpperCase()}</Text>
         <Text style={[styles.tileTraffic, { color: '#FFFFFF' }]}>
           {`${Math.round(tile.traffic * 100)}%`}
         </Text>
@@ -185,7 +184,7 @@ export default function HeatmapScreen() {
   }, []);
 
   return (
-    <ScreenShell scroll>
+    <ScreenShell scroll title="Heatmap" showBack>
       {/* ===== page header ===== */}
       <FadeIn delay={0}>
         <View style={styles.header}>
@@ -215,7 +214,7 @@ export default function HeatmapScreen() {
               letterSpacing: -0.3,
             }}
           >
-            Facility Heatmap
+            Gate Pathway · Live Tile Heat
           </Text>
           <Text
             style={{
@@ -225,7 +224,7 @@ export default function HeatmapScreen() {
               marginTop: scale(3),
             }}
           >
-            Real-time walk-traffic across the facility floor
+            Warmer tiles = more foot traffic right now
           </Text>
         </View>
       </FadeIn>
@@ -237,7 +236,7 @@ export default function HeatmapScreen() {
         </View>
       </FadeIn>
 
-      {/* ===== 3 x 3 tile grid ===== */}
+      {/* ===== 3 x 2 tile grid ===== */}
       <FadeIn delay={160}>
         <HeatSurface>
           <View style={styles.grid}>
@@ -447,20 +446,19 @@ const styles = StyleSheet.create({
   },
 
   /* tile grid */
-  grid: {
-    marginTop: scale(10),
-  },
+  grid: { marginTop: scale(2) },
   heatSurface: {
     position: 'relative',
     overflow: 'hidden',
-    minHeight: scale(360),
+    minHeight: scale(236),
     borderRadius: scale(22),
-    padding: scale(12),
-    backgroundColor: '#17457F',
+    paddingHorizontal: scale(16),
+    paddingVertical: scale(14),
+    backgroundColor: '#182B70',
     borderWidth: 1,
-    borderColor: 'rgba(247,201,72,0.34)',
-    shadowColor: '#0B2E63',
-    shadowOpacity: 0.28,
+    borderColor: 'rgba(255,255,255,0.12)',
+    shadowColor: '#13245F',
+    shadowOpacity: 0.3,
     shadowRadius: scale(14),
     shadowOffset: { width: 0, height: 8 },
     elevation: 6,
@@ -475,22 +473,35 @@ const styles = StyleSheet.create({
   heatGridContent: {
     position: 'relative',
   },
-  gridRow: {
-    flexDirection: 'row',
-    gap: scale(8),
-    marginBottom: scale(8),
-  },
+  gridRow: { flexDirection: 'row', gap: scale(5), marginBottom: scale(5) },
   tileCard: {
     flex: 1,
-    aspectRatio: 1,
-    borderRadius: scale(14),
-    padding: scale(10),
+    height: scale(96),
+    borderRadius: scale(2),
+    padding: scale(8),
     overflow: 'hidden',
     borderWidth: 1,
-    shadowColor: '#F7C948',
-    shadowOpacity: 0.12,
+    shadowColor: '#07163D',
+    shadowOpacity: 0.22,
     shadowRadius: scale(5),
-    shadowOffset: { width: 0, height: 0 },
+    shadowOffset: { width: 0, height: 2 },
+  },
+  tileSheen: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: '48%',
+    backgroundColor: 'rgba(255,255,255,0.08)',
+  },
+  tileDiagonal: {
+    position: 'absolute',
+    width: '145%',
+    height: 1,
+    top: '50%',
+    left: '-22%',
+    backgroundColor: 'rgba(7,31,93,0.72)',
+    transform: [{ rotate: '45deg' }],
   },
   tileInner: {
     flex: 1,
@@ -498,13 +509,14 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   tileLabel: {
-    fontSize: scale(11),
+    fontSize: scale(7),
+    letterSpacing: 1,
     fontFamily: fonts.bold,
   },
   tileTraffic: {
-    fontSize: scale(16),
+    fontSize: scale(18),
     fontFamily: fonts.extrabold,
-    marginTop: scale(2),
+    marginTop: scale(3),
   },
   tileFlag: {
     flexDirection: 'row',

@@ -13,8 +13,10 @@ import {
 
 import { ThemeProvider } from "../theme";
 import { AuthProvider, useAuth } from "../hooks/use-auth";
+import { PowerOverrideProvider, usePowerOverride } from "../hooks/use-power-override";
 import { AuthGate } from "../hooks/use-auth-gate";
 import { NetworkBanner } from "../components/network-banner";
+import { QuickOverridesModal } from "../components/quick-overrides-modal";
 
 // Keep the splash visible until fonts + root layout are ready,
 // then hide it so the app (login screen) is actually rendered.
@@ -38,9 +40,11 @@ export default function RootLayout() {
   return (
     <ThemeProvider>
       <AuthProvider>
-        <AuthGate>
-          <AuthedShell />
-        </AuthGate>
+        <PowerOverrideProvider>
+          <AuthGate>
+            <AuthedShell />
+          </AuthGate>
+        </PowerOverrideProvider>
       </AuthProvider>
     </ThemeProvider>
   );
@@ -80,6 +84,13 @@ function AuthedShell() {
           gestureEnabled: true,
         }}
       />
+      {/* Single global Quick Overrides sheet — one modal for the whole app. */}
+      <GlobalOverridesSheet />
     </View>
   );
+}
+
+function GlobalOverridesSheet() {
+  const { overridesOpen, closeOverrides } = usePowerOverride();
+  return <QuickOverridesModal visible={overridesOpen} onClose={closeOverrides} />;
 }

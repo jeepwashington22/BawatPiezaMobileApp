@@ -1,14 +1,12 @@
 import { Modal, Pressable, StyleSheet, View } from 'react-native';
 import { AppText as Text } from './app-text';
-import React from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { fonts, useTheme } from '../theme';
+import { usePowerOverride } from '../hooks/use-power-override';
 import { scale } from './glass-ui';
-
-type Override = 'grid' | 'battery' | 'shutdown' | null;
 
 type Props = { visible: boolean; onClose: () => void };
 
@@ -16,11 +14,15 @@ type Props = { visible: boolean; onClose: () => void };
 const ORANGE = '#F97316';
 const ORANGE_STOPS: [string, string, string] = ['#FB923C', '#F97316', '#EA580C'];
 
+/**
+ * Global singleton — mounted once at root (_layout). Any card / button calls
+ * openOverrides() and this one sheet pops. No per-screen copies, no stacking.
+ */
 export function QuickOverridesModal({ visible, onClose }: Props) {
   const router = useRouter();
   const { colors: c } = useTheme();
   const insets = useSafeAreaInsets();
-  const [override, setOverride] = React.useState<Override>(null);
+  const { override, setOverride } = usePowerOverride();
 
   return (
     <Modal

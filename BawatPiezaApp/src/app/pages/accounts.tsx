@@ -11,7 +11,6 @@ import {
 } from 'react-native';
 import { AppText as Text } from '../../components/app-text';
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
 import { ScreenShell } from '../../components/screen-shell';
 import { ContentCard } from '../../components/content-card';
 import { supabase } from '../../lib/supabase';
@@ -29,6 +28,11 @@ import { describeApiFailure } from '../../lib/network';
  *  3. Pending invites received by this user render in their own card with
  *     Accept / Decline; accepting makes this user a shared user of the inviter
  *     and notifies the inviter back — the person then appears in the list.
+ *
+ * Layout (first glance): search bar at the very top, then the shared-user
+ * list, then Owner / Shared role tabs that filter the list by account role.
+ * The "Add member (new account)" button was removed — inviting happens only
+ * through the "Invite existing user" button.
  */
 
 type Account = {
@@ -61,8 +65,19 @@ function displayNameOf(u: Account): string {
   return u.name ?? [u.firstname, u.lastname].filter(Boolean).join(' ') ?? u.email ?? 'Unnamed';
 }
 
+/** Role tabs under the list. Backend roles are `admin` | `staff`: Owner tab
+ * shows admin-role users, Shared tab shows everyone else (staff / unknown). */
+type RoleTab = 'owner' | 'shared';
+
+function isOwnerRole(role?: string | null): boolean {
+  return (role ?? '').trim().toLowerCase() === 'admin';
+}
+
+function roleLabel(role?: string | null): string {
+  return isOwnerRole(role) ? 'Owner' : 'Shared';
+}
+
 export default function AccountsScreen() {
-  const router = useRouter();
   const { colors: c } = useTheme();
   const styles = makeStyles(c);
   const PRUSSIAN = c.accent;
@@ -72,7 +87,6 @@ export default function AccountsScreen() {
   const OK = c.ok;
 
   const [loading, setLoading] = useState(true);
-  const [authChecking, setAuthChecking] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [receivedInvites, setReceivedInvites] = useState<Invite[]>([]);
@@ -90,6 +104,8 @@ export default function AccountsScreen() {
   // Realtime search — one query per surface, filtered client-side as you type.
   const [listQuery, setListQuery] = useState('');
   const [inviteQuery, setInviteQuery] = useState('');
+  // Role tab under the list: 'owner' (admin role) or 'shared' (staff role).
+  const [roleTab, setRoleTab] = useState<RoleTab>('shared');
   // Popup visibility — true while the search input is focused.
   // Hidden with a small delay on blur so a suggestion tap registers
   // before the dropdown unmounts.
@@ -234,10 +250,11 @@ export default function AccountsScreen() {
    */
   const visibleAccounts = useMemo(() => {
     const q = listQuery.trim().toLowerCase();
-    return q
-      ? accounts.filter((a) => matchesQuery(q, displayNameOf(a), a.email))
-      : accounts;
-  }, [accounts, listQuery]);
+    return accounts.filter((a) => {
+      if (roleTab === 'owner' ? !isOwnerRole(a.role) : isOwnerRole(a.role)) return false;
+      return q ? matchesQuery(q, displayNameOf(a), a.email) : true;
+    });
+  }, [accounts, listQuery, roleTab]);
 
   const visibleInvitable = useMemo(() => {
     const q = inviteQuery.trim().toLowerCase();
@@ -259,7 +276,8 @@ export default function AccountsScreen() {
 
   return (
     <ScreenShell title="Shared Users" showBack>
-      {!error && accounts.length > 0 && (
+      {/* Search sits at the very top — first glance — always visible. */}
+      {!error && (
         <View style={styles.searchWrap}>
           <View style={styles.searchBox}>
             <Ionicons name="search-outline" size={17} color={MUTED} />
@@ -284,9 +302,6 @@ export default function AccountsScreen() {
       )}
       <Pressable style={styles.addBtn} onPress={openInvitePopup}>
         <Text style={styles.addBtnText}>＋ Invite existing user</Text>
-      </Pressable>
-      <Pressable style={styles.secondaryBtn} onPress={() => router.push('/signup')}>
-        <Text style={styles.secondaryBtnText}>＋ Add member (new account)</Text>
       </Pressable>
 
       {receivedInvites.length > 0 && (
@@ -356,8 +371,8 @@ export default function AccountsScreen() {
       ) : visibleAccounts.length === 0 ? (
         <ContentCard eyebrow="No matches" title="No user found">
           <Text style={styles.hint}>
-            Nothing matches “{listQuery.trim()}”. Try part of a name or the email address
-            they used to sign up.
+            Nothing matches “{listQuery.trim()}” in the {roleTab === 'owner' ? 'Owner' : 'Shared'} tab.
+            Try part of a name or the email address they used to sign up.
           </Text>
         </ContentCard>
       ) : (
@@ -371,6 +386,7 @@ export default function AccountsScreen() {
         >
           {visibleAccounts.map((a, i) => {
             const displayName = displayNameOf(a);
+            const owner = isOwnerRole(a.role);
             return (
               <View
                 key={a.id ?? i}
@@ -392,14 +408,50 @@ export default function AccountsScreen() {
                       : 'Accepted shared user'}
                   </Text>
                 </View>
-                <View style={styles.sharedChip}>
-                  <View style={styles.sharedDot} />
-                  <Text style={styles.sharedChipText}>Shared</Text>
+                <View style={[styles.sharedChip, owner && styles.ownerChip]}>
+                  <View style={[styles.sharedDot, owner && styles.ownerDot]} />
+                  <Text style={[styles.sharedChipText, owner && styles.ownerChipText]}>
+                    {roleLabel(a.role)}
+                  </Text>
                 </View>
               </View>
             );
           })}
         </ContentCard>
+      )}
+
+      {/* Role tabs under the list — filter shared users by Owner / Shared role. */}
+      {!error && accounts.length > 0 && (
+        <View style={styles.tabRow} accessibilityRole="tablist" accessibilityLabel="Filter by role">
+          {(['shared', 'owner'] as RoleTab[]).map((tab) => {
+            const active = roleTab === tab;
+            const count = accounts.filter((a) =>
+              tab === 'owner' ? isOwnerRole(a.role) : !isOwnerRole(a.role),
+            ).length;
+            return (
+              <Pressable
+                key={tab}
+                onPress={() => setRoleTab(tab)}
+                accessibilityRole="tab"
+                accessibilityState={{ selected: active }}
+                accessibilityLabel={`${tab === 'owner' ? 'Owner' : 'Shared'} tab, ${count} users`}
+                style={[
+                  styles.tab,
+                  { backgroundColor: active ? c.accent : c.surface, borderColor: active ? c.accent : LINE },
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.tabText,
+                    { color: active ? WHITE : MUTED },
+                  ]}
+                >
+                  {tab === 'owner' ? 'Owner' : 'Shared'} · {count}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
       )}
 
       {/* Invite popup: lists existing users — only if there are any to invite. */}
@@ -636,24 +688,26 @@ const makeStyles = (c: ThemeColors) => {
   },
   sharedDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: c.ok },
   sharedChipText: { color: c.ok, fontSize: 11, fontWeight: '800', fontFamily: fonts.extrabold },
+  ownerChip: { backgroundColor: 'rgba(246, 196, 69, 0.20)' },
+  ownerDot: { backgroundColor: BUTTER },
+  ownerChipText: { color: PRUSSIAN },
+  tabRow: { flexDirection: 'row', gap: 8, marginBottom: 14 },
+  tab: {
+    flex: 1,
+    borderRadius: 12,
+    borderWidth: 1,
+    paddingVertical: 10,
+    alignItems: 'center',
+  },
+  tabText: { fontSize: 13, fontWeight: '800', fontFamily: fonts.extrabold },
   addBtn: {
     backgroundColor: PRUSSIAN,
     borderRadius: 14,
     paddingVertical: 13,
     alignItems: 'center',
-    marginBottom: 8,
-  },
-  addBtnText: { color: WHITE, fontSize: 14, fontWeight: '800', fontFamily: fonts.extrabold },
-  secondaryBtn: {
-    backgroundColor: 'transparent',
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: LINE,
-    paddingVertical: 12,
-    alignItems: 'center',
     marginBottom: 14,
   },
-  secondaryBtnText: { color: PRUSSIAN, fontSize: 13, fontWeight: '800', fontFamily: fonts.extrabold },
+  addBtnText: { color: WHITE, fontSize: 14, fontWeight: '800', fontFamily: fonts.extrabold },
   actionBtn: {
     minWidth: 64,
     borderRadius: 10,

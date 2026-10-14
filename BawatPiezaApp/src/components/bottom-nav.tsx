@@ -5,7 +5,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { usePathname, useRouter, type Href } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../theme';
-import { QuickOverridesModal } from './quick-overrides-modal';
+import { usePowerOverride } from '../hooks/use-power-override';
 
 /**
  * BottomNav — four destinations with a raised center Quick Overrides action.
@@ -41,7 +41,8 @@ export function BottomNav() {
   const pathname = usePathname();
   const { colors: c, fonts: f } = useTheme();
   const insets = useSafeAreaInsets();
-  const [showOverrides, setShowOverrides] = React.useState(false);
+  // Single global sheet lives at root — center button just opens it.
+  const { openOverrides } = usePowerOverride();
 
   const isActive = (href: string) =>
     href === '/home'
@@ -89,7 +90,7 @@ export function BottomNav() {
 
       {/* Raised center Quick Overrides button — no active navigation tab */}
       <Pressable
-        onPress={() => setShowOverrides(true)}
+        onPress={openOverrides}
         style={({ pressed }) => [
           styles.centerBtn,
           {
@@ -106,7 +107,6 @@ export function BottomNav() {
       </Pressable>
 
       {RIGHT.map(renderItem)}
-      <QuickOverridesModal visible={showOverrides} onClose={() => setShowOverrides(false)} />
     </View>
   );
 }

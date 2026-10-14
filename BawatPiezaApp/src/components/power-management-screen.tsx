@@ -7,6 +7,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { ScreenShell } from './screen-shell';
 import { Card, scale } from './glass-ui';
 import { fonts, useTheme, type Mode, type ThemeColors } from '../theme';
+import { usePowerOverride } from '../hooks/use-power-override';
 
 type Tab = 'monitor' | 'configure' | 'allocation';
 
@@ -46,6 +47,10 @@ export function PowerManagementScreen() {
 
 function Monitor({ c, mode }: { c: ThemeColors; mode: Mode }) {
   const [enabled, setEnabled] = useState(true);
+  const { override, usingGrid, openOverrides } = usePowerOverride();
+  const forcingBattery = override === 'battery';
+  const bannerColor = usingGrid ? '#16A34A' : forcingBattery ? '#F97316' : c.orange;
+  const bannerSoft = usingGrid ? 'rgba(22,163,74,0.12)' : 'rgba(249,115,22,0.10)';
 
   return (
     <>
@@ -83,13 +88,45 @@ function Monitor({ c, mode }: { c: ThemeColors; mode: Mode }) {
 
       <SectionLabel label="CURRENTLY DISCHARGING" action="Change in Overrides" c={c} />
 
-      <Card mode={mode} style={styles.dischargeCard}>
-        <View style={styles.dischargeTextWrap}>
-          <Text style={[styles.cardTitle, { color: c.text }]}>Bank A is supplying the campus</Text>
-          <Text style={[styles.cardCopy, { color: c.muted }]}>Following Smart Auto-Switching — tap to override manually</Text>
+      {(usingGrid || forcingBattery) && (
+        <View style={[styles.overrideBanner, { backgroundColor: bannerColor }]}>
+          <Ionicons name={usingGrid ? 'flash' : 'battery-charging'} size={scale(14)} color="#FFFFFF" />
+          <Text style={styles.overrideBannerText}>
+            {usingGrid ? 'Using Grid — battery on standby' : 'Using Battery — grid on standby'}
+          </Text>
         </View>
-        <Ionicons name="chevron-down" size={scale(18)} color={c.muted} />
-      </Card>
+      )}
+
+      <Pressable
+        onPress={openOverrides}
+        accessibilityRole="button"
+        accessibilityLabel="Power source status — open quick overrides"
+        style={({ pressed }) => [pressed && { opacity: 0.94 }]}
+      >
+        <Card
+          mode={mode}
+          style={[
+            styles.dischargeCard,
+            (usingGrid || forcingBattery) && { borderColor: bannerColor, backgroundColor: bannerSoft },
+          ]}
+        >
+          <View style={styles.dischargeTextWrap}>
+            <Text style={[styles.cardTitle, { color: usingGrid ? '#16A34A' : c.text }]}>
+              {usingGrid
+                ? 'Grid is supplying the campus'
+                : forcingBattery
+                  ? 'Battery is supplying the campus'
+                  : 'Bank A is supplying the campus'}
+            </Text>
+            <Text style={[styles.cardCopy, { color: c.muted }]}>
+              {usingGrid || forcingBattery
+                ? 'Manual override active — tap to change in Quick Overrides'
+                : 'Following Smart Auto-Switching — tap to override manually'}
+            </Text>
+          </View>
+          <Ionicons name="chevron-forward" size={scale(18)} color={usingGrid ? '#16A34A' : c.muted} />
+        </Card>
+      </Pressable>
     </>
   );
 }
@@ -457,6 +494,25 @@ const styles = StyleSheet.create({
   dischargeTextWrap: {
     flex: 1,
     paddingRight: scale(10),
+  },
+  overrideBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: scale(6),
+    borderRadius: scale(12),
+    paddingVertical: scale(8),
+    paddingHorizontal: scale(12),
+    marginBottom: scale(10),
+    shadowOpacity: 0.3,
+    shadowRadius: scale(8),
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 3,
+  },
+  overrideBannerText: {
+    color: '#FFFFFF',
+    fontSize: scale(10),
+    fontFamily: fonts.extrabold,
   },
   thresholdCard: {
     width: '100%',

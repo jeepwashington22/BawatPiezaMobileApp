@@ -1,11 +1,12 @@
 import { fonts, useTheme, type Mode } from "../../theme";
 import React, { useEffect, useState, useRef } from "react";
-import { View, StyleSheet, Pressable, Animated } from "react-native";
+import { View, StyleSheet, Pressable, Animated, ScrollView } from "react-native";
 import { AppText as Text } from "../../components/app-text";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter, type Href } from "expo-router";
 import { ScreenShell } from "../../components/screen-shell";
 import { useAuth } from "../../hooks/use-auth";
+import { usePowerOverride } from "../../hooks/use-power-override";
 import { TopBar } from "../../components/top-bar";
 import { HeroGlow } from "../../components/hero-glow";
 import { LoadingScreen } from "../../components/loading-screen";
@@ -24,8 +25,8 @@ import { LinearGradient } from "expo-linear-gradient";
 import Svg, { Line, Path } from "react-native-svg";
 
 /* ------------------------------ demo data ------------------------------- */
-const HEAT_ROWS = 3;
-const HEAT_COLS = 4;
+const HEAT_ROWS = 2;
+const HEAT_COLS = 3;
 const heatTiles: number[] = Array.from(
   { length: HEAT_ROWS * HEAT_COLS },
   (_, i) => {
@@ -38,8 +39,8 @@ const heatTiles: number[] = Array.from(
 );
 
 const HEAT_STOPS: Record<Mode, string[]> = {
-  light: ["#FFF1E8", "#FFD0B2", "#FF9D63", "#F97316", "#C2410C"],
-  dark: ["#151515", "#3A3A3A", "#616161", "#949494", "#FFFFFF"],
+  light: ["#7C2D12", "#9A3412", "#C2410C", "#EA580C", "#F97316"],
+  dark: ["#431407", "#7C2D12", "#9A3412", "#C2410C", "#F97316"],
 };
 
 const heatColor = (v: number, mode: Mode) => {
@@ -171,13 +172,14 @@ export default function HomeScreen() {
   const { colors: c, mode } = useTheme();
   const { ready, isLoggedIn } = useAuth();
   const router = useRouter();
+  const { usingGrid, openOverrides } = usePowerOverride();
   const accent = (alpha = 1) => brandAccent(mode, alpha);
   const [batteryPct] = useState(87.4);
+  const batteryCardInk = mode === "dark" ? "#FFFFFF" : "#0A2A4A";
+  const batteryCardMutedInk = mode === "dark" ? "rgba(255,255,255,0.82)" : "rgba(10,42,74,0.72)";
   const [livePower] = useState(315);
   const [displayVoltage] = useState("224.50");
   const todayKwh = 4.82;
-  const [showConsumptionGraph, setShowConsumptionGraph] = useState(false);
-  const consumptionTransition = useRef(new Animated.Value(0)).current;
 
   const [zones, setZones] = useState([
     {
@@ -204,16 +206,6 @@ export default function HomeScreen() {
   ]);
   const [activeTile, setActiveTile] = useState<number | null>(null);
 
-  // Session-based: the AuthGate already redirects logged-out users to /login,
-  // so here we only hold the loader until the shared session check finishes.
-  useEffect(() => {
-    Animated.timing(consumptionTransition, {
-      toValue: showConsumptionGraph ? 1 : 0,
-      duration: 260,
-      useNativeDriver: true,
-    }).start();
-  }, [consumptionTransition, showConsumptionGraph]);
-
   if (!ready || !isLoggedIn) {
     return <LoadingScreen label="Verifying session" />;
   }
@@ -228,25 +220,14 @@ export default function HomeScreen() {
       unit: "W",
     },
     {
-      label: "BATTERY",
-      value: batteryPct !== null ? Math.floor(batteryPct).toString() : "--",
-      unit: "%",
+      label: "FOOTSTEPS",
+      value: isActive ? "1,248" : "--",
+      unit: "steps",
     },
   ];
 
   const yesterdayKwh = "5.36";
   const consumptionDelta = "-10.1%";
-
-  // Hero (glow header) colours — theme-aware ink so the glow stays legible on
-  // BOTH themes. Light mode sits on a pale peach glow, so it borrows the same
-  // dark warm ink the glass TopBar uses (#2B1205); dark mode keeps white.
-  const heroInk = mode === "dark" ? "#FFFFFF" : "#2B1205";
-  const heroInkSoft =
-    mode === "dark" ? "rgba(255,255,255,0.70)" : "rgba(43,18,5,0.72)";
-  const heroTrack =
-    mode === "dark" ? "rgba(255,255,255,0.14)" : "rgba(43,18,5,0.16)";
-  const heroFillColors: [string, string] =
-    mode === "dark" ? ["#FDBA74", "#F97316"] : ["#F97316", "#C2410C"];
 
   return (
     <ScreenShell>
@@ -255,39 +236,9 @@ export default function HomeScreen() {
         <HeroGlow mode={mode} intensity={isActive ? 1 : mode === "dark" ? 0.4 : 0.85} bleedBottom={scale(40)} />
 
         <View style={st.heroTopBar}>
-          <TopBar gutter={0} title="Dashboard" showTitleChevron glass />
+          <TopBar gutter={0} title="Dashboard" glass />
         </View>
 
-        <View style={st.heroBody}>
-          <View style={st.heroLabelRow}>
-            <Ionicons name="battery-charging" size={scale(14)} color={heroInkSoft} />
-            <Text style={[st.heroLabel, { color: heroInkSoft }]}>Battery health</Text>
-          </View>
-
-          <View style={st.heroNumberRow}>
-            <Text style={[st.heroNumber, { color: heroInk }, !isActive && { opacity: 0.6 }]}>
-              {batteryPct !== null ? Math.floor(batteryPct) : "--"}
-            </Text>
-            <Text style={[st.heroUnit, { color: heroInkSoft }]}>%</Text>
-          </View>
-
-          <Text style={[st.heroDesc, { color: heroInkSoft }]}>
-            {isActive
-              ? "Strong charge capacity for today's energy needs"
-              : "Awaiting connection to read capacity"}
-          </Text>
-
-          <View style={[st.heroTrack, { backgroundColor: heroTrack }]}>
-            {isActive && (
-              <LinearGradient
-                colors={heroFillColors}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
-                style={[st.heroFill, { width: `${batteryPct ?? 0}%` }]}
-              />
-            )}
-          </View>
-        </View>
       </View>
 
       <EnterView delay={90} style={st.statsSection}>
@@ -296,7 +247,7 @@ export default function HomeScreen() {
             isActive
               ? mode === "dark"
                 ? ["#9A3412", "#EA580C", "#F97316"]
-                : ["#C2410C", "#EA580C", "#F97316"]
+                : ["#FDBA74", "#FB923C", "#F97316"]
               : ["#475569", "#64748B", "#94A3B8"]
           }
           start={{ x: 0, y: 0 }}
@@ -330,86 +281,197 @@ export default function HomeScreen() {
           </View>
           <View style={st.scMetaRow}>
             <Text style={st.scSub}>{yesterdayKwh} kWh yesterday</Text>
-            <Pressable
-              onPress={() => setShowConsumptionGraph((visible) => !visible)}
-              hitSlop={8}
-              style={st.scGraphLink}
-              accessibilityRole="button"
-              accessibilityLabel={showConsumptionGraph ? "Show consumption stats" : "Show consumption graph"}
-            >
-              <Ionicons name={showConsumptionGraph ? "stats-chart" : "analytics-outline"} size={scale(11)} color="#FFFFFF" />
-              <Text style={st.scGraphLinkText}>{showConsumptionGraph ? "View stats" : "View graph"}</Text>
-            </Pressable>
           </View>
+          <View style={st.scTiles}>
+            {stats.map((s, i) => {
+              const icon = ({ VOLTAGE: "flash", POWER: "speedometer", FOOTSTEPS: "footsteps" } as const)[s.label as "VOLTAGE" | "POWER" | "FOOTSTEPS"];
+              return (
+                <View key={s.label} style={[st.scTile, i > 0 && st.scTileDivider]}>
+                  <View style={st.scTileIcon}><Ionicons name={icon} size={scale(17)} color="#EA580C" /></View>
+                  <View style={st.scTileValueRow}>
+                    <Text style={st.scTileValue} numberOfLines={1}>{s.value}</Text>
+                    <Text style={st.scTileUnit}>{s.unit}</Text>
+                  </View>
+                  <Text style={st.scTileLabel}>{s.label}</Text>
+                </View>
+              );
+            })}
+          </View>
+        </LinearGradient>
+      </EnterView>
 
-          <View style={st.scContent}>
-            <Animated.View
-              pointerEvents={showConsumptionGraph ? "none" : "auto"}
+      <EnterView delay={120} style={st.dashboardCard}>
+        <Pressable
+          onPress={openOverrides}
+          accessibilityRole="button"
+          accessibilityLabel="Battery percentage — open quick overrides"
+          accessibilityHint="Opens Quick Overrides to force grid or battery"
+          style={({ pressed }) => [pressed && { opacity: 0.96, transform: [{ scale: 0.995 }] }]}
+        >
+          <Glass
+            mode={mode}
+            style={[
+              st.batteryCard,
+              { borderColor: c.orange },
+              usingGrid && {
+                borderColor: "#16A34A",
+                shadowColor: "#16A34A",
+                shadowOpacity: 0.18,
+              },
+            ]}
+          >
+            <View
+              pointerEvents="none"
               style={[
-                st.scStatsView,
-                {
-                  opacity: consumptionTransition.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }),
-                  transform: [{ scale: consumptionTransition.interpolate({ inputRange: [0, 1], outputRange: [1, 0.98] }) }],
-                },
+                st.batteryCardAccent,
+                { backgroundColor: usingGrid ? "#22C55E" : c.orange },
               ]}
-            >
-              <View style={st.scTiles}>
-                {stats.map((s, i) => {
-                  const icon = (
+            />
+            <View style={st.batteryCardHeader}>
+              <View style={st.batteryCardIdentity}>
+                <View
+                  style={[
+                    st.batteryCardIcon,
                     {
-                      VOLTAGE: "flash",
-                      POWER: "speedometer",
-                      BATTERY: "battery-charging",
-                    } as const
-                  )[s.label as "VOLTAGE" | "POWER" | "BATTERY"];
-                  return (
-                    <View key={s.label} style={[st.scTile, i > 0 && st.scTileDivider]}>
-                      <View style={st.scTileIcon}>
-                        <Ionicons name={icon} size={scale(15)} color="#EA580C" />
-                      </View>
-                      <View style={st.scTileValueRow}>
-                        <Text style={st.scTileValue} numberOfLines={1}>
-                          {s.value}
-                        </Text>
-                        <Text style={st.scTileUnit}>{s.unit}</Text>
-                      </View>
-                      <Text style={st.scTileLabel}>{s.label}</Text>
-                    </View>
-                  );
-                })}
+                      backgroundColor: usingGrid
+                        ? "rgba(22,163,74,0.14)"
+                        : "rgba(255,255,255,0.20)",
+                    },
+                  ]}
+                >
+                  <Ionicons
+                    name={usingGrid ? "flash" : "battery-charging"}
+                    size={scale(16)}
+                    color={usingGrid ? "#16A34A" : batteryCardInk}
+                  />
+                </View>
+                <View>
+                  <Text style={[st.batteryCardEyebrow, { color: usingGrid ? "#16A34A" : batteryCardMutedInk }]}>
+                    {usingGrid ? "GRID" : "BATTERY"}
+                  </Text>
+                  <Text style={[st.batteryCardTitle, { color: usingGrid ? "#16A34A" : batteryCardInk }]}>Battery percentage</Text>
+                </View>
               </View>
-            </Animated.View>
+              <View style={st.batteryCardIndicator}>
+                <Text style={[st.batteryCardLevelLabel, { color: usingGrid ? "#16A34A" : c.orange }]}>
+                  CHARGE LEVEL
+                </Text>
+                <View style={st.batteryCardValueRow}>
+                  <Text style={[st.batteryCardValue, { color: usingGrid ? "#16A34A" : batteryCardInk }]}>
+                    {isActive ? Math.floor(batteryPct) : "--"}
+                  </Text>
+                  <Text style={[st.batteryCardUnit, { color: usingGrid ? "#16A34A" : batteryCardInk }]}>%</Text>
+                </View>
+                <View style={[st.batteryCardTrack, { backgroundColor: usingGrid ? (mode === "dark" ? "rgba(255,255,255,0.12)" : "rgba(10,42,74,0.10)") : "rgba(255,255,255,0.28)" }]}>
+                  <View
+                    style={[
+                      st.batteryCardFill,
+                      {
+                        width: `${isActive ? batteryPct : 0}%`,
+                        backgroundColor: usingGrid ? "#22C55E" : "#FFFFFF",
+                      },
+                    ]}
+                  />
+                </View>
+              </View>
+            </View>
+            {usingGrid && (
+              <View style={st.batteryGridBanner}>
+                <Ionicons name="flash" size={scale(12)} color="#FFFFFF" />
+                <Text style={st.batteryGridBannerText}>Using Grid — battery on standby</Text>
+                <Ionicons name="chevron-forward" size={scale(12)} color="#FFFFFF" />
+              </View>
+            )}
+            <Text style={[st.batteryCardDescription, { color: usingGrid ? c.muted : batteryCardMutedInk }]}>
+              {usingGrid
+                ? "Force Grid is on — home is powered by grid. Tap to change."
+                : isActive
+                  ? "Strong charge capacity for today's energy needs"
+                  : "Awaiting connection to read capacity"}
+            </Text>
+            <View style={st.batteryCardTapHint}>
+              <Text style={[st.batteryCardTapText, { color: usingGrid ? "#16A34A" : batteryCardMutedInk }]}>
+                Tap to open Quick Overrides
+              </Text>
+              <Ionicons name="chevron-forward" size={scale(11)} color={usingGrid ? "#16A34A" : batteryCardMutedInk} />
+            </View>
+          </Glass>
+        </Pressable>
+      </EnterView>
 
-            <Animated.View
-              pointerEvents={showConsumptionGraph ? "auto" : "none"}
-              style={[
-                st.scGraphView,
-                {
-                  opacity: consumptionTransition,
-                  transform: [{ translateY: consumptionTransition.interpolate({ inputRange: [0, 1], outputRange: [6, 0] }) }],
-                },
-              ]}
-            >
-              <Svg viewBox="0 0 320 112" width="100%" height={scale(58)}>
-                <Line x1="0" y1="94" x2="320" y2="94" stroke="rgba(255,255,255,0.22)" strokeWidth="1" />
+      <View style={st.quickActionsSection}>
+        <Text style={[st.quickActionsTitle, { color: c.text }]}>Quick actions</Text>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={st.quickActions}
+        >
+        {[
+          { label: "Heatmap", icon: "map-outline" as const, href: "/pages/heatmap" },
+          { label: "My Zones", icon: "layers-outline" as const, href: "/pages/zones/1" },
+          { label: "Shared", icon: "people-outline" as const, href: "/pages/accounts" },
+          { label: "Device", icon: "hardware-chip-outline" as const, href: "/pages/device" },
+          { label: "Thresholds", icon: "options-outline" as const, href: "/pages/thresholds" },
+        ].map((action) => (
+          <Pressable
+            key={action.label}
+            accessibilityRole="button"
+            accessibilityLabel={action.label}
+            onPress={() => router.push(action.href as Href)}
+            style={({ pressed }) => [
+              st.quickAction,
+              { backgroundColor: mode === "dark" ? "rgba(255,255,255,0.06)" : "rgba(255,255,255,0.72)" },
+              pressed && st.quickActionPressed,
+            ]}
+          >
+            <View style={[st.quickActionIcon, { backgroundColor: mode === "dark" ? "rgba(249,115,22,0.18)" : "rgba(249,115,22,0.12)" }]}>
+              <Ionicons name={action.icon} size={scale(16)} color={c.orange} />
+            </View>
+            <Text style={[st.quickActionLabel, { color: c.text }]} numberOfLines={1}>
+              {action.label}
+            </Text>
+          </Pressable>
+        ))}
+        </ScrollView>
+      </View>
+
+      <EnterView delay={180} style={st.dashboardCard}>
+        <View style={st.dashboardChartSectionHeader}>
+          <View>
+            <Text style={[st.dashboardCardTitle, { color: c.text }]}>Energy consumption</Text>
+            <Text style={[st.dashboardCardSubtitle, { color: c.muted }]}>Today&apos;s usage by time of day</Text>
+          </View>
+          <Text style={[st.dashboardBadge, { color: mode === "dark" ? "#FDBA74" : "#C2410C", backgroundColor: mode === "dark" ? "rgba(249,115,22,0.16)" : "#FFF1D8" }]}>LIVE</Text>
+        </View>
+        <Card mode={mode} style={st.dashboardChartCard}>
+          <View style={[st.dashboardChart, { backgroundColor: mode === "dark" ? "#111820" : "#F7F9FC" }]}>
+            <View style={st.dashboardYAxis}>
+              {["100W", "75W", "50W", "25W"].map((label) => <Text key={label} style={[st.dashboardAxisLabel, { color: c.muted }]}>{label}</Text>)}
+            </View>
+            <View style={st.dashboardLineArea}>
+              <Svg viewBox="0 0 320 100" width="100%" height="100%">
+                <Line x1="0" y1="88" x2="320" y2="88" stroke={mode === "dark" ? "rgba(255,255,255,0.18)" : "rgba(10,42,74,0.14)"} strokeWidth="1" />
                 <Path
-                  d="M0 84 C24 72 36 80 58 62 S92 74 115 58 S146 28 170 46 S205 70 228 48 S258 20 282 37 S304 45 320 22"
+                  d="M0 46 C26 34 43 28 65 34 S96 65 122 53 S153 19 180 37 S207 59 232 34 S267 20 291 30 S307 43 320 46 L320 88 L0 88 Z"
+                  fill={mode === "dark" ? "rgba(249,115,22,0.18)" : "rgba(249,115,22,0.10)"}
+                />
+                <Path
+                  d="M0 46 C26 34 43 28 65 34 S96 65 122 53 S153 19 180 37 S207 59 232 34 S267 20 291 30 S307 43 320 46"
                   fill="none"
-                  stroke="#FFFFFF"
-                  strokeOpacity="0.92"
-                  strokeWidth="3"
+                  stroke={mode === "dark" ? "#FDBA74" : "#F97316"}
+                  strokeWidth="2.4"
                   strokeLinecap="round"
                 />
               </Svg>
-              <View style={st.scGraphLabels}>
-                <Text style={st.scGraphLabel}>6 AM</Text>
-                <Text style={st.scGraphLabel}>12 PM</Text>
-                <Text style={st.scGraphLabel}>6 PM</Text>
-                <Text style={st.scGraphLabel}>NOW</Text>
+              <View style={st.dashboardLineLabels}>
+                <Text style={[st.dashboardAxisLabel, { color: c.muted }]}>6 AM</Text>
+                <Text style={[st.dashboardAxisLabel, { color: c.muted }]}>12 PM</Text>
+                <Text style={[st.dashboardAxisLabel, { color: c.muted }]}>6 PM</Text>
+                <Text style={[st.dashboardAxisLabel, { color: c.muted }]}>NOW</Text>
               </View>
-            </Animated.View>
+            </View>
           </View>
-        </LinearGradient>
+        </Card>
       </EnterView>
 
       <EnterView delay={270} style={st.zonesSection}>
@@ -676,10 +738,7 @@ export default function HomeScreen() {
             style={[
               st.heatGrid,
               {
-                backgroundColor:
-                  mode === "dark"
-                    ? "rgba(255,255,255,0.05)"
-                    : "rgba(255,255,255,0.6)",
+                backgroundColor: "#182B70",
               },
             ]}
           >
@@ -699,28 +758,24 @@ export default function HomeScreen() {
                         st.heatTile,
                         {
                           backgroundColor: heatColor(v, mode),
-                          shadowColor: mode === "dark" ? "#FFFFFF" : "#4CA83E",
+                          shadowColor: "#07163D",
                           shadowOpacity: isActive ? v * 0.9 : 0,
                           shadowRadius: scale(9),
-                          borderWidth: mode === "dark" ? 1 : 0,
+                          borderWidth: 1,
                           borderColor: "rgba(255,255,255,0.10)",
-                          borderBottomWidth: scale(3),
-                          borderBottomColor:
-                            mode === "dark"
-                              ? "rgba(0,0,0,0.42)"
-                              : "rgba(108,42,12,0.28)",
                         },
                         active &&
                           isActive && [
                             st.heatTileActive,
                             {
                               borderColor:
-                                mode === "dark" ? "#FFFFFF" : "#4CA83E",
+                                "#FBA94C",
                             },
                           ],
                       ]}
                     >
                       <View pointerEvents="none" style={st.heatTileHighlight} />
+                      <View pointerEvents="none" style={st.heatTileDiagonal} />
                       {active && isActive && (
                         <Ionicons
                           name="footsteps"
@@ -818,7 +873,7 @@ const st = StyleSheet.create({
   hero: {
     marginHorizontal: -20,
     paddingHorizontal: 20,
-    paddingBottom: scale(26),
+    paddingBottom: scale(8),
     position: "relative",
     zIndex: 10, // keeps the notification dropdown above the cards below
   },
@@ -1068,7 +1123,7 @@ const st = StyleSheet.create({
   // ---- stats (solid orange gradient) ----
   scCard: {
     borderRadius: scale(22),
-    padding: scale(11),
+    padding: scale(12),
     overflow: "hidden",
     shadowColor: "#EA580C",
     shadowOpacity: 0.32,
@@ -1097,7 +1152,7 @@ const st = StyleSheet.create({
   scTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   scEyebrow: { color: "rgba(255,255,255,0.92)", fontSize: scale(8.5), fontFamily: fonts.semibold },
   scKwhRow: { flexDirection: "row", alignItems: "baseline", gap: scale(3), marginTop: scale(1) },
-  scKwh: { color: "#FFFFFF", fontSize: scale(27), letterSpacing: -0.6, fontFamily: fonts.extrabold },
+  scKwh: { color: "#FFFFFF", fontSize: scale(24), letterSpacing: -0.6, fontFamily: fonts.extrabold },
   scKwhUnit: { color: "rgba(255,255,255,0.95)", fontSize: scale(10), fontFamily: fonts.bold },
   scDelta: {
     flexDirection: "row",
@@ -1117,7 +1172,7 @@ const st = StyleSheet.create({
     borderRadius: 99,
     backgroundColor: "rgba(255,255,255,0.22)",
     overflow: "hidden",
-    marginTop: scale(8),
+    marginTop: scale(6),
   },
   scFill: { width: "68%", height: "100%", borderRadius: 99, backgroundColor: "#FFFFFF" },
   scMetaRow: {
@@ -1144,31 +1199,31 @@ const st = StyleSheet.create({
   scGraphLabel: { color: "rgba(255,255,255,0.86)", fontSize: scale(8), fontFamily: fonts.medium },
   scTiles: {
     flexDirection: "row",
-    marginTop: scale(2),
-    paddingTop: scale(7),
+    marginTop: scale(8),
+    paddingTop: scale(8),
     borderTopWidth: 1,
     borderTopColor: "rgba(255,255,255,0.24)",
   },
   scTile: { flex: 1, alignItems: "center" },
   scTileDivider: { borderLeftWidth: 1, borderLeftColor: "rgba(255,255,255,0.24)" },
   scTileIcon: {
-    width: scale(20),
-    height: scale(20),
-    borderRadius: scale(7),
+    width: scale(25),
+    height: scale(25),
+    borderRadius: scale(9),
     backgroundColor: "#FFFFFF",
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: scale(3),
+    marginBottom: scale(5),
     shadowColor: "#0A2A4A",
     shadowOpacity: 0.25,
     shadowRadius: scale(6),
     shadowOffset: { width: 0, height: 2 },
     elevation: 2,
   },
-  scTileValueRow: { flexDirection: "row", alignItems: "baseline", gap: scale(2) },
-  scTileValue: { color: "#FFFFFF", fontSize: scale(12), fontFamily: fonts.extrabold, flexShrink: 1 },
-  scTileUnit: { color: "rgba(255,255,255,0.95)", fontSize: scale(7), fontFamily: fonts.bold },
-  scTileLabel: { color: "rgba(255,255,255,0.92)", fontSize: scale(5.8), letterSpacing: 0.6, marginTop: scale(1), fontFamily: fonts.bold },
+  scTileValueRow: { flexDirection: "row", alignItems: "baseline", gap: scale(3) },
+  scTileValue: { color: "#FFFFFF", fontSize: scale(14), fontFamily: fonts.extrabold, flexShrink: 1 },
+  scTileUnit: { color: "rgba(255,255,255,0.95)", fontSize: scale(7.5), fontFamily: fonts.bold },
+  scTileLabel: { color: "rgba(255,255,255,0.92)", fontSize: scale(6.5), letterSpacing: 0.5, marginTop: scale(2), fontFamily: fonts.bold },
 
   // ---- zones (one compact container, rows split by hairlines) ----
   zonesSection: { marginTop: scale(18) },
@@ -1304,7 +1359,93 @@ const st = StyleSheet.create({
     borderRadius: 99,
     backgroundColor: "#FFF7ED",
   },
-  statsSection: { marginTop: scale(-9), zIndex: 2 },
+  statsSection: { marginTop: scale(2), zIndex: 2 },
+  dashboardCard: { marginTop: scale(12) },
+  quickActionsSection: { marginTop: scale(10) },
+  quickActionsTitle: { fontSize: scale(12), fontFamily: fonts.extrabold, marginBottom: scale(6) },
+  quickActions: { flexDirection: "row", gap: scale(8), paddingRight: scale(4) },
+  quickAction: {
+    width: scale(82),
+    minHeight: scale(78),
+    alignItems: "center",
+    borderRadius: scale(13),
+    paddingVertical: scale(11),
+    paddingHorizontal: scale(5),
+    borderWidth: 1,
+    borderColor: "rgba(249,115,22,0.16)",
+  },
+  quickActionPressed: { opacity: 0.72, transform: [{ scale: 0.96 }] },
+  quickActionIcon: {
+    width: scale(34),
+    height: scale(34),
+    borderRadius: scale(10),
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: scale(4),
+  },
+  quickActionLabel: { fontSize: scale(8), fontFamily: fonts.bold, textAlign: "center" },
+  dashboardChartCard: { padding: scale(10), borderRadius: scale(16) },
+  dashboardChartSectionHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", paddingHorizontal: scale(2), marginBottom: scale(6) },
+  dashboardCardTitle: { fontSize: scale(12), fontFamily: fonts.bold },
+  dashboardCardSubtitle: { fontSize: scale(9), fontFamily: fonts.medium, marginTop: scale(2) },
+  dashboardBadge: { borderRadius: scale(10), paddingHorizontal: scale(8), paddingVertical: scale(4), fontSize: scale(8), fontFamily: fonts.bold },
+  dashboardStatus: { alignSelf: "flex-start", flexDirection: "row", alignItems: "center", gap: scale(5), borderRadius: scale(10), paddingHorizontal: scale(8), paddingVertical: scale(5), marginTop: scale(9) },
+  dashboardStatusDot: { width: scale(6), height: scale(6), borderRadius: scale(3), backgroundColor: "#0B63B7" },
+  dashboardStatusText: { fontSize: scale(8), fontFamily: fonts.bold },
+  dashboardChart: { flexDirection: "row", height: scale(150), marginTop: scale(6), borderRadius: scale(10), padding: scale(6), paddingBottom: scale(2) },
+  dashboardYAxis: { justifyContent: "space-between", paddingBottom: scale(16), paddingRight: scale(5) },
+  dashboardLineArea: { flex: 1, height: "100%", position: "relative" },
+  dashboardLineLabels: { flexDirection: "row", justifyContent: "space-between", paddingHorizontal: scale(1), marginTop: 0 },
+  dashboardAxisLabel: { fontSize: scale(7), fontFamily: fonts.medium },
+  batteryCard: {
+    borderRadius: scale(18),
+    padding: scale(12),
+    paddingTop: scale(14),
+    shadowColor: "#F97316",
+    shadowOpacity: 0.16,
+    shadowRadius: scale(12),
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 3,
+  },
+  batteryCardAccent: { position: "absolute", top: 0, left: scale(14), right: scale(14), height: scale(2), borderRadius: 99, opacity: 0.9 },
+  batteryCardHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: scale(10) },
+  batteryCardIdentity: { flex: 1, flexDirection: "row", alignItems: "center", gap: scale(9) },
+  batteryCardIcon: { width: scale(34), height: scale(34), borderRadius: scale(11), alignItems: "center", justifyContent: "center" },
+  batteryCardIndicator: { width: scale(104), alignItems: "flex-end" },
+  batteryCardEyebrow: { fontSize: scale(7), letterSpacing: 1.2, fontFamily: fonts.extrabold },
+  batteryCardTitle: { fontSize: scale(14), marginTop: scale(2), fontFamily: fonts.extrabold },
+  batteryCardLevelLabel: { fontSize: scale(6.5), letterSpacing: 1, fontFamily: fonts.extrabold, marginBottom: scale(1) },
+  batteryCardValueRow: { flexDirection: "row", alignItems: "baseline", justifyContent: "flex-end" },
+  batteryCardValue: { fontSize: scale(28), lineHeight: scale(30), letterSpacing: -0.8, fontFamily: fonts.extrabold },
+  batteryCardUnit: { fontSize: scale(17), marginLeft: scale(2), fontFamily: fonts.extrabold },
+  batteryCardDescription: { fontSize: scale(8), marginTop: scale(8), fontFamily: fonts.medium },
+  batteryCardTrack: { width: "100%", height: scale(5), borderRadius: 99, overflow: "hidden", marginTop: scale(2) },
+  batteryCardFill: { height: "100%", borderRadius: 99 },
+  batteryGridBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: scale(6),
+    marginTop: scale(10),
+    borderRadius: scale(12),
+    paddingVertical: scale(7),
+    paddingHorizontal: scale(10),
+    backgroundColor: "#16A34A",
+    shadowColor: "#16A34A",
+    shadowOpacity: 0.35,
+    shadowRadius: scale(8),
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 3,
+  },
+  batteryGridBannerText: { color: "#FFFFFF", fontSize: scale(9.5), fontFamily: fonts.extrabold },
+  batteryCardTapHint: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "flex-end",
+    gap: scale(3),
+    marginTop: scale(6),
+  },
+  batteryCardTapText: { fontSize: scale(8), fontFamily: fonts.bold },
   glassStats: {
     borderRadius: scale(17),
     paddingHorizontal: scale(14),
@@ -1502,23 +1643,32 @@ const st = StyleSheet.create({
   kineticText: { flex: 1, fontSize: scale(9.5), fontFamily: fonts.semibold },
   heatGrid: {
     gap: scale(6),
-    padding: scale(10),
-    borderRadius: scale(18),
+    paddingHorizontal: scale(10),
+    paddingVertical: scale(9),
+    borderRadius: scale(16),
     borderWidth: 1,
-    borderColor: "rgba(249,115,22,0.18)",
+    borderColor: "rgba(255,255,255,0.12)",
   },
   heatRow: { flexDirection: "row", gap: scale(5) },
   heatTile: {
     position: "relative",
     flex: 1,
-    aspectRatio: 1.12,
-    borderRadius: scale(13),
+    height: scale(78),
+    borderRadius: scale(2),
     alignItems: "center",
     justifyContent: "center",
     shadowOffset: { width: 0, height: 5 },
     shadowRadius: scale(9),
     elevation: 7,
-    transform: [{ perspective: 700 }, { rotateX: "7deg" }, { rotateY: "-3deg" }],
+  },
+  heatTileDiagonal: {
+    position: "absolute",
+    width: "145%",
+    height: 1,
+    top: "50%",
+    left: "-22%",
+    backgroundColor: "rgba(7,31,93,0.72)",
+    transform: [{ rotate: "45deg" }],
   },
   heatTileHighlight: {
     position: "absolute",

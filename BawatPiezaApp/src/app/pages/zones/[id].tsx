@@ -157,10 +157,10 @@ function Readout({ icon, value, unit, label, color }: { icon: keyof typeof Ionic
       </View>
       <View style={styles.readoutInfo}>
         <View style={styles.valueRow}>
-          <Text style={styles.readoutValue}>{value}</Text>
-          {unit ? <Text style={styles.readoutUnit}>{unit}</Text> : null}
+          <Text style={[styles.readoutValue, { color: mode === 'dark' ? '#FFFFFF' : c.text }]}>{value}</Text>
+          {unit ? <Text style={[styles.readoutUnit, { color: mode === 'dark' ? 'rgba(255,255,255,0.90)' : c.textSoft }]}>{unit}</Text> : null}
         </View>
-        <Text style={styles.readoutLabel}>{label}</Text>
+        <Text style={[styles.readoutLabel, { color: mode === 'dark' ? 'rgba(255,255,255,0.84)' : c.muted }]}>{label}</Text>
       </View>
     </View>
   );

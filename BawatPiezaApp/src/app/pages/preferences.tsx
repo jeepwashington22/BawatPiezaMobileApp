@@ -4,7 +4,7 @@ import { AppText as Text } from '../../components/app-text';
 import { Ionicons } from '@expo/vector-icons';
 import { ScreenShell } from '../../components/screen-shell';
 import { ContentCard } from '../../components/content-card';
-import { FONT_SIZE_OPTIONS, fonts, useTheme, type FontSizeOption, type Mode } from '../../theme';
+import { FONT_SIZE_OPTIONS, fonts, useTheme, type FontSizeOption } from '../../theme';
 
 type Pref = { key: string; icon: keyof typeof Ionicons.glyphMap; label: string; sub: string; value: boolean };
 
@@ -15,13 +15,8 @@ const INITIAL: Pref[] = [
   { key: 'haptics', icon: 'finger-print-outline', label: 'Haptic feedback', sub: 'Vibrate on tile press', value: true },
 ];
 
-const MODES: { key: Mode; icon: keyof typeof Ionicons.glyphMap; label: string; sub: string }[] = [
-  { key: 'light', icon: 'sunny-outline', label: 'Light', sub: 'Bright surfaces, high contrast' },
-  { key: 'dark', icon: 'moon-outline', label: 'Dark', sub: 'Low-light friendly, butter accents' },
-];
-
 export default function PreferencesScreen() {
-  const { colors: c, fonts: f, mode, setMode, fontSize, setFontSize, fs } = useTheme();
+  const { colors: c, fonts: f, mode, toggleMode, fontSize, setFontSize, fs } = useTheme();
   const [prefs, setPrefs] = useState(INITIAL);
 
   const toggle = (key: string) =>
@@ -30,36 +25,27 @@ export default function PreferencesScreen() {
   return (
     <ScreenShell title="Preferences" showBack>
       {/* Theme */}
-      <ContentCard eyebrow="Theme">
-        <View style={styles.modeRow}>
-          {MODES.map((m) => {
-            const active = mode === m.key;
-            return (
-              <Pressable
-                key={m.key}
-                onPress={() => setMode(m.key)}
-                accessibilityRole="button"
-                accessibilityState={{ selected: active }}
-                style={[
-                  styles.modeCard,
-                  { backgroundColor: active ? c.accent : c.surfaceMuted, borderColor: active ? c.accent : c.line },
-                ]}
-              >
-                <Ionicons name={m.icon} size={22} color={active ? c.onAccent : c.muted} />
-                <Text
-                  style={[
-                    styles.modeLabel,
-                    { color: active ? c.onAccent : c.text, fontFamily: active ? f.bold : f.semibold },
-                  ]}
-                >
-                  {m.label}
-                </Text>
-                <Text style={[styles.modeSub, { color: active ? c.onAccent : c.muted, opacity: active ? 0.85 : 1, fontFamily: f.regular }]}>
-                  {m.sub}
-                </Text>
-              </Pressable>
-            );
-          })}
+      <ContentCard eyebrow="Theme" title="Appearance">
+        <View style={[styles.themeRow, { backgroundColor: c.surfaceMuted, borderColor: c.line }]}>
+          <View style={[styles.themeIcon, { backgroundColor: c.accentSoft }]}>
+            <Ionicons name={mode === 'dark' ? 'moon' : 'sunny'} size={18} color={c.onAccentSoft} />
+          </View>
+          <View style={styles.text}>
+            <Text style={[styles.label, { color: c.text, fontFamily: f.semibold }]}>
+              {mode === 'dark' ? 'Dark mode' : 'Light mode'}
+            </Text>
+            <Text style={[styles.sub, { color: c.muted, fontFamily: f.regular }]}>
+              {mode === 'dark' ? 'Easy on the eyes at night' : 'Bright and clear during the day'}
+            </Text>
+          </View>
+          <Switch
+            value={mode === 'dark'}
+            onValueChange={toggleMode}
+            accessibilityLabel="Toggle dark mode"
+            trackColor={{ false: c.line, true: c.accent }}
+            thumbColor={mode === 'dark' ? c.onAccent : '#FFFFFF'}
+            ios_backgroundColor={c.line}
+          />
         </View>
       </ContentCard>
 
@@ -150,17 +136,23 @@ export default function PreferencesScreen() {
 }
 
 const styles = StyleSheet.create({
-  modeRow: { flexDirection: 'row', gap: 10 },
-  modeCard: {
-    flex: 1,
-    borderRadius: 14,
-    borderWidth: 2,
-    padding: 14,
-    alignItems: 'flex-start',
-    gap: 6,
-  },
   modeLabel: { fontSize: 14 },
   modeSub: { fontSize: 10, lineHeight: 14 },
+  themeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 16,
+    borderWidth: 1,
+    padding: 10,
+  },
+  themeIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 13,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 11,
+  },
   sizeRow: { flexDirection: 'row', gap: 10 },
   sizeCard: {
     flex: 1,
@@ -197,4 +189,3 @@ const styles = StyleSheet.create({
   sub: { fontSize: 11, marginTop: 1 },
   hint: { fontSize: 11, textAlign: 'center', marginTop: 4 },
 });
-
