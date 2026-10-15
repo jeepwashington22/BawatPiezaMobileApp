@@ -119,8 +119,17 @@ function HeatTile({ tile, viewMode }: { tile: TileDatum; viewMode: ViewMode }) {
 
   return (
     <Card mode={mode} style={[styles.tileCard, { backgroundColor: bg, borderColor: viewMode === 'diagnostic' && flagged ? '#FDBA74' : 'rgba(255,255,255,0.22)' }]}>
+      <View pointerEvents="none" style={[styles.tileDepth, { backgroundColor: flagged ? '#9A3412' : '#431407' }]} />
+      <LinearGradient
+        pointerEvents="none"
+        colors={['rgba(255,255,255,0.28)', 'rgba(255,255,255,0.04)', 'rgba(0,0,0,0.28)']}
+        locations={[0, 0.34, 1]}
+        style={StyleSheet.absoluteFill}
+      />
       <View pointerEvents="none" style={styles.tileSheen} />
       <View pointerEvents="none" style={styles.tileDiagonal} />
+      <View pointerEvents="none" style={styles.tileBevelTop} />
+      <View pointerEvents="none" style={styles.tileBevelBottom} />
       <View style={styles.tileInner}>
         <Text style={[styles.tileLabel, { color: '#FFFFFF' }]}>{tile.label.toUpperCase()}</Text>
         <Text style={[styles.tileTraffic, { color: '#FFFFFF' }]}>
@@ -142,26 +151,26 @@ function HeatSurface({ children }: { children: ReactNode }) {
     <View style={styles.heatSurface}>
       <Svg viewBox="0 0 360 360" width="100%" height="100%" style={StyleSheet.absoluteFill}>
         <Defs>
-          <SvgGradient id="royalSurface" x1="0" y1="0" x2="1" y2="1">
-            <Stop offset="0" stopColor="#235EA5" />
-            <Stop offset="0.52" stopColor="#17457F" />
-            <Stop offset="1" stopColor="#0B2E63" />
+          <SvgGradient id="displaySurface" x1="0" y1="0" x2="1" y2="1">
+            <Stop offset="0" stopColor="#35213F" />
+            <Stop offset="0.5" stopColor="#1D1A2A" />
+            <Stop offset="1" stopColor="#0B101A" />
           </SvgGradient>
         </Defs>
-        <Path d="M0 0H360V360H0Z" fill="url(#royalSurface)" />
-        <Line x1="-30" y1="120" x2="390" y2="-30" stroke="#F7C948" strokeOpacity="0.22" strokeWidth="2" />
-        <Line x1="-30" y1="240" x2="390" y2="90" stroke="#F7C948" strokeOpacity="0.22" strokeWidth="2" />
-        <Line x1="-30" y1="360" x2="390" y2="210" stroke="#F7C948" strokeOpacity="0.22" strokeWidth="2" />
-        <Line x1="30" y1="390" x2="390" y2="30" stroke="#F7C948" strokeOpacity="0.13" strokeWidth="1" />
-        <Line x1="150" y1="390" x2="390" y2="150" stroke="#F7C948" strokeOpacity="0.13" strokeWidth="1" />
-        <Path d="M42 100 C42 73 78 69 91 94 C104 69 140 73 140 100 C140 128 91 155 91 155 C91 155 42 128 42 100Z" fill="none" stroke="#F7C948" strokeOpacity="0.30" strokeWidth="2" />
-        <Path d="M220 255 C220 228 256 224 269 249 C282 224 318 228 318 255 C318 283 269 310 269 310 C269 310 220 283 220 255Z" fill="none" stroke="#F7C948" strokeOpacity="0.30" strokeWidth="2" />
+        <Path d="M0 0H360V360H0Z" fill="url(#displaySurface)" />
+        <Line x1="-30" y1="120" x2="390" y2="-30" stroke="#FFB347" strokeOpacity="0.24" strokeWidth="2" />
+        <Line x1="-30" y1="240" x2="390" y2="90" stroke="#FFB347" strokeOpacity="0.24" strokeWidth="2" />
+        <Line x1="-30" y1="360" x2="390" y2="210" stroke="#FFB347" strokeOpacity="0.24" strokeWidth="2" />
+        <Line x1="30" y1="390" x2="390" y2="30" stroke="#FFB347" strokeOpacity="0.14" strokeWidth="1" />
+        <Line x1="150" y1="390" x2="390" y2="150" stroke="#FFB347" strokeOpacity="0.14" strokeWidth="1" />
+        <Path d="M42 100 C42 73 78 69 91 94 C104 69 140 73 140 100 C140 128 91 155 91 155 C91 155 42 128 42 100Z" fill="none" stroke="#FFB347" strokeOpacity="0.32" strokeWidth="2" />
+        <Path d="M220 255 C220 228 256 224 269 249 C282 224 318 228 318 255 C318 283 269 310 269 310 C269 310 220 283 220 255Z" fill="none" stroke="#FFB347" strokeOpacity="0.32" strokeWidth="2" />
         <Polygon points="180,20 340,180 180,340 20,180" fill="none" stroke="#FFFFFF" strokeOpacity="0.06" strokeWidth="1" />
       </Svg>
       <View pointerEvents="none" style={styles.heatGlow}>
         <Svg viewBox="0 0 360 360" width="100%" height="100%">
-          <Line x1="-30" y1="240" x2="390" y2="90" stroke="#FFE27A" strokeWidth="3" />
-          <Line x1="30" y1="390" x2="390" y2="30" stroke="#FFE27A" strokeWidth="2" />
+          <Line x1="-30" y1="240" x2="390" y2="90" stroke="#FFD166" strokeWidth="3" />
+          <Line x1="30" y1="390" x2="390" y2="30" stroke="#FFD166" strokeWidth="2" />
         </Svg>
       </View>
       <View style={styles.heatGridContent}>{children}</View>
@@ -454,14 +463,14 @@ const styles = StyleSheet.create({
     borderRadius: scale(22),
     paddingHorizontal: scale(16),
     paddingVertical: scale(14),
-    backgroundColor: '#182B70',
+    backgroundColor: '#1D1A2A',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.12)',
-    shadowColor: '#13245F',
-    shadowOpacity: 0.3,
-    shadowRadius: scale(14),
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 6,
+    borderColor: 'rgba(255,255,255,0.16)',
+    shadowColor: '#0B101A',
+    shadowOpacity: 0.42,
+    shadowRadius: scale(16),
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 8,
   },
   heatGlow: {
     position: 'absolute',
@@ -473,26 +482,35 @@ const styles = StyleSheet.create({
   heatGridContent: {
     position: 'relative',
   },
-  gridRow: { flexDirection: 'row', gap: scale(5), marginBottom: scale(5) },
+  gridRow: { flexDirection: 'row', gap: scale(7), marginBottom: scale(7) },
   tileCard: {
     flex: 1,
     height: scale(96),
-    borderRadius: scale(2),
-    padding: scale(8),
+    borderRadius: scale(10),
+    padding: scale(9),
     overflow: 'hidden',
-    borderWidth: 1,
-    shadowColor: '#07163D',
-    shadowOpacity: 0.22,
-    shadowRadius: scale(5),
-    shadowOffset: { width: 0, height: 2 },
+    borderWidth: 1.5,
+    shadowColor: '#090B12',
+    shadowOpacity: 0.48,
+    shadowRadius: scale(7),
+    shadowOffset: { width: 0, height: 5 },
+    elevation: 7,
+  },
+  tileDepth: {
+    position: 'absolute',
+    left: scale(4),
+    right: scale(4),
+    bottom: 0,
+    height: scale(8),
+    opacity: 0.9,
   },
   tileSheen: {
     position: 'absolute',
     top: 0,
     left: 0,
     right: 0,
-    height: '48%',
-    backgroundColor: 'rgba(255,255,255,0.08)',
+    height: '42%',
+    backgroundColor: 'rgba(255,255,255,0.12)',
   },
   tileDiagonal: {
     position: 'absolute',
@@ -500,8 +518,24 @@ const styles = StyleSheet.create({
     height: 1,
     top: '50%',
     left: '-22%',
-    backgroundColor: 'rgba(7,31,93,0.72)',
+    backgroundColor: 'rgba(52,12,6,0.64)',
     transform: [{ rotate: '45deg' }],
+  },
+  tileBevelTop: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 1.5,
+    backgroundColor: 'rgba(255,255,255,0.42)',
+  },
+  tileBevelBottom: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: 2,
+    backgroundColor: 'rgba(57,12,5,0.72)',
   },
   tileInner: {
     flex: 1,

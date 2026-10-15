@@ -738,7 +738,7 @@ export default function HomeScreen() {
             style={[
               st.heatGrid,
               {
-                backgroundColor: "#182B70",
+                backgroundColor: "#1D1A2A",
               },
             ]}
           >
@@ -758,11 +758,11 @@ export default function HomeScreen() {
                         st.heatTile,
                         {
                           backgroundColor: heatColor(v, mode),
-                          shadowColor: "#07163D",
+                          shadowColor: "#090B12",
                           shadowOpacity: isActive ? v * 0.9 : 0,
                           shadowRadius: scale(9),
                           borderWidth: 1,
-                          borderColor: "rgba(255,255,255,0.10)",
+                          borderColor: active && isActive ? "#FBA94C" : "rgba(255,255,255,0.22)",
                         },
                         active &&
                           isActive && [
@@ -774,8 +774,23 @@ export default function HomeScreen() {
                           ],
                       ]}
                     >
+                      <View
+                        pointerEvents="none"
+                        style={[
+                          st.heatTileDepth,
+                          { backgroundColor: v > 0.75 ? "#9A3412" : "#431407" },
+                        ]}
+                      />
+                      <LinearGradient
+                        pointerEvents="none"
+                        colors={["rgba(255,255,255,0.28)", "rgba(255,255,255,0.04)", "rgba(0,0,0,0.28)"]}
+                        locations={[0, 0.34, 1]}
+                        style={StyleSheet.absoluteFill}
+                      />
                       <View pointerEvents="none" style={st.heatTileHighlight} />
                       <View pointerEvents="none" style={st.heatTileDiagonal} />
+                      <View pointerEvents="none" style={st.heatTileBevelTop} />
+                      <View pointerEvents="none" style={st.heatTileBevelBottom} />
                       {active && isActive && (
                         <Ionicons
                           name="footsteps"
@@ -1645,21 +1660,35 @@ const st = StyleSheet.create({
     gap: scale(6),
     paddingHorizontal: scale(10),
     paddingVertical: scale(9),
-    borderRadius: scale(16),
+    borderRadius: scale(18),
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.12)",
+    borderColor: "rgba(255,255,255,0.16)",
+    shadowColor: "#0B101A",
+    shadowOpacity: 0.38,
+    shadowRadius: scale(14),
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 7,
   },
-  heatRow: { flexDirection: "row", gap: scale(5) },
+  heatRow: { flexDirection: "row", gap: scale(7) },
   heatTile: {
     position: "relative",
     flex: 1,
     height: scale(78),
-    borderRadius: scale(2),
+    borderRadius: scale(10),
+    overflow: "hidden",
     alignItems: "center",
     justifyContent: "center",
     shadowOffset: { width: 0, height: 5 },
     shadowRadius: scale(9),
     elevation: 7,
+  },
+  heatTileDepth: {
+    position: "absolute",
+    left: scale(4),
+    right: scale(4),
+    bottom: 0,
+    height: scale(7),
+    opacity: 0.9,
   },
   heatTileDiagonal: {
     position: "absolute",
@@ -1667,7 +1696,7 @@ const st = StyleSheet.create({
     height: 1,
     top: "50%",
     left: "-22%",
-    backgroundColor: "rgba(7,31,93,0.72)",
+    backgroundColor: "rgba(52,12,6,0.64)",
     transform: [{ rotate: "45deg" }],
   },
   heatTileHighlight: {
@@ -1678,7 +1707,23 @@ const st = StyleSheet.create({
     height: "34%",
     borderTopLeftRadius: scale(12),
     borderTopRightRadius: scale(12),
-    backgroundColor: "rgba(255,255,255,0.20)",
+    backgroundColor: "rgba(255,255,255,0.12)",
+  },
+  heatTileBevelTop: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 1.5,
+    backgroundColor: "rgba(255,255,255,0.42)",
+  },
+  heatTileBevelBottom: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: 2,
+    backgroundColor: "rgba(57,12,5,0.72)",
   },
   heatTileActive: {
     borderWidth: 2,
