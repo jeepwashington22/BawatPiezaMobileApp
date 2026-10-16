@@ -357,6 +357,18 @@ router.post('/login', async (req, res, next) => {
       .maybeSingle();
 
     const meta = (data.session.user.user_metadata ?? {}) as Record<string, unknown>;
+    if (meta.two_factor_enabled !== true) {
+      res.json({
+        ok: true,
+        requiresTwoFactor: false,
+        session: {
+          access_token: data.session.access_token,
+          refresh_token: data.session.refresh_token,
+        },
+      });
+      return;
+    }
+
     const fullName =
       [row?.firstname, row?.lastname].filter(Boolean).join(' ') ||
       (typeof meta.full_name === 'string' ? meta.full_name : '') ||
@@ -389,6 +401,7 @@ router.post('/login', async (req, res, next) => {
 
     res.json({
       ok: true,
+      requiresTwoFactor: true,
       challengeId,
       expiresInSeconds: OTP_TTL_SECONDS,
       message: `A 6-digit verification code was sent to ${email}. It expires in ${OTP_TTL_SECONDS / 60} minutes.`,
