@@ -57,7 +57,15 @@ export function TermsModal({
   const styles = useMemo(() => makeStyles(dark), [dark]);
 
   const [checked, setChecked] = useState(false);
-  const { reachedEnd, reset, onLayout, onContentSizeChange, onScroll } =
+  const {
+    reachedEnd,
+    reset,
+    onLayout,
+    onContentSizeChange,
+    onScroll,
+    onScrollEndDrag,
+    onMomentumScrollEnd,
+  } =
     useTermsReading(requireScroll);
 
   // Always start a fresh, explicit agreement each time the policy is opened.
@@ -80,7 +88,7 @@ export function TermsModal({
         <View style={styles.sheet}>
           <View style={styles.header}>
             <View style={styles.headerIcon}>
-              <Ionicons name="document-text-outline" size={20} color={dark ? '#F6C445' : '#0A2A4A'} />
+              <Ionicons name="document-text-outline" size={20} color={dark ? '#F97316' : '#0A2A4A'} />
             </View>
             <Text style={styles.title}>{TERMS_TITLE}</Text>
             <Text style={styles.subtitle}>{TERMS_SUBTITLE}</Text>
@@ -95,6 +103,8 @@ export function TermsModal({
             onLayout={onLayout}
             onContentSizeChange={onContentSizeChange}
             onScroll={onScroll}
+            onScrollEndDrag={onScrollEndDrag}
+            onMomentumScrollEnd={onMomentumScrollEnd}
             scrollEventThrottle={32}
             showsVerticalScrollIndicator
           >
@@ -123,7 +133,7 @@ export function TermsModal({
                 {checked ? (
                   <Ionicons name="checkmark" size={13} color="#FFFFFF" />
                 ) : (
-                  <Ionicons name="arrow-down" size={13} color={dark ? '#F6C445' : '#0A2A4A'} />
+                  <Ionicons name="arrow-down" size={13} color={dark ? '#F97316' : '#0A2A4A'} />
                 )}
               </View>
               <Text style={[styles.checkLabel, !checked && styles.checkLabelLocked]}>
@@ -165,14 +175,14 @@ export function TermsModal({
 }
 
 function makeStyles(dark: boolean) {
-  const sheet = dark ? '#0F1F33' : '#FFFFFF';
+  const sheet = dark ? '#2A0D06' : '#FFFFFF';
   const title = dark ? '#FFFFFF' : '#0A2A4A';
   const body = dark ? 'rgba(255,255,255,0.82)' : 'rgba(10,42,74,0.82)';
   const muted = dark ? 'rgba(255,255,255,0.5)' : 'rgba(10,42,74,0.5)';
-  const heading = dark ? '#F6C445' : '#0A2A4A';
-  const line = dark ? 'rgba(255,255,255,0.14)' : 'rgba(10,42,74,0.14)';
-  const accent = dark ? '#F6C445' : '#0A2A4A';
-  const onAccent = dark ? '#0A2A4A' : '#FFFFFF';
+  const heading = dark ? '#FDBA74' : '#0A2A4A';
+  const line = dark ? 'rgba(255,214,170,0.18)' : 'rgba(10,42,74,0.14)';
+  const accent = dark ? '#F97316' : '#0A2A4A';
+  const onAccent = '#FFFFFF';
 
   return StyleSheet.create({
     overlay: {
@@ -212,7 +222,7 @@ function makeStyles(dark: boolean) {
       borderRadius: 20,
       alignItems: 'center',
       justifyContent: 'center',
-      backgroundColor: dark ? 'rgba(246,196,69,0.14)' : 'rgba(10,42,74,0.08)',
+      backgroundColor: dark ? 'rgba(249,115,22,0.18)' : 'rgba(10,42,74,0.08)',
       marginBottom: 10,
     },
     title: {
