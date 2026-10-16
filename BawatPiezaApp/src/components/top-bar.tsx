@@ -9,14 +9,6 @@ import { apiFetch } from '../lib/api';
 import { useTheme } from '../theme';
 import { scale } from './glass-ui';
 
-/** Fallback demo feed used before the real feed loads (or when the API is unreachable). */
-const MOCK_NOTIFICATIONS = [
-  { icon: 'warning' as const, title: 'Short circuit detected — Tile Bank A', detail: 'Power cutoff triggered automatically · tap to review', time: 'Just now', tone: 'danger' as const },
-  { icon: 'battery-half' as const, title: 'Low battery — Bank B', detail: 'Charge dropped to 18%, below 20% threshold', time: '2 min ago', tone: 'warning' as const },
-  { icon: 'battery-full' as const, title: 'Full charged — Bank A', detail: 'Charge is now 100%, automatic switch to Bank B', time: '2 min ago', tone: 'notice' as const },
-  { icon: 'flash' as const, title: 'Grid switch complete', detail: 'Bldg 4 · 2F switched to Meralco grid', time: '18 min ago', tone: 'success' as const },
-];
-
 type NotificationTone = 'danger' | 'warning' | 'notice' | 'success';
 
 /** One row of the bell feed — real (API) or mock (demo). */
@@ -27,6 +19,11 @@ type FeedItem = {
   detail: string;
   time: string;
   tone: NotificationTone;
+  /** Raw API type (e.g. `share_invite`) — drives inline action buttons. */
+  kind?: string;
+  /** `notifications.reference_id` — for invites this is the `share_invites` id. */
+  refId?: string | null;
+  read?: boolean;
 };
 
 /** Maps a notifications.type from the API onto the panel's icon/tone palette. */
@@ -63,6 +60,7 @@ type ApiNotification = {
   type: string;
   title: string;
   body: string | null;
+  reference_id: string | null;
   read_at: string | null;
   created_at: string;
 };
@@ -92,13 +90,23 @@ export function TopBar({ gutter = 18, title, subtitle, showBack = false, showTit
   const [name, setName] = useState<string | null>(null);
   const [email, setEmail] = useState<string | null>(null);
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
-  // Unread real notifications; null until the feed loads (badge shows for the
-  // demo feed until then, matching previous behaviour).
-  const [feed, setFeed] = useState<FeedItem[] | null>(null);
+  // Real notifications only — empty until the feed loads, never mocked.
+  const [feed, setFeed] = useState<FeedItem[]>([]);
+  const [feedLoading, setFeedLoading] = useState(true);
   const [unread, setUnread] = useState(0);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
+  // Invite id currently being accepted/declined from inside the bell panel.
+  const [respondingId, setRespondingId] = useState<string | null>(null);
 
-  const hasNotifications = feed === null ? true : unread > 0;
+  /** Badge number: the live unread count. Hidden while loading or at zero. */
+  const badgeCount = unread;
+  const hasNotifications = badgeCount > 0;
+
+  /** Opens the full notifications page from the dropdown's View all action. */
+  const openNotificationsPage = (): void => {
+    setNotificationsOpen(false);
+    router.push('/pages/notifications');
+  };
 
   /** Opens the panel with a fresh feed, or closes it. */
   const toggleNotifications = () => {
@@ -108,6 +116,7 @@ export function TopBar({ gutter = 18, title, subtitle, showBack = false, showTit
 
   /** Loads the signed-in user's in-app notifications; silent on failure. */
   const loadNotifications = async (): Promise<void> => {
+    setFeedLoading(true);
     try {
       const { data: authData } = await supabase.auth.getSession();
       const token = authData.session?.access_token;
@@ -130,12 +139,43 @@ export function TopBar({ gutter = 18, title, subtitle, showBack = false, showTit
           title: n.title,
           detail: n.body ?? '',
           time: timeAgo(n.created_at),
+          kind: n.type,
+          refId: n.reference_id,
+          read: n.read_at !== null,
         };
       });
       setFeed(items);
       setUnread(json.unread ?? 0);
     } catch {
-      // Offline or API down — keep the demo feed so the bell still works.
+      // Offline or API down — the panel shows an empty/error state instead
+      // of fake notifications.
+    } finally {
+      setFeedLoading(false);
+    }
+  };
+
+  /** Accept / decline a shared-user invite without leaving the bell panel. */
+  const respondToInvite = async (item: FeedItem, action: 'accept' | 'decline'): Promise<void> => {
+    const inviteId = item.refId;
+    if (!inviteId || respondingId) return;
+    setRespondingId(inviteId);
+    try {
+      const { data: authData } = await supabase.auth.getSession();
+      const token = authData.session?.access_token;
+      if (!token) return;
+      const res = await apiFetch(`/accounts/invites/${inviteId}/${action}`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) return;
+      // Drop the invite notification + refresh the feed so the badge decrements.
+      setFeed((prev) => (prev ? prev.filter((n) => n.id !== item.id) : prev));
+      setUnread((u) => Math.max(0, u - (item.read ? 0 : 1)));
+      await loadNotifications();
+    } catch {
+      // Best-effort — the row stays so the user can retry.
+    } finally {
+      setRespondingId(null);
     }
   };
 
@@ -182,9 +222,6 @@ export function TopBar({ gutter = 18, title, subtitle, showBack = false, showTit
   const btnBorder = glass
     ? dark ? 'rgba(255,255,255,0.22)' : 'rgba(255,255,255,0.85)'
     : lightContent ? 'rgba(255,255,255,0.42)' : c.line;
-  const badgeBorder = glass
-    ? dark ? '#3A1A08' : '#FFF3E8'
-    : lightContent ? '#F97316' : c.surface;
   const avatarBorder = glass ? (dark ? 'rgba(255,255,255,0.55)' : '#FFFFFF') : c.accent;
 
   return (
@@ -224,11 +261,15 @@ export function TopBar({ gutter = 18, title, subtitle, showBack = false, showTit
                 ]}
                 onPress={toggleNotifications}
                 accessibilityRole="button"
-                accessibilityLabel="Notifications"
+                accessibilityLabel="Open notifications dropdown"
               >
                 <Ionicons name="notifications-outline" size={20} color={foreground} />
                 {hasNotifications && (
-                  <View style={[styles.badge, { backgroundColor: c.orange, borderColor: badgeBorder }]} />
+                  <View style={[styles.countBadge, { backgroundColor: c.orange }]}>
+                    <Text style={styles.countBadgeText}>
+                      {badgeCount > 99 ? '99+' : String(badgeCount)}
+                    </Text>
+                  </View>
                 )}
               </Pressable>
 
@@ -268,11 +309,15 @@ export function TopBar({ gutter = 18, title, subtitle, showBack = false, showTit
                   ]}
                   onPress={toggleNotifications}
                   accessibilityRole="button"
-                  accessibilityLabel="Notifications"
+                  accessibilityLabel="Open notifications dropdown"
                 >
                   <Ionicons name="notifications-outline" size={20} color={foreground} />
                   {hasNotifications && (
-                    <View style={[styles.badge, { backgroundColor: c.orange, borderColor: badgeBorder }]} />
+                    <View style={[styles.countBadge, { backgroundColor: c.orange }]}>
+                      <Text style={styles.countBadgeText}>
+                        {badgeCount > 99 ? '99+' : String(badgeCount)}
+                      </Text>
+                    </View>
                   )}
                 </Pressable>
 
@@ -304,15 +349,15 @@ export function TopBar({ gutter = 18, title, subtitle, showBack = false, showTit
             <View>
               <Text style={[styles.notificationTitle, { color: c.text }]}>Notifications</Text>
               <Text style={[styles.notificationCount, { color: c.muted }]}>
-                {feed === null
-                  ? `${MOCK_NOTIFICATIONS.length} recent updates`
+                {feedLoading
+                  ? 'Loading notifications...'
                   : `${feed.length} notification${feed.length === 1 ? '' : 's'}${unread ? ` · ${unread} unread` : ''}`}
               </Text>
             </View>
             <Pressable
               onPress={async () => {
                 // Persist "read" server-side when the real feed is active.
-                if (feed !== null && unread > 0) {
+                if (unread > 0) {
                   try {
                     const { data: authData } = await supabase.auth.getSession();
                     const token = authData.session?.access_token;
@@ -334,7 +379,17 @@ export function TopBar({ gutter = 18, title, subtitle, showBack = false, showTit
               <Text style={[styles.readAll, { color: c.orange }]}>Mark all read</Text>
             </Pressable>
           </View>
-          {(feed ?? MOCK_NOTIFICATIONS.map((m): FeedItem => ({ ...m, id: m.title }))).map(
+          {feedLoading ? (
+            <View style={styles.emptyWrap}>
+              <Text style={[styles.emptyText, { color: c.muted }]}>Loading notifications...</Text>
+            </View>
+          ) : feed.length === 0 ? (
+            <View style={styles.emptyWrap}>
+              <Ionicons name="notifications-off-outline" size={28} color={c.muted} />
+              <Text style={[styles.emptyText, { color: c.muted }]}>You are all caught up — no notifications yet.</Text>
+            </View>
+          ) : (
+          feed.map(
             (notification, index) => {
             const palette = {
               danger: { background: '#FCE4E4', icon: '#D14343', text: '#C33D3D' },
@@ -342,16 +397,12 @@ export function TopBar({ gutter = 18, title, subtitle, showBack = false, showTit
               notice: { background: '#FFF3DE', icon: '#F5A313', text: '#B47711' },
               success: { background: '#E5F5E5', icon: '#16A34A', text: '#14843A' },
             }[notification.tone];
+            // Shared-user invites get inline Accept / Decline — no detour needed.
+            const isInvite = notification.kind === 'share_invite' && !!notification.refId;
+            const busy = isInvite && respondingId === notification.refId;
             return (
-              <Pressable
+              <View
                 key={notification.id ?? notification.title}
-                onPress={() => {
-                  // Share invites land on the Shared Users tab (accept/decline there).
-                  setNotificationsOpen(false);
-                  if (notification.title.includes('invited')) {
-                    router.push('/pages/accounts');
-                  }
-                }}
                 style={[styles.notificationRow, index > 0 && { borderTopColor: c.line, borderTopWidth: 1 }]}
               >
                 <View style={[styles.notificationIcon, { backgroundColor: palette.background }]}><Ionicons name={notification.icon} size={scale(20)} color={palette.icon} /></View>
@@ -359,10 +410,70 @@ export function TopBar({ gutter = 18, title, subtitle, showBack = false, showTit
                   <Text numberOfLines={1} style={[styles.notificationItemTitle, { color: notification.tone === 'danger' ? palette.text : c.text }]}>{notification.title}</Text>
                   <Text numberOfLines={2} style={[styles.notificationDetail, { color: c.muted }]}>{notification.detail}</Text>
                   <Text style={[styles.notificationTime, { color: c.muted }]}>{notification.time}</Text>
+                  {isInvite ? (
+                    <View style={styles.inviteActions}>
+                      <Pressable
+                        disabled={respondingId !== null}
+                        onPress={() => void respondToInvite(notification, 'accept')}
+                        style={({ pressed }) => [
+                          styles.inviteBtn,
+                          styles.inviteAccept,
+                          pressed && { opacity: 0.75 },
+                          respondingId !== null && { opacity: 0.6 },
+                        ]}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Accept invite: ${notification.title}`}
+                      >
+                        <Text style={styles.inviteAcceptText}>
+                          {busy ? 'Accepting...' : 'Accept'}
+                        </Text>
+                      </Pressable>
+                      <Pressable
+                        disabled={respondingId !== null}
+                        onPress={() => void respondToInvite(notification, 'decline')}
+                        style={({ pressed }) => [
+                          styles.inviteBtn,
+                          styles.inviteDecline,
+                          { borderColor: c.line },
+                          pressed && { opacity: 0.75 },
+                          respondingId !== null && { opacity: 0.6 },
+                        ]}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Decline invite: ${notification.title}`}
+                      >
+                        <Text style={[styles.inviteDeclineText, { color: c.muted }]}>
+                          {busy ? 'Working...' : 'Decline'}
+                        </Text>
+                      </Pressable>
+                    </View>
+                  ) : (
+                    <Pressable
+                      onPress={() => {
+                        // Non-invite rows still deep-link where they make sense.
+                        setNotificationsOpen(false);
+                        if (notification.title.includes('invited')) {
+                          router.push('/pages/accounts');
+                        }
+                      }}
+                      hitSlop={4}
+                    >
+                      <Text style={[styles.viewLink, { color: c.orange }]}>View</Text>
+                    </Pressable>
+                  )}
                 </View>
-              </Pressable>
+              </View>
             );
-          })}
+          })
+          )}
+          <Pressable
+            style={({ pressed }) => [styles.viewAllButton, { borderTopColor: c.line }, pressed && { opacity: 0.7 }]}
+            onPress={openNotificationsPage}
+            accessibilityRole="button"
+            accessibilityLabel="View all notifications"
+          >
+            <Text style={[styles.viewAllText, { color: c.orange }]}>View all notifications</Text>
+            <Ionicons name="arrow-forward" size={scale(15)} color={c.orange} />
+          </Pressable>
         </View>
       )}
     </View>
@@ -404,6 +515,15 @@ const styles = StyleSheet.create({
   notificationTitle: { fontSize: scale(15), fontFamily: 'Poppins_800ExtraBold' },
   notificationCount: { fontSize: scale(8.5), marginTop: scale(2), fontFamily: 'Poppins_500Medium' },
   readAll: { fontSize: scale(8.5), fontFamily: 'Poppins_700Bold' },
+  viewAllButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: scale(6),
+    borderTopWidth: 1,
+    paddingVertical: scale(12),
+  },
+  viewAllText: { fontSize: scale(10.5), fontFamily: 'Poppins_800ExtraBold' },
   notificationRow: { flexDirection: 'row', gap: scale(11), paddingHorizontal: scale(14), paddingVertical: scale(12) },
   notificationIcon: { width: scale(48), height: scale(48), borderRadius: scale(15), alignItems: 'center', justifyContent: 'center' },
   notificationCopy: { flex: 1, paddingTop: scale(1) },
@@ -438,6 +558,50 @@ const styles = StyleSheet.create({
     borderRadius: scale(5),
     borderWidth: 2,
   },
+  countBadge: {
+    position: 'absolute',
+    top: scale(-4),
+    right: scale(-6),
+    minWidth: scale(18),
+    height: scale(18),
+    borderRadius: scale(9),
+    paddingHorizontal: scale(4),
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: '#FFFFFF',
+  },
+  countBadgeText: {
+    color: '#FFFFFF',
+    fontSize: scale(10),
+    fontFamily: 'Poppins_800ExtraBold',
+    lineHeight: scale(13),
+  },
+  inviteActions: {
+    flexDirection: 'row',
+    gap: scale(8),
+    marginTop: scale(8),
+  },
+  inviteBtn: {
+    flex: 1,
+    borderRadius: scale(10),
+    paddingVertical: scale(8),
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  inviteAccept: { backgroundColor: '#16A34A' },
+  inviteAcceptText: { color: '#FFFFFF', fontSize: scale(10.5), fontFamily: 'Poppins_800ExtraBold' },
+  inviteDecline: { backgroundColor: 'transparent', borderWidth: 1 },
+  inviteDeclineText: { fontSize: scale(10.5), fontFamily: 'Poppins_700Bold' },
+  viewLink: { fontSize: scale(9), marginTop: scale(5), fontFamily: 'Poppins_700Bold' },
+  emptyWrap: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: scale(28),
+    paddingHorizontal: scale(20),
+    gap: scale(8),
+  },
+  emptyText: { fontSize: scale(11), textAlign: 'center', fontFamily: 'Poppins_500Medium' },
   avatar: {
     width: scale(42),
     height: scale(42),
