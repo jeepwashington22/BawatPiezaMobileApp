@@ -5,7 +5,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 
 import { ScreenShell } from './screen-shell';
-import { Card, scale } from './glass-ui';
+import { Card, Glass, scale } from './glass-ui';
 import { fonts, useTheme, type Mode, type ThemeColors } from '../theme';
 import { usePowerOverride } from '../hooks/use-power-override';
 
@@ -54,32 +54,46 @@ function Monitor({ c, mode }: { c: ThemeColors; mode: Mode }) {
 
   return (
     <>
-      <Card mode={mode} style={styles.featureCard}>
-        <View style={styles.rowBetween}>
-          <View style={styles.rowTitle}>
-            <Text style={[styles.cardTitle, { color: c.text }]}>Smart Auto-Switching</Text>
-            <Ionicons name="chevron-forward" size={scale(16)} color={c.muted} />
-          </View>
+      <SectionLabel label="BATTERY BANKS" action="Tap a bank for detail" c={c} />
 
+      <View style={styles.bankRow}>
+        <BankCard name="BANK A" value="100%" status="Full — charging stopped" tone="good" c={c} />
+        <BankCard name="BANK B" value="62%" status="Charging" tone="fair" c={c} />
+      </View>
+
+      <Glass mode={mode} style={[styles.featureCard, { borderColor: c.line, backgroundColor: c.surface }]}>
+        <View style={[styles.switchGlow, { backgroundColor: c.accentSoft }]} />
+        <View style={styles.switchHeader}>
+          <View style={[styles.switchIcon, { backgroundColor: c.accentSoft, borderColor: c.line }]}>
+            <Ionicons name="git-compare-outline" size={scale(19)} color={c.orange} />
+          </View>
+          <View style={styles.switchHeading}>
+            <Text style={[styles.switchEyebrow, { color: c.orange }]}>POWER INTELLIGENCE</Text>
+            <Text style={[styles.switchTitle, { color: c.text }]}>Smart Auto-Switching</Text>
+          </View>
           <Pressable
             onPress={() => setEnabled(!enabled)}
-            style={[styles.toggle, { backgroundColor: enabled ? '#0A56AD' : '#D9E2EC' }]}
+            style={[styles.toggle, { backgroundColor: enabled ? c.accent : c.surfaceMuted }]}
+            accessibilityRole="switch"
+            accessibilityState={{ checked: enabled }}
+            accessibilityLabel="Smart auto-switching"
           >
             <View style={[styles.toggleKnob, !enabled && styles.toggleOff]} />
           </Pressable>
         </View>
 
-        <Text style={[styles.cardCopy, { color: c.muted }]}>
-          Toggles grid ↔ battery capacity &amp; load · tap for details
+        <View style={[styles.switchDivider, { backgroundColor: c.line }]} />
+        <View style={styles.switchBottom}>
+          <View style={styles.switchStatus}>
+            <View style={[styles.statusDot, { backgroundColor: enabled ? c.ok : c.muted }]} />
+            <Text style={[styles.switchStatusText, { color: c.textSoft }]}>{enabled ? 'System automation active' : 'Manual switching enabled'}</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={scale(16)} color={c.muted} />
+        </View>
+        <Text style={[styles.switchCopy, { color: c.muted }]}>
+          Automatically balances grid power, battery capacity, and campus load.
         </Text>
-      </Card>
-
-      <SectionLabel label="BATTERY BANKS" action="Tap a bank for detail" c={c} />
-
-      <View style={styles.bankStack}>
-        <BankCard name="BANK A" value="100%" status="Full — charging stopped" tone="good" c={c} />
-        <BankCard name="BANK B" value="62%" status="Charging" tone="fair" c={c} />
-      </View>
+      </Glass>
 
       <View style={[styles.notice, { backgroundColor: mode === 'dark' ? '#17120D' : '#F4F0E9', borderColor: mode === 'dark' ? 'rgba(251,146,60,0.25)' : 'transparent' }]}>
         <Text style={[styles.noticeTitle, { color: c.orange }]}>Bank A reached 100%</Text>
@@ -161,23 +175,23 @@ function Allocation({ c, mode }: { c: ThemeColors; mode: Mode }) {
 
   return (
     <>
-      <View style={[styles.poolCard, { backgroundColor: mode === 'dark' ? '#111820' : '#0A2A4A', borderColor: mode === 'dark' ? 'rgba(147,197,253,0.24)' : 'transparent' }]}>
+      <View style={[styles.poolCard, { backgroundColor: c.surface, borderColor: c.line }]}>
         <View style={styles.rowBetween}>
           <View>
-            <View style={styles.poolHeading}><View style={styles.poolIcon}><Ionicons name="layers-outline" size={scale(20)} color="#FFFFFF" /></View><View><Text style={styles.poolTitle}>Available battery pool</Text><Text style={styles.poolSubtitle}>BANK A + BANK B</Text></View></View>
+            <View style={styles.poolHeading}><View style={[styles.poolIcon, { backgroundColor: c.accentSoft }]}><Ionicons name="layers-outline" size={scale(20)} color={c.accent} /></View><View><Text style={[styles.poolTitle, { color: c.text }]}>Available battery pool</Text><Text style={[styles.poolSubtitle, { color: c.muted }]}>BANK A + BANK B</Text></View></View>
             <Text style={[styles.poolNote, { color: c.muted }]}>Bank A is 100% full{'\n'}Bank B is 62% full</Text>
           </View>
 
-          <Text style={[styles.poolValue, { color: c.text }]}>~9.2h{'\n'}stored</Text>
+          <Text style={[styles.poolValue, { color: c.text }]}>~9.2h{'\n'}<Text style={[styles.poolValueUnit, { color: c.muted }]}>stored</Text></Text>
         </View>
 
-        <View style={styles.progress}>
-          <View style={styles.progressFill} />
+        <View style={[styles.progress, { backgroundColor: c.surfaceMuted }]}>
+          <View style={[styles.progressFill, { backgroundColor: c.orange }]} />
         </View>
 
         <View style={styles.progressLabels}>
-          <Text style={styles.progressText}>0% assigned so far</Text>
-          <Text style={styles.progressText}>100% still free</Text>
+          <Text style={[styles.progressText, { color: c.muted }]}>0% assigned so far</Text>
+          <Text style={[styles.progressText, { color: c.muted }]}>100% still free</Text>
         </View>
 
         <ActionButton label="Let System Allocate" />
@@ -187,7 +201,7 @@ function Allocation({ c, mode }: { c: ThemeColors; mode: Mode }) {
         </Text>
       </View>
 
-      <View style={[styles.infoBand, { backgroundColor: mode === 'dark' ? '#17120D' : '#F4EFE8', borderColor: mode === 'dark' ? 'rgba(251,146,60,0.22)' : 'transparent' }]}>
+      <View style={[styles.infoBand, { backgroundColor: c.surfaceMuted, borderColor: c.line }]}>
         <Text style={[styles.noticeTitle, { color: c.orange }]}>Campus-wide power allocation</Text>
         <Text style={[styles.cardCopy, { color: c.muted }]}>Assign each battery-powered zone its hours and start time — nothing changes on campus until you confirm.</Text>
       </View>
@@ -201,7 +215,7 @@ function Allocation({ c, mode }: { c: ThemeColors; mode: Mode }) {
             <Pressable
               key={item}
               onPress={() => setZone(item)}
-              style={[styles.zonePill, { backgroundColor: active ? '#0A56AD' : c.surface, borderColor: mode === 'dark' ? 'rgba(255,255,255,0.16)' : 'transparent' }]}
+              style={[styles.zonePill, { backgroundColor: active ? c.orange : c.surface, borderColor: c.line }]}
             >
               <Text style={[styles.zoneText, { color: active ? '#FFFFFF' : c.muted }]}>{item}</Text>
             </Pressable>
@@ -210,6 +224,7 @@ function Allocation({ c, mode }: { c: ThemeColors; mode: Mode }) {
       </View>
 
       <ZoneCard c={c} mode={mode} />
+      <ActionButton label="Confirm Allocation" />
     </>
   );
 }
@@ -285,16 +300,60 @@ function ActionButton({ label }: { label: string }) {
 }
 
 function ZoneCard({ c, mode }: { c: ThemeColors; mode: Mode }) {
+  const [assignedHours, setAssignedHours] = useState(0);
+  const wantedHours = 12;
+  const progress = Math.min(1, assignedHours / wantedHours);
+
   return (
     <Card mode={mode} style={styles.zoneCard}>
       <Text style={[styles.zoneHeader, { color: c.text }]}>1F ROOM 109 - RIGHT WING</Text>
 
       <View style={styles.chips}>
-        <Text style={styles.priority}>High priority</Text>
-        <Text style={styles.batteryChip}>Battery</Text>
+        <Text style={[styles.priority, { color: c.orange, backgroundColor: c.accentSoft }]}>High priority</Text>
+        <Text style={[styles.batteryChip, { color: c.accent, backgroundColor: c.surfaceMuted }]}>Battery</Text>
       </View>
 
       <Text style={[styles.cardCopy, { color: c.muted }]}>wants to run 12h/day · Mon-Fri · 6:00 PM-6:00 AM</Text>
+
+      <View style={styles.allocationControlRow}>
+        <View style={[styles.stepper, { backgroundColor: c.surfaceMuted, borderColor: c.line }]}>
+          <Pressable
+            onPress={() => setAssignedHours((value) => Math.max(0, value - 1))}
+            style={styles.stepperButton}
+            accessibilityRole="button"
+            accessibilityLabel="Decrease assigned hours"
+          >
+            <Ionicons name="remove" size={scale(16)} color={c.text} />
+          </Pressable>
+          <Text style={[styles.assignedHours, { color: c.text }]}>{assignedHours}h</Text>
+          <Pressable
+            onPress={() => setAssignedHours((value) => Math.min(wantedHours, value + 1))}
+            style={styles.stepperButton}
+            accessibilityRole="button"
+            accessibilityLabel="Increase assigned hours"
+          >
+            <Ionicons name="add" size={scale(16)} color={c.text} />
+          </Pressable>
+        </View>
+        <View style={[styles.allocationBar, { backgroundColor: c.surfaceMuted }]}>
+          <View style={[styles.allocationBarFill, { width: `${progress * 100}%`, backgroundColor: c.orange }]} />
+        </View>
+      </View>
+      <Text style={[styles.assignedCopy, { color: c.muted }]}>
+        {assignedHours}h {assignedHours === 1 ? 'is' : 'are'} assigned of {wantedHours}h wanted
+      </Text>
+
+      <View style={[styles.batteryStart, { borderTopColor: mode === 'dark' ? 'rgba(255,255,255,0.12)' : 'rgba(10,42,74,0.10)' }]}>
+        <View>
+          <Text style={[styles.startTitle, { color: c.muted }]}>Starts drawing from battery at</Text>
+          <Text style={[styles.startHint, { color: c.muted }]}>
+            {assignedHours > 0 ? 'Battery schedule is ready' : 'Not drawing from battery yet'}
+          </Text>
+        </View>
+        <View style={[styles.timePill, { backgroundColor: c.surfaceMuted }]}>
+          <Text style={[styles.timeText, { color: c.text }]}>8:00 AM</Text>
+        </View>
+      </View>
     </Card>
   );
 }
@@ -342,9 +401,80 @@ const styles = StyleSheet.create({
     fontFamily: fonts.bold,
   },
   featureCard: {
-    padding: scale(14),
+    padding: scale(16),
     marginBottom: scale(14),
     borderRadius: scale(18),
+    overflow: 'hidden',
+    shadowColor: '#0A2A4A',
+    shadowOpacity: 0.22,
+    shadowRadius: scale(12),
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 5,
+  },
+  switchGlow: {
+    position: 'absolute',
+    width: scale(140),
+    height: scale(140),
+    borderRadius: scale(70),
+    right: scale(-54),
+    top: scale(-66),
+  },
+  switchHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: scale(10),
+  },
+  switchIcon: {
+    width: scale(38),
+    height: scale(38),
+    borderRadius: scale(13),
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+  },
+  switchHeading: {
+    flex: 1,
+  },
+  switchEyebrow: {
+    fontSize: scale(7),
+    letterSpacing: 1.15,
+    fontFamily: fonts.extrabold,
+  },
+  switchTitle: {
+    fontSize: scale(13),
+    marginTop: scale(3),
+    fontFamily: fonts.extrabold,
+  },
+  switchDivider: {
+    height: 1,
+    backgroundColor: 'rgba(255,255,255,0.14)',
+    marginTop: scale(15),
+    marginBottom: scale(11),
+  },
+  switchBottom: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  switchStatus: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: scale(6),
+  },
+  statusDot: {
+    width: scale(7),
+    height: scale(7),
+    borderRadius: scale(4),
+  },
+  switchStatusText: {
+    fontSize: scale(9),
+    fontFamily: fonts.bold,
+  },
+  switchCopy: {
+    fontSize: scale(8.5),
+    lineHeight: scale(12),
+    marginTop: scale(8),
+    fontFamily: fonts.medium,
   },
   rowBetween: {
     flexDirection: 'row',
@@ -410,10 +540,10 @@ const styles = StyleSheet.create({
     marginBottom: scale(12),
   },
   bankCard: {
-    width: '100%',
-    minHeight: scale(112),
+    flex: 1,
+    minHeight: scale(122),
     borderRadius: scale(18),
-    padding: scale(15),
+    padding: scale(12),
     shadowColor: '#0A2A4A',
     shadowOpacity: 0.16,
     shadowRadius: scale(10),
@@ -423,11 +553,11 @@ const styles = StyleSheet.create({
   bankCardTop: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: scale(9),
+    gap: scale(7),
   },
   bankIcon: {
-    width: scale(38),
-    height: scale(38),
+    width: scale(32),
+    height: scale(32),
     borderRadius: scale(12),
     alignItems: 'center',
     justifyContent: 'center',
@@ -436,15 +566,12 @@ const styles = StyleSheet.create({
   bankName: {
     flex: 1,
     color: '#FFFFFF',
-    fontSize: scale(10),
+    fontSize: scale(9),
     letterSpacing: 1.2,
     fontFamily: fonts.extrabold,
   },
   bankCardBottom: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
-    justifyContent: 'space-between',
-    marginTop: scale(10),
+    marginTop: scale(7),
   },
   smallBold: {
     fontSize: scale(10),
@@ -460,12 +587,14 @@ const styles = StyleSheet.create({
   },
   bankValue: {
     color: '#FFFFFF',
-    fontSize: scale(28),
+    fontSize: scale(23),
     fontFamily: fonts.extrabold,
   },
   bankStatus: {
     color: 'rgba(255,255,255,0.78)',
-    fontSize: scale(9),
+    fontSize: scale(7.5),
+    lineHeight: scale(10),
+    marginTop: scale(2),
     fontFamily: fonts.bold,
   },
   notice: {
@@ -620,11 +749,10 @@ const styles = StyleSheet.create({
   },
   poolCard: {
     padding: scale(15),
-    borderRadius: scale(18),
-    marginBottom: scale(18),
-    backgroundColor: '#0A2A4A',
+    borderRadius: scale(16),
+    marginBottom: scale(12),
     shadowColor: '#0A2A4A',
-    shadowOpacity: 0.18,
+    shadowOpacity: 0.08,
     shadowRadius: scale(10),
     shadowOffset: { width: 0, height: 5 },
     elevation: 4,
@@ -641,15 +769,13 @@ const styles = StyleSheet.create({
     borderRadius: scale(12),
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(255,255,255,0.16)',
+    backgroundColor: 'rgba(249,115,22,0.12)',
   },
   poolTitle: {
-    color: '#FFFFFF',
     fontSize: scale(12),
     fontFamily: fonts.extrabold,
   },
   poolSubtitle: {
-    color: 'rgba(255,255,255,0.58)',
     fontSize: scale(7.5),
     letterSpacing: 1,
     marginTop: scale(2),
@@ -662,20 +788,17 @@ const styles = StyleSheet.create({
     marginTop: scale(4),
   },
   poolValue: {
-    color: '#FFFFFF',
     fontSize: scale(21),
     lineHeight: scale(22),
     fontFamily: fonts.extrabold,
     textAlign: 'right',
   },
   poolValueUnit: {
-    color: 'rgba(255,255,255,0.68)',
     fontSize: scale(9),
     fontFamily: fonts.bold,
   },
   progress: {
     height: scale(10),
-    backgroundColor: 'rgba(255,255,255,0.16)',
     borderRadius: scale(5),
     overflow: 'hidden',
     marginTop: scale(16),
@@ -683,7 +806,6 @@ const styles = StyleSheet.create({
   progressFill: {
     width: '0%',
     height: '100%',
-    backgroundColor: '#F97316',
   },
   progressLabels: {
     flexDirection: 'row',
@@ -691,7 +813,6 @@ const styles = StyleSheet.create({
     marginTop: scale(6),
   },
   progressText: {
-    color: 'rgba(255,255,255,0.62)',
     fontSize: scale(7),
     fontFamily: fonts.bold,
   },
@@ -713,9 +834,9 @@ const styles = StyleSheet.create({
     fontFamily: fonts.bold,
   },
   zoneCard: {
-    padding: scale(16),
+    padding: scale(14),
     borderRadius: scale(18),
-    marginBottom: scale(18),
+    marginBottom: scale(12),
   },
   zoneHeader: {
     fontSize: scale(11),
@@ -744,4 +865,54 @@ const styles = StyleSheet.create({
     fontSize: scale(8),
     fontFamily: fonts.bold,
   },
+  allocationControlRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: scale(12),
+    marginTop: scale(12),
+  },
+  stepper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    width: scale(118),
+    height: scale(34),
+    borderRadius: scale(17),
+    borderWidth: 1,
+  },
+  stepperButton: {
+    width: scale(34),
+    height: scale(34),
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  assignedHours: { minWidth: scale(28), textAlign: 'center', fontSize: scale(9), fontFamily: fonts.bold },
+  allocationBar: {
+    flex: 1,
+    height: scale(7),
+    borderRadius: scale(5),
+    overflow: 'hidden',
+    backgroundColor: 'rgba(91,106,148,0.28)',
+  },
+  allocationBarFill: { height: '100%', borderRadius: scale(5), backgroundColor: '#F97316' },
+  assignedCopy: { fontSize: scale(9), fontFamily: fonts.medium, marginTop: scale(7) },
+  batteryStart: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderTopWidth: 1,
+    marginTop: scale(12),
+    paddingTop: scale(11),
+  },
+  startTitle: { fontSize: scale(9), fontFamily: fonts.bold },
+  startHint: { fontSize: scale(9), fontFamily: fonts.medium, marginTop: scale(8) },
+  timePill: {
+    minWidth: scale(104),
+    alignItems: 'center',
+    borderRadius: scale(18),
+    paddingHorizontal: scale(12),
+    paddingVertical: scale(9),
+    backgroundColor: 'rgba(91,106,148,0.12)',
+  },
+  timeText: { fontSize: scale(11), fontFamily: fonts.bold },
 });
