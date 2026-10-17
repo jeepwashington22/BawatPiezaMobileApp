@@ -179,7 +179,8 @@ export default function HomeScreen() {
   const batteryCardMutedInk = mode === "dark" ? "rgba(255,255,255,0.82)" : "rgba(10,42,74,0.72)";
   const [livePower] = useState(315);
   const [displayVoltage] = useState("224.50");
-  const todayKwh = 4.82;
+  const [consumptionRange, setConsumptionRange] = useState<"today" | "7days" | "month">("today");
+  const [rangeMenuOpen, setRangeMenuOpen] = useState(false);
 
   const [zones, setZones] = useState([
     {
@@ -195,13 +196,6 @@ export default function HomeScreen() {
       source: "Grid",
       detail: "Stable · 318 W",
       on: true,
-    },
-    {
-      id: "3",
-      name: "Light #3",
-      source: "Solar",
-      detail: "Panel charging",
-      on: false,
     },
   ]);
   const [activeTile, setActiveTile] = useState<number | null>(null);
@@ -226,8 +220,12 @@ export default function HomeScreen() {
     },
   ];
 
-  const yesterdayKwh = "5.36";
-  const consumptionDelta = "-10.1%";
+  const consumptionData = {
+    today: { label: "Today", kwh: 4.82, comparison: "5.36 kWh yesterday", delta: "-10.1%", savings: "≈ ₱86 saved off Meralco billing", deltaLabel: "vs yesterday" },
+    "7days": { label: "Last 7 days", kwh: 31.64, comparison: "34.20 kWh previous 7 days", delta: "-7.5%", savings: "≈ ₱566 saved off Meralco billing", deltaLabel: "vs previous 7 days" },
+    month: { label: "This month", kwh: 128.45, comparison: "141.80 kWh previous month", delta: "-9.4%", savings: "≈ ₱2,298 saved off Meralco billing", deltaLabel: "vs previous month" },
+  } as const;
+  const selectedConsumption = consumptionData[consumptionRange];
 
   return (
     <ScreenShell>
@@ -236,7 +234,7 @@ export default function HomeScreen() {
         <HeroGlow mode={mode} intensity={isActive ? 1 : mode === "dark" ? 0.4 : 0.85} bleedBottom={scale(40)} />
 
         <View style={st.heroTopBar}>
-          <TopBar gutter={0} title="Dashboard" glass />
+          <TopBar gutter={0} title="Dashboard" />
         </View>
 
       </View>
@@ -256,31 +254,62 @@ export default function HomeScreen() {
         >
           <View pointerEvents="none" style={st.scSheenA} />
           <View pointerEvents="none" style={st.scSheenB} />
+          <View style={st.statsFilterRow}>
+            <Text style={st.statsFilterLabel}>CONSUMPTION</Text>
+            <View style={st.statsFilterWrap}>
+              <Pressable
+                onPress={() => setRangeMenuOpen((open) => !open)}
+                style={st.statsFilterButton}
+                accessibilityRole="button"
+                accessibilityLabel={`Consumption date range: ${selectedConsumption.label}`}
+              >
+                <Ionicons name="calendar-outline" size={scale(11)} color="#FFFFFF" />
+                <Text style={st.statsFilterButtonText}>{selectedConsumption.label}</Text>
+                <Ionicons name={rangeMenuOpen ? "chevron-up" : "chevron-down"} size={scale(10)} color="rgba(255,255,255,0.78)" />
+              </Pressable>
+              {rangeMenuOpen && (
+                <View style={[st.statsFilterMenu, { backgroundColor: c.surface, borderColor: c.line }]}>
+                  {(Object.keys(consumptionData) as Array<keyof typeof consumptionData>).map((range) => (
+                    <Pressable
+                      key={range}
+                      onPress={() => {
+                        setConsumptionRange(range);
+                        setRangeMenuOpen(false);
+                      }}
+                      style={st.rangeOption}
+                    >
+                      <Text style={[st.rangeOptionText, { color: range === consumptionRange ? c.orange : c.muted }]}>
+                        {consumptionData[range].label}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+              )}
+            </View>
+          </View>
           <View style={st.scTop}>
             <View>
-              <Text style={st.scEyebrow}>Today&apos;s consumption</Text>
+              <Text style={st.scEyebrow}>{selectedConsumption.label}&apos;s consumption</Text>
               <View style={st.scKwhRow}>
                 <Text style={st.scKwh}>
-                  {isActive ? todayKwh.toFixed(2) : "--"}
+                  {isActive ? selectedConsumption.kwh.toFixed(2) : "--"}
                 </Text>
                 <Text style={st.scKwhUnit}>kWh</Text>
               </View>
-            </View>
-            <View style={[st.scDelta, !isActive && { opacity: 0.5 }]}>
-              <Ionicons name="trending-down" size={scale(14)} color="#FFFFFF" />
-              <View>
-                <Text style={st.scDeltaValue}>{consumptionDelta}</Text>
-                <Text style={st.scDeltaLabel}>vs yesterday</Text>
+              <View style={[st.scSavings, !isActive && { opacity: 0.5 }]}>
+                <Ionicons name="trending-down" size={scale(11)} color="#FFFFFF" />
+                <Text style={st.scSavingsText}>
+                  {isActive ? selectedConsumption.savings : "-- savings"}
+                </Text>
               </View>
             </View>
-          </View>
-          <View style={st.scTrack}>
-            <View
-              style={[st.scFill, !isActive && { width: "0%" }]}
-            />
-          </View>
-          <View style={st.scMetaRow}>
-            <Text style={st.scSub}>{yesterdayKwh} kWh yesterday</Text>
+            <View style={[st.scDelta, !isActive && { opacity: 0.5 }]}>
+                <Ionicons name="trending-down" size={scale(14)} color="#FFFFFF" />
+                <View>
+                  <Text style={st.scDeltaValue}>{selectedConsumption.delta}</Text>
+                  <Text style={st.scDeltaLabel}>{selectedConsumption.deltaLabel}</Text>
+                </View>
+            </View>
           </View>
           <View style={st.scTiles}>
             {stats.map((s, i) => {
@@ -1138,8 +1167,8 @@ const st = StyleSheet.create({
   // ---- stats (solid orange gradient) ----
   scCard: {
     borderRadius: scale(22),
-    padding: scale(12),
-    overflow: "hidden",
+    padding: scale(8),
+    overflow: "visible",
     shadowColor: "#EA580C",
     shadowOpacity: 0.32,
     shadowRadius: scale(16),
@@ -1165,10 +1194,61 @@ const st = StyleSheet.create({
     backgroundColor: "rgba(255,255,255,0.06)",
   },
   scTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  scEyebrow: { color: "rgba(255,255,255,0.92)", fontSize: scale(8.5), fontFamily: fonts.semibold },
+  statsFilterRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: scale(2),
+    position: "relative",
+    zIndex: 8,
+  },
+  statsFilterLabel: { color: "rgba(255,255,255,0.68)", fontSize: scale(7), letterSpacing: 0.9, fontFamily: fonts.bold },
+  statsFilterWrap: { position: "relative", zIndex: 9 },
+  statsFilterButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: scale(4),
+    borderRadius: scale(8),
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.28)",
+    backgroundColor: "rgba(255,255,255,0.16)",
+    paddingHorizontal: scale(7),
+    paddingVertical: scale(4),
+  },
+  statsFilterButtonText: { color: "#FFFFFF", fontSize: scale(7.5), fontFamily: fonts.bold },
+  statsFilterMenu: {
+    position: "absolute",
+    top: scale(26),
+    right: 0,
+    width: scale(105),
+    borderRadius: scale(9),
+    paddingVertical: scale(3),
+    borderWidth: 1,
+    shadowColor: "#000000",
+    shadowOpacity: 0.2,
+    shadowRadius: scale(8),
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 8,
+  },
+  rangeOption: { paddingHorizontal: scale(8), paddingVertical: scale(7) },
+  rangeOptionText: { color: "#5B6A94", fontSize: scale(8), fontFamily: fonts.semibold },
+  rangeOptionSelected: { color: "#EA580C", fontFamily: fonts.extrabold },
+  scEyebrow: { color: "rgba(255,255,255,0.92)", fontSize: scale(8), fontFamily: fonts.semibold },
   scKwhRow: { flexDirection: "row", alignItems: "baseline", gap: scale(3), marginTop: scale(1) },
-  scKwh: { color: "#FFFFFF", fontSize: scale(24), letterSpacing: -0.6, fontFamily: fonts.extrabold },
-  scKwhUnit: { color: "rgba(255,255,255,0.95)", fontSize: scale(10), fontFamily: fonts.bold },
+  scKwh: { color: "#FFFFFF", fontSize: scale(19), letterSpacing: -0.6, fontFamily: fonts.extrabold },
+  scKwhUnit: { color: "rgba(255,255,255,0.95)", fontSize: scale(9), fontFamily: fonts.bold },
+  scSavings: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: scale(3),
+    alignSelf: "flex-start",
+    marginTop: scale(1),
+    paddingHorizontal: scale(6),
+    paddingVertical: scale(2),
+    borderRadius: scale(8),
+    backgroundColor: "rgba(21,128,61,0.28)",
+  },
+  scSavingsText: { color: "#FFFFFF", fontSize: scale(7), fontFamily: fonts.semibold },
   scDelta: {
     flexDirection: "row",
     alignItems: "center",
@@ -1178,25 +1258,10 @@ const st = StyleSheet.create({
     borderColor: "rgba(255,255,255,0.32)",
     borderRadius: scale(12),
     paddingHorizontal: scale(8),
-    paddingVertical: scale(5),
+    paddingVertical: scale(4),
   },
   scDeltaValue: { color: "#FFFFFF", fontSize: scale(10), fontFamily: fonts.extrabold },
   scDeltaLabel: { color: "rgba(255,255,255,0.92)", fontSize: scale(6.5), fontFamily: fonts.medium },
-  scTrack: {
-    height: scale(5),
-    borderRadius: 99,
-    backgroundColor: "rgba(255,255,255,0.22)",
-    overflow: "hidden",
-    marginTop: scale(6),
-  },
-  scFill: { width: "68%", height: "100%", borderRadius: 99, backgroundColor: "#FFFFFF" },
-  scMetaRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginTop: scale(5),
-  },
-  scSub: { color: "rgba(255,255,255,0.92)", fontSize: scale(8.5), fontFamily: fonts.medium },
   scGraphLink: {
     flexDirection: "row",
     alignItems: "center",
@@ -1214,21 +1279,21 @@ const st = StyleSheet.create({
   scGraphLabel: { color: "rgba(255,255,255,0.86)", fontSize: scale(8), fontFamily: fonts.medium },
   scTiles: {
     flexDirection: "row",
-    marginTop: scale(8),
-    paddingTop: scale(8),
+    marginTop: scale(4),
+    paddingTop: scale(4),
     borderTopWidth: 1,
     borderTopColor: "rgba(255,255,255,0.24)",
   },
   scTile: { flex: 1, alignItems: "center" },
   scTileDivider: { borderLeftWidth: 1, borderLeftColor: "rgba(255,255,255,0.24)" },
   scTileIcon: {
-    width: scale(25),
-    height: scale(25),
+    width: scale(22),
+    height: scale(22),
     borderRadius: scale(9),
     backgroundColor: "#FFFFFF",
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: scale(5),
+    marginBottom: scale(3),
     shadowColor: "#0A2A4A",
     shadowOpacity: 0.25,
     shadowRadius: scale(6),

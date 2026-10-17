@@ -11,28 +11,17 @@ import { AppText as Text } from "../../components/app-text";
 import { Ionicons } from "@expo/vector-icons";
 import { ScreenShell } from "../../components/screen-shell";
 import { ContentCard } from "../../components/content-card";
-import { checkApiHealth, describeApiBase } from "../../lib/api";
-import { describeApiFailure } from "../../lib/network";
 import { useRouter } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 // @ts-ignore
 import Paho from "paho-mqtt";
 
-type Service = {
-  name: string;
-  icon: keyof typeof Ionicons.glyphMap;
-  status: "pending" | "ok" | "fail";
-  detail: string;
-};
-
 export default function DeviceScreen() {
   const router = useRouter();
   const { colors: c } = useTheme();
   const styles = makeStyles(c);
 
-  const PRUSSIAN = c.accent;
-  const BUTTER = c.butter;
   const OK = c.ok;
   const BAD = c.danger;
 
@@ -59,29 +48,6 @@ export default function DeviceScreen() {
     message: "",
     type: "warning",
   });
-
-  const [services, setServices] = useState<Service[]>([
-    {
-      name: "Backend API",
-      icon: "server-outline",
-      status: "pending",
-      detail: `Checking ${describeApiBase()}…`,
-    },
-    {
-      name: "Supabase",
-      icon: "cloud-outline",
-      status: "pending",
-      detail: "Waiting for backend…",
-    },
-    {
-      name: "Redis",
-      icon: "flash-outline",
-      status: "pending",
-      detail: "Waiting for backend…",
-    },
-  ]);
-  const [latency, setLatency] = useState<number | null>(null);
-  const [running, setRunning] = useState(false);
 
   useEffect(() => {
     AsyncStorage.getItem("bawatpieza_hub_id").then(setHubId);
@@ -170,52 +136,6 @@ export default function DeviceScreen() {
       );
     }
   }, [deviceStatus, waitingForRestart]);
-
-  const runDiagnostics = useCallback(async () => {
-    setRunning(true);
-    setServices((prev) =>
-      prev.map((s) => ({ ...s, status: "pending", detail: "Checking…" })),
-    );
-    try {
-      const { ms, json } = await checkApiHealth();
-      setLatency(ms);
-      setServices([
-        {
-          name: "Backend API",
-          icon: "server-outline",
-          status: "ok",
-          detail: `Reachable · ${ms} ms`,
-        },
-        {
-          name: "Supabase",
-          icon: "cloud-outline",
-          status: json?.supabase === "ok" ? "ok" : "fail",
-          detail: json?.supabase === "ok" ? "Connected" : "Unreachable",
-        },
-        {
-          name: "Redis",
-          icon: "flash-outline",
-          status: json?.redis === "ok" ? "ok" : "fail",
-          detail: json?.redis === "ok" ? "Connected" : "Unreachable",
-        },
-      ]);
-    } catch (err) {
-      setLatency(null);
-      const failure = describeApiFailure(
-        err,
-        "Unreachable — is the backend running?",
-      );
-      setServices((prev) =>
-        prev.map((s) => ({ ...s, status: "fail", detail: failure })),
-      );
-    } finally {
-      setRunning(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    runDiagnostics();
-  }, [runDiagnostics]);
 
   const showModal = (
     title: string,
@@ -456,50 +376,6 @@ export default function DeviceScreen() {
             </Pressable>
           </>
         )}
-      </ContentCard>
-
-      <ContentCard
-        eyebrow={latency !== null ? `Round trip ${latency} ms` : "Run checks"}
-        action={
-          <Text onPress={runDiagnostics} style={styles.rerun}>
-            {running ? "Running…" : "Re-run"}
-          </Text>
-        }
-      >
-        {services.map((s, i) => (
-          <View
-            key={s.name}
-            style={[
-              styles.row,
-              i === services.length - 1 ? styles.rowLast : null,
-            ]}
-          >
-            <View style={styles.icon}>
-              <Ionicons name={s.icon} size={17} color={PRUSSIAN} />
-            </View>
-            <View style={styles.text}>
-              <Text style={styles.label}>{s.name}</Text>
-              <Text style={styles.sub}>{s.detail}</Text>
-            </View>
-            {running && s.status === "pending" ? (
-              <ActivityIndicator size="small" color={PRUSSIAN} />
-            ) : (
-              <View
-                style={[
-                  styles.dot,
-                  {
-                    backgroundColor:
-                      s.status === "ok"
-                        ? OK
-                        : s.status === "fail"
-                          ? BAD
-                          : BUTTER,
-                  },
-                ]}
-              />
-            )}
-          </View>
-        ))}
       </ContentCard>
 
       <Modal

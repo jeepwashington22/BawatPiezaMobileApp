@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Image, Pressable, StyleSheet, View, Modal } from 'react-native';
+import { ActivityIndicator, Alert, Image, Pressable, StyleSheet, Switch, View, Modal } from 'react-native';
 import { AppText as Text } from '../../components/app-text';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
@@ -7,6 +7,7 @@ import { useRouter, type Href } from 'expo-router';
 import { ScreenShell } from '../../components/screen-shell';
 import { TileLoader } from '../../components/tile-loader';
 import { supabase, signOut } from '../../lib/supabase';
+import { apiFetch } from '../../lib/api';
 import { useTheme, fonts, type ThemeColors } from '../../theme';
 
 const MUTED = 'rgba(10, 42, 74, 0.62)';
@@ -23,6 +24,11 @@ type HubButton = {
 
 type HubSection = { title: string; items: HubButton[] };
 
+type AccessSummary = {
+  invited: number;
+  pending: number;
+};
+
 const SECTIONS: HubSection[] = [
   {
     title: 'AUDIT TRAIL',
@@ -32,7 +38,7 @@ const SECTIONS: HubSection[] = [
     title: 'DEVICE MANAGEMENT',
     items: [
       { icon: 'wifi-outline', label: 'Connections', sub: 'Manage paired devices', href: '/pages/device' },
-      { icon: 'people-outline', label: 'Manage Access', sub: '2 invited · 1 pending', href: '/pages/accounts' },
+      { icon: 'people-outline', label: 'Manage Access', sub: 'Loading access…', href: '/pages/accounts' },
       { icon: 'options-outline', label: 'System Thresholds', sub: 'Tile floor, degradation & watch list rules', href: '/pages/thresholds' },
     ],
   },
@@ -77,6 +83,9 @@ export default function ProfileScreen() {
   // save modal before it is uploaded.
   const [pendingImage, setPendingImage] = useState<{ uri: string; mimeType?: string } | null>(null);
   const [showLogoutModal, setShowLogoutModal] = useState(false);
+  const [twoFactorEnabled, setTwoFactorEnabled] = useState(false);
+  const [updatingTwoFactor, setUpdatingTwoFactor] = useState(false);
+  const [accessSummary, setAccessSummary] = useState<AccessSummary | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -85,8 +94,36 @@ export default function ProfileScreen() {
         if (userErr) throw userErr;
         setEmail(userData.user?.email ?? null);
         setAvatarUrl(userData.user?.user_metadata?.avatar_url ?? null);
+        setTwoFactorEnabled(userData.user?.user_metadata?.two_factor_enabled === true);
         setUserId(userData.user?.id ?? null);
         if (userData.user) {
+          const { data: sessionData } = await supabase.auth.getSession();
+          const token = sessionData.session?.access_token;
+          if (token) {
+            try {
+              const headers = { Authorization: `Bearer ${token}` };
+              const [sharedResponse, invitesResponse] = await Promise.all([
+                apiFetch('/accounts?shared=1', { headers }),
+                apiFetch('/accounts/invites', { headers }),
+              ]);
+              if (sharedResponse.ok && invitesResponse.ok) {
+                const sharedJson = (await sharedResponse.json()) as { accounts?: unknown[] };
+                const invitesJson = (await invitesResponse.json()) as {
+                  received?: { status?: string }[];
+                  sent?: { status?: string }[];
+                };
+                const pendingReceived = (invitesJson.received ?? []).filter((invite) => invite.status === 'pending').length;
+                const pendingSent = (invitesJson.sent ?? []).filter((invite) => invite.status === 'pending').length;
+                setAccessSummary({
+                  invited: sharedJson.accounts?.length ?? 0,
+                  pending: pendingReceived + pendingSent,
+                });
+              }
+            } catch {
+              // Access counts are supplementary; keep the profile usable if
+              // the accounts API is temporarily unavailable.
+            }
+          }
           const { data: rows, error: profErr } = await supabase
             .from('user_accounts')
             .select('firstname, lastname, role')
@@ -106,6 +143,43 @@ export default function ProfileScreen() {
       }
     })();
   }, []);
+
+  const sections = SECTIONS.map((section) => ({
+    ...section,
+    items: section.items.map((item) =>
+      item.label === 'Manage Access'
+        ? {
+            ...item,
+            sub: accessSummary
+              ? `${accessSummary.invited} invited · ${accessSummary.pending} pending`
+              : item.sub,
+          }
+        : item,
+    ),
+  }));
+
+  const handleTwoFactorToggle = async (enabled: boolean) => {
+    const previous = twoFactorEnabled;
+    setTwoFactorEnabled(enabled);
+    setUpdatingTwoFactor(true);
+    try {
+      const { error } = await supabase.auth.updateUser({
+        data: { two_factor_enabled: enabled },
+      });
+      if (error) throw error;
+      Alert.alert(
+        enabled ? 'Two-factor authentication enabled' : 'Two-factor authentication disabled',
+        enabled
+          ? `A one-time code will be sent to ${email ?? 'your email'} every time you sign in.`
+          : 'Your password will be enough to sign in.',
+      );
+    } catch (error) {
+      setTwoFactorEnabled(previous);
+      Alert.alert('Could not update two-factor authentication', error instanceof Error ? error.message : 'Please try again.');
+    } finally {
+      setUpdatingTwoFactor(false);
+    }
+  };
 
   /** Opens the device photo library; the chosen photo is previewed in the save modal. */
   const handleAvatarPress = async () => {
@@ -223,7 +297,7 @@ export default function ProfileScreen() {
         <Text style={styles.profileHeaderEmail}>{email ?? '—'}</Text>
       </View>
 
-      {SECTIONS.map((section) => (
+      {sections.map((section) => (
         <View key={section.title} style={styles.section}>
           <Text style={styles.sectionTitle}>{section.title}</Text>
           {section.items.map((b) => (
@@ -250,6 +324,24 @@ export default function ProfileScreen() {
           ))}
         </View>
       ))}
+      <Text style={styles.sectionTitle}>SECURITY</Text>
+      <View style={styles.securityCard}>
+        <View style={styles.hubIcon}>
+          <Ionicons name="shield-checkmark-outline" size={18} color={c.orange} />
+        </View>
+        <View style={styles.securityText}>
+          <Text style={styles.hubLabel}>Two-factor authentication</Text>
+          <Text style={styles.hubSub}>Email a one-time code after password sign-in</Text>
+        </View>
+        <Switch
+          value={twoFactorEnabled}
+          onValueChange={handleTwoFactorToggle}
+          disabled={updatingTwoFactor}
+          trackColor={{ false: c.line, true: c.orange }}
+          thumbColor="#FFFFFF"
+          accessibilityLabel="Enable two-factor authentication"
+        />
+      </View>
 
       {/* Logout button */}
       <Pressable 
@@ -438,6 +530,8 @@ const makeStyles = (c: ThemeColors, f: any) => {
   hubText: { flex: 1 },
   hubLabel: { color: c.text, fontSize: 12, fontWeight: '800', fontFamily: f.extrabold },
   hubSub: { color: MUTED, fontSize: 10, marginTop: 2 },
+  securityCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: c.surface, borderRadius: 16, borderWidth: 1, borderColor: LINE, paddingHorizontal: 14, paddingVertical: 11, marginBottom: 8, minHeight: 68 },
+  securityText: { flex: 1, marginRight: 8 },
   onlineState: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   onlineDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: '#1764B0' },
   onlineText: { color: c.text, fontSize: 10, fontFamily: f.bold },
@@ -558,7 +652,3 @@ const makeStyles = (c: ThemeColors, f: any) => {
   },
 });
 };
-
-
-
-

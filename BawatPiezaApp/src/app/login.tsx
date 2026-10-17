@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   View,
   Image,
@@ -6,6 +6,7 @@ import {
   TouchableOpacity,
   StyleSheet,
   KeyboardAvoidingView,
+  Modal,
   Platform,
   Alert,
   ActivityIndicator,
@@ -13,11 +14,12 @@ import {
 import { AppText as Text } from '../components/app-text';
 import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { fonts } from '../theme';
 import { Ionicons } from '@expo/vector-icons';
-import { isGoogleSignInCancelled, signInWithGoogle, supabase } from '../lib/supabase';
+import { isGoogleSignInCancelled, sendWelcomeEmailIfNew, signInWithGoogle, supabase } from '../lib/supabase';
 import { useAuth } from '../hooks/use-auth';
+import { apiFetch } from '../lib/api';
 
 const ORANGE = '#F97316';
 const ORANGE_DARK = '#C2410C';
@@ -28,19 +30,44 @@ const LINE = 'rgba(255, 255, 255, 0.12)';
 export default function LoginScreen() {
   const router = useRouter();
   const { ready, isLoggedIn } = useAuth();
+  const { email: emailParam } = useLocalSearchParams<{ email?: string | string[] }>();
   const [email, setEmail] = useState('');
+  const [prefilledEmail, setPrefilledEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [remember, setRemember] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [googleSubmitting, setGoogleSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [twoFactorChallenge, setTwoFactorChallenge] = useState<string | null>(null);
+  const [twoFactorDigits, setTwoFactorDigits] = useState<string[]>(['', '', '', '', '', '']);
+  const twoFactorOtp = twoFactorDigits.join('');
+  const twoFactorInputs = useRef<(TextInput | null)[]>([]);
+  const [twoFactorBusy, setTwoFactorBusy] = useState(false);
+  const [twoFactorMessage, setTwoFactorMessage] = useState('');
 
   // Session-based: a logged-in user landing on /login (e.g. via a link)
   // goes straight to /home instead of seeing the sign-in form.
   useEffect(() => {
     if (ready && isLoggedIn) router.replace('/home');
   }, [ready, isLoggedIn, router]);
+
+  // Fresh signups land here with ?email= so the user logs in with the same
+  // credentials — and sees the verify-first reminder from the success modal.
+  // The timeout defers setState out of the effect body (react-hooks/set-state-in-effect).
+  useEffect(() => {
+    const incoming = Array.isArray(emailParam) ? emailParam[0] : emailParam;
+    const value = (incoming ?? '').trim().toLowerCase();
+    if (!value || value === prefilledEmail) return;
+    const timer = setTimeout(() => {
+      setEmail(value);
+      setPrefilledEmail(value);
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [emailParam, prefilledEmail]);
+  const notice = prefilledEmail
+    ? `Account created for ${prefilledEmail}. Open the verification email we sent, confirm your address, then sign in with your credentials.`
+    : null;
 
   const handleLogin = async () => {
     const trimmedEmail = email.trim();
@@ -65,24 +92,115 @@ export default function LoginScreen() {
     setError(null);
 
     try {
-      const { error: signInError } = await supabase.auth.signInWithPassword({
-        email: trimmedEmail.toLowerCase(),
-        password,
+      const response = await apiFetch('/accounts/2fa/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: trimmedEmail.toLowerCase(), password }),
       });
 
-      if (signInError) {
-        setError(signInError.message === 'Invalid login credentials' ? 'Incorrect email or password.' : signInError.message);
+      const result = (await response.json()) as {
+        message?: string;
+        error?: string;
+        requiresTwoFactor?: boolean;
+        challengeId?: string;
+        session?: { access_token: string; refresh_token: string };
+      };
+      if (!response.ok) throw new Error(result.error ?? result.message ?? 'Unable to sign in right now.');
+
+      if (result.requiresTwoFactor && result.challengeId) {
+        setTwoFactorChallenge(result.challengeId);
+        setTwoFactorMessage(result.message ?? 'A verification code was sent to your email.');
+        setTwoFactorDigits(['', '', '', '', '', '']);
+        requestAnimationFrame(() => twoFactorInputs.current[0]?.focus());
         return;
       }
+
+      if (!result.session) throw new Error('The sign-in service returned an incomplete session.');
+      const { error: sessionError } = await supabase.auth.setSession(result.session);
+      if (sessionError) throw sessionError;
+      void sendWelcomeEmailIfNew();
 
       setSubmitting(false);
       router.replace('/home');
     } catch (authError) {
       const message = authError instanceof Error ? authError.message : 'Unable to sign in right now.';
       setError(message);
-      Alert.alert('Login failed', message);
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const handleTwoFactorDigit = (index: number, value: string) => {
+    const digits = value.replace(/\D/g, '');
+    setTwoFactorDigits((previous) => {
+      const next = [...previous];
+      if (digits.length > 1) {
+        digits.slice(0, 6 - index).split('').forEach((digit, offset) => {
+          next[index + offset] = digit;
+        });
+      } else {
+        next[index] = digits;
+      }
+      return next;
+    });
+
+    if (digits.length > 1) {
+      const focusIndex = Math.min(index + digits.length, 5);
+      requestAnimationFrame(() => twoFactorInputs.current[focusIndex]?.focus());
+    } else if (digits && index < 5) {
+      requestAnimationFrame(() => twoFactorInputs.current[index + 1]?.focus());
+    }
+  };
+
+  const handleTwoFactorKeyPress = (index: number, key: string) => {
+    if (key !== 'Backspace') return;
+    if (twoFactorDigits[index]) {
+      setTwoFactorDigits((previous) => {
+        const next = [...previous];
+        next[index] = '';
+        return next;
+      });
+      return;
+    }
+    if (index > 0) {
+      twoFactorInputs.current[index - 1]?.focus();
+      setTwoFactorDigits((previous) => {
+        const next = [...previous];
+        next[index - 1] = '';
+        return next;
+      });
+    }
+  };
+
+  const verifyTwoFactor = async () => {
+    if (!twoFactorChallenge || !/^\d{6}$/.test(twoFactorOtp)) {
+      setError('Enter the 6-digit code sent to your email.');
+      return;
+    }
+    setTwoFactorBusy(true);
+    setError(null);
+    try {
+      const response = await apiFetch('/accounts/2fa/verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ challengeId: twoFactorChallenge, otp: twoFactorOtp }),
+      });
+      const result = (await response.json()) as {
+        message?: string;
+        error?: string;
+        session?: { access_token: string; refresh_token: string };
+      };
+
+      if (!response.ok || !result.session) throw new Error(result.error ?? result.message ?? 'Unable to verify the code.');
+      const { error: sessionError } = await supabase.auth.setSession(result.session);
+      if (sessionError) throw sessionError;
+      void sendWelcomeEmailIfNew();
+      setTwoFactorChallenge(null);
+      router.replace('/home');
+    } catch (authError) {
+      setError(authError instanceof Error ? authError.message : 'Unable to verify the code.');
+    } finally {
+      setTwoFactorBusy(false);
     }
   };
 
@@ -160,6 +278,8 @@ export default function LoginScreen() {
               </TouchableOpacity>
             </View>
 
+            {notice ? <Text style={styles.noticeText}>{notice}</Text> : null}
+
             {error ? <Text style={styles.errorText}>{error}</Text> : null}
 
             <TouchableOpacity style={styles.primaryButton} onPress={handleLogin} activeOpacity={0.9} disabled={submitting}>
@@ -199,6 +319,45 @@ export default function LoginScreen() {
           </View>
         </KeyboardAvoidingView>
       </SafeAreaView>
+      <Modal visible={twoFactorChallenge !== null} transparent animationType="fade" onRequestClose={() => setTwoFactorChallenge(null)}>
+        <View style={styles.twoFactorOverlay}>
+          <View style={styles.twoFactorCard}>
+            <Ionicons name="shield-checkmark-outline" size={30} color={ORANGE} />
+            <Text style={styles.twoFactorTitle}>Verify your sign-in</Text>
+            <Text style={styles.twoFactorMessage}>{twoFactorMessage}</Text>
+            <View style={styles.twoFactorOtpRow}>
+              {twoFactorDigits.map((digit, index) => (
+                <TextInput
+                  key={index}
+                  ref={(input) => { twoFactorInputs.current[index] = input; }}
+                  style={styles.twoFactorInput}
+                  value={digit}
+                  onChangeText={(value) => handleTwoFactorDigit(index, value)}
+                  onKeyPress={({ nativeEvent }) => handleTwoFactorKeyPress(index, nativeEvent.key)}
+                  placeholder="•"
+                  placeholderTextColor="rgba(255,255,255,0.35)"
+                  keyboardType="number-pad"
+                  maxLength={index === 0 ? 6 : 1}
+                  autoFocus={index === 0}
+                  textAlign="center"
+                />
+              ))}
+            </View>
+            {error ? <Text style={styles.twoFactorError}>{error}</Text> : null}
+            <TouchableOpacity
+              style={styles.twoFactorButton}
+              onPress={verifyTwoFactor}
+              disabled={twoFactorBusy}
+              activeOpacity={0.9}
+            >
+              {twoFactorBusy ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.twoFactorButtonText}>Verify and sign in</Text>}
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => setTwoFactorChallenge(null)} disabled={twoFactorBusy}>
+              <Text style={styles.twoFactorCancel}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -208,6 +367,16 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#050A15',
   },
+  twoFactorOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.68)', alignItems: 'center', justifyContent: 'center', padding: 20 },
+  twoFactorCard: { width: '100%', maxWidth: 390, borderRadius: 18, backgroundColor: '#2A0D06', borderWidth: 1, borderColor: 'rgba(249,115,22,0.35)', padding: 24, alignItems: 'center' },
+  twoFactorTitle: { color: '#FFFFFF', fontSize: 20, fontFamily: fonts.extrabold, marginTop: 10 },
+  twoFactorMessage: { color: 'rgba(255,255,255,0.72)', fontSize: 12, fontFamily: fonts.medium, lineHeight: 18, textAlign: 'center', marginTop: 8, marginBottom: 16 },
+  twoFactorOtpRow: { flexDirection: 'row', justifyContent: 'center', gap: 8, marginBottom: 10 },
+  twoFactorInput: { width: 42, height: 50, borderRadius: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.18)', backgroundColor: 'rgba(255,255,255,0.08)', color: '#FFFFFF', fontSize: 24, fontFamily: fonts.extrabold, paddingVertical: 0 },
+  twoFactorError: { color: '#FDBA74', fontSize: 11, textAlign: 'center', marginBottom: 10 },
+  twoFactorButton: { width: '100%', borderRadius: 9, backgroundColor: ORANGE, alignItems: 'center', paddingVertical: 14, marginBottom: 12 },
+  twoFactorButtonText: { color: '#FFFFFF', fontSize: 13, fontFamily: fonts.extrabold },
+  twoFactorCancel: { color: '#FDBA74', fontSize: 12, fontFamily: fonts.semibold, padding: 6 },
   safeArea: {
     flex: 1,
   },
@@ -297,6 +466,18 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.75)',
     fontSize: 11,
     fontWeight: '500', fontFamily: fonts.medium,
+  },
+  noticeText: {
+    backgroundColor: 'rgba(34, 197, 94, 0.12)',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(34,197,94,0.35)',
+    color: '#BBF7D0',
+    fontSize: 12,
+    fontWeight: '600', fontFamily: fonts.semibold,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginBottom: 16,
   },
   errorText: {
     backgroundColor: 'rgba(239, 68, 68, 0.12)',

@@ -53,12 +53,20 @@ export function useTermsReading(enabled: boolean = true) {
     [unlockIfFullyVisible],
   );
 
-  const onScroll = useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
+  const markReachedEnd = useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
     const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
     if (contentOffset.y + layoutMeasurement.height >= contentSize.height - END_TOLERANCE) {
       setReachedEnd(true);
     }
   }, []);
 
-  return { reachedEnd, reset, onLayout, onContentSizeChange, onScroll };
+  return {
+    reachedEnd,
+    reset,
+    onLayout,
+    onContentSizeChange,
+    onScroll: markReachedEnd,
+    onScrollEndDrag: markReachedEnd,
+    onMomentumScrollEnd: markReachedEnd,
+  };
 }

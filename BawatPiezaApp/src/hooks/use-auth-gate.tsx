@@ -27,8 +27,14 @@ function isPublicRoute(pathname: string): boolean {
  * - No session + protected route (incl. deep links like `/home`,
  *   `/pages/profile`) → `router.replace('/login')`. The user must log in
  *   first; there is no way around the gate.
- * - Session + auth route (`/`, `/login`, `/signup`, …) → forward to `/home`
+ * - Session + auth route (`/`, `/login`, `/onboarding`, …) → forward to `/home`
  *   so a logged-in user never sits on the login screen.
+ * - NOTE: `/signup` is deliberately NOT forwarded. Right after a manual
+ *   sign-up Supabase may briefly report a session (when "Confirm email" is
+ *   OFF) before the signup screen signs it out; forwarding `/signup` would
+ *   flash the dashboard and destroy the success + verify-email modal.
+ *   The signup screen guards itself instead (redirects to /home only when
+ *   idle with no success modal showing).
  * - Waits for `ready` so the splash screen covers the decision and no
  *   protected link flashes for a logged-out user.
  * - Manual-logout-only: nothing here expires the session on a timer. It ends

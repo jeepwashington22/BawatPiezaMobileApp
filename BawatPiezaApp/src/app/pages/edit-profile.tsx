@@ -8,6 +8,13 @@ import { ScreenShell } from '../../components/screen-shell';
 import { TileLoader } from '../../components/tile-loader';
 import { ContentCard } from '../../components/content-card';
 import { supabase } from '../../lib/supabase';
+import {
+  describeAuthError,
+  PASSWORD_MIN_LENGTH,
+  validateContactNumber,
+  validateNamePart,
+  validateNewPassword,
+} from '../../lib/validation';
 
 const MUTED = 'rgba(10, 42, 74, 0.62)';
 
@@ -16,7 +23,6 @@ type ProfileRow = {
   middlename?: string | null;
   lastname?: string | null;
   contactNo?: string | null;
-  role?: string | null;
 };
 
 export default function EditProfileScreen() {
@@ -35,8 +41,15 @@ export default function EditProfileScreen() {
   const [email, setEmail] = useState<string | null>(null);
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [profile, setProfile] = useState<ProfileRow | null>(null);
+  const [firstName, setFirstName] = useState('');
+  const [middleName, setMiddleName] = useState('');
+  const [lastName, setLastName] = useState('');
+  const [contactNumber, setContactNumber] = useState('');
+  const [savingProfile, setSavingProfile] = useState(false);
+  const [profileMsg, setProfileMsg] = useState<string | null>(null);
 
   // Change-password form
+  const [currentPassword, setCurrentPassword] = useState('');
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
   const [savingPw, setSavingPw] = useState(false);
@@ -56,10 +69,17 @@ export default function EditProfileScreen() {
         if (userData.user) {
           const { data: rows } = await supabase
             .from('user_accounts')
-            .select('firstname, middlename, lastname, "contactNo", role')
+            .select('firstname, middlename, lastname, "contactNo"')
             .eq('id', userData.user.id)
             .maybeSingle();
-          if (rows) setProfile(rows as ProfileRow);
+          if (rows) {
+            const loaded = rows as ProfileRow;
+            setProfile(loaded);
+            setFirstName(loaded.firstname ?? '');
+            setMiddleName(loaded.middlename ?? '');
+            setLastName(loaded.lastname ?? '');
+            setContactNumber(loaded.contactNo ?? '');
+          }
         }
       } catch (e) {
         Alert.alert('Error', e instanceof Error ? e.message : 'Failed to load profile');
@@ -70,33 +90,86 @@ export default function EditProfileScreen() {
   }, []);
 
   const displayName =
-    [profile?.firstname, profile?.lastname].filter(Boolean).join(' ') ||
+    [firstName || profile?.firstname, lastName || profile?.lastname].filter(Boolean).join(' ') ||
     email ||
     'User';
+  const passwordReady = Boolean(currentPassword) && !validateNewPassword(password, confirm);
+
+  const saveProfile = async () => {
+    setProfileMsg(null);
+    const firstError = validateNamePart(firstName, 'First name');
+    const lastError = validateNamePart(lastName, 'Last name');
+    const contactError = validateContactNumber(contactNumber);
+    if (firstError || lastError || contactError) {
+      setProfileMsg(firstError || lastError || contactError);
+      return;
+    }
+    if (!userId) {
+      setProfileMsg('Your account could not be identified. Please sign in again.');
+      return;
+    }
+    setSavingProfile(true);
+    try {
+      const { data: updatedProfile, error } = await supabase
+        .from('user_accounts')
+        .update({
+          firstname: firstName.trim(),
+          middlename: middleName.trim() || null,
+          lastname: lastName.trim(),
+          contactNo: contactNumber.trim(),
+        })
+        .eq('id', userId)
+        .select('firstname, middlename, lastname, "contactNo"')
+        .maybeSingle();
+      if (error) throw error;
+      if (!updatedProfile) {
+        throw new Error('Profile changes were not saved. Please check your account permissions and try again.');
+      }
+      const saved = updatedProfile as ProfileRow;
+      setProfile(saved);
+      setFirstName(saved.firstname ?? '');
+      setMiddleName(saved.middlename ?? '');
+      setLastName(saved.lastname ?? '');
+      setContactNumber(saved.contactNo ?? '');
+      setProfileMsg('Profile changes saved successfully.');
+    } catch (error) {
+      setProfileMsg(error instanceof Error ? error.message : 'Could not save profile changes.');
+    } finally {
+      setSavingProfile(false);
+    }
+  };
 
   const changePassword = async () => {
     setPwMsg(null);
-    if (password.length < 8) {
+    if (!currentPassword) {
       setPwOk(false);
-      setPwMsg('Password must be at least 8 characters.');
+      setPwMsg('Enter your current password before choosing a new one.');
       return;
     }
-    if (password !== confirm) {
+    const validationError = validateNewPassword(password, confirm);
+    if (validationError) {
       setPwOk(false);
-      setPwMsg('Passwords do not match.');
+      setPwMsg(validationError);
       return;
     }
     setSavingPw(true);
     try {
+      if (!email) throw new Error('Your email address is unavailable. Please sign in again.');
+      const { error: verifyErr } = await supabase.auth.signInWithPassword({
+        email,
+        password: currentPassword,
+      });
+      if (verifyErr) throw verifyErr;
       const { error: updErr } = await supabase.auth.updateUser({ password });
       if (updErr) throw updErr;
       setPwOk(true);
       setPwMsg('Password updated successfully.');
+      setCurrentPassword('');
       setPassword('');
       setConfirm('');
     } catch (e) {
       setPwOk(false);
-      setPwMsg(e instanceof Error ? e.message : 'Failed to update password');
+      setPwMsg(describeAuthError(e instanceof Error ? { message: e.message } : null, 'password'));
     } finally {
       setSavingPw(false);
     }
@@ -163,52 +236,134 @@ export default function EditProfileScreen() {
   return (
     <ScreenShell title="Edit Profile" showBack>
       {/* Avatar + upload */}
-      <View style={styles.hero}>
-        <TouchableOpacity onPress={pickAvatar} disabled={uploading} activeOpacity={0.8}>
-          {avatarUrl ? (
-            <Image source={{ uri: avatarUrl }} style={styles.avatarImage} />
-          ) : (
-            <View style={styles.avatar}>
-              <Text style={styles.avatarText}>{displayName.charAt(0).toUpperCase()}</Text>
+      <View style={styles.heroCard}>
+        <View style={styles.heroAccent} />
+        <View style={styles.hero}>
+          <TouchableOpacity onPress={pickAvatar} disabled={uploading} activeOpacity={0.8}>
+            {avatarUrl ? (
+              <Image source={{ uri: avatarUrl }} style={styles.avatarImage} />
+            ) : (
+              <View style={styles.avatar}>
+                <Text style={styles.avatarText}>{displayName.charAt(0).toUpperCase()}</Text>
+              </View>
+            )}
+            <View style={styles.camBadge}>
+              <Ionicons name={uploading ? 'hourglass-outline' : 'camera-outline'} size={12} color={PRUSSIAN} />
             </View>
-          )}
-          <View style={styles.camBadge}>
-            <Ionicons name={uploading ? 'hourglass-outline' : 'camera-outline'} size={14} color={PRUSSIAN} />
+          </TouchableOpacity>
+          <View style={styles.heroCopy}>
+            <Text style={styles.heroEyebrow}>ACCOUNT SETTINGS</Text>
+            <Text numberOfLines={1} style={styles.heroName}>{displayName}</Text>
+            <Text numberOfLines={1} style={styles.heroEmail}>{email ?? 'Manage your profile'}</Text>
+            <Text style={styles.tapHint}>{uploading ? 'Uploading…' : 'Tap photo to change'}</Text>
           </View>
-        </TouchableOpacity>
-        <Text style={styles.tapHint}>{uploading ? 'Uploading…' : 'Tap photo to change'}</Text>
+        </View>
       </View>
 
       {/* Info */}
-      <ContentCard eyebrow="BawatPieza">
-        <Detail label="First name" value={profile?.firstname} />
-        <Detail label="Middle name" value={profile?.middlename} />
-        <Detail label="Last name" value={profile?.lastname} />
+      <ContentCard style={styles.sectionCard} eyebrow="Personal details" title="Profile information">
+        {profileMsg ? <Text style={profileMsg.includes('successfully') ? styles.msgOk : styles.msgErr}>{profileMsg}</Text> : null}
+        <EditableField label="First name" value={firstName} onChangeText={setFirstName} styles={styles} />
+        <EditableField label="Middle name" value={middleName} onChangeText={setMiddleName} styles={styles} />
+        <EditableField label="Last name" value={lastName} onChangeText={setLastName} styles={styles} />
         <Detail label="Email" value={email} />
-        <Detail label="Contact No." value={profile?.contactNo} />
-        <Detail label="Role" value={profile?.role} last />
+        <EditableField
+          label="Contact No."
+          value={contactNumber}
+          onChangeText={(value) => setContactNumber(value.replace(/[^\d+]/g, '').slice(0, 13))}
+          keyboardType="phone-pad"
+          styles={styles}
+        />
+        <TouchableOpacity
+          style={[styles.profileSaveBtn, savingProfile && styles.saveBtnDisabled]}
+          onPress={saveProfile}
+          disabled={savingProfile}
+        >
+          <Ionicons name={savingProfile ? 'hourglass-outline' : 'checkmark-circle-outline'} size={16} color={WHITE} />
+          <Text style={styles.saveText}>{savingProfile ? 'Saving changes…' : 'Save profile changes'}</Text>
+        </TouchableOpacity>
       </ContentCard>
 
       {/* Change password */}
-      <ContentCard eyebrow="Security">
+      <ContentCard style={styles.sectionCard} eyebrow="Security" title="Change password">
+        <Text style={styles.securityIntro}>Verify your current password, then create a stronger one.</Text>
         {pwMsg ? (
           <Text style={pwOk ? styles.msgOk : styles.msgErr}>{pwMsg}</Text>
         ) : null}
+        <Text style={styles.label}>Current password</Text>
+        <View style={styles.inputBox}>
+          <Ionicons name="key-outline" size={17} color={MUTED} style={styles.inputIcon} />
+          <TextInput style={styles.input} placeholder="Enter current password" placeholderTextColor={MUTED} secureTextEntry value={currentPassword} onChangeText={setCurrentPassword} />
+        </View>
         <Text style={styles.label}>New password</Text>
         <View style={styles.inputBox}>
           <Ionicons name="lock-closed-outline" size={17} color={MUTED} style={styles.inputIcon} />
-          <TextInput style={styles.input} placeholder="At least 8 characters" placeholderTextColor={MUTED} secureTextEntry value={password} onChangeText={setPassword} />
+          <TextInput style={styles.input} placeholder={`At least ${PASSWORD_MIN_LENGTH} characters`} placeholderTextColor={MUTED} secureTextEntry value={password} onChangeText={setPassword} />
+        </View>
+        <View style={styles.passwordChecklist}>
+          {[
+            [`At least ${PASSWORD_MIN_LENGTH} characters`, password.length >= PASSWORD_MIN_LENGTH],
+            ['Uppercase letter', /[A-Z]/.test(password)],
+            ['Lowercase letter', /[a-z]/.test(password)],
+            ['Number', /\d/.test(password)],
+            ['Special character', /[^A-Za-z0-9]/.test(password)],
+          ].map(([label, met]) => (
+            <View key={String(label)} style={styles.checkRow}>
+              <Ionicons name={met ? 'checkmark-circle' : 'ellipse-outline'} size={14} color={met ? OK : MUTED} />
+              <Text style={[styles.checkText, met && styles.checkTextMet]}>{String(label)}</Text>
+            </View>
+          ))}
         </View>
         <Text style={styles.label}>Confirm new password</Text>
         <View style={styles.inputBox}>
           <Ionicons name="lock-closed-outline" size={17} color={MUTED} style={styles.inputIcon} />
           <TextInput style={styles.input} placeholder="Repeat new password" placeholderTextColor={MUTED} secureTextEntry value={confirm} onChangeText={setConfirm} />
         </View>
-        <TouchableOpacity style={styles.saveBtn} onPress={changePassword} disabled={savingPw}>
+        {confirm.length > 0 && (
+          <Text style={password === confirm ? styles.matchOk : styles.matchErr}>
+            {password === confirm ? 'Passwords match' : 'Passwords do not match'}
+          </Text>
+        )}
+        <TouchableOpacity
+          style={[styles.saveBtn, !passwordReady && styles.saveBtnDisabled]}
+          onPress={changePassword}
+          disabled={savingPw || !passwordReady}
+          accessibilityRole="button"
+          accessibilityLabel="Update password"
+        >
           <Text style={styles.saveText}>{savingPw ? 'Updating…' : 'Update password'}</Text>
         </TouchableOpacity>
       </ContentCard>
     </ScreenShell>
+  );
+}
+
+function EditableField({
+  label,
+  value,
+  onChangeText,
+  keyboardType,
+  styles,
+}: {
+  label: string;
+  value: string;
+  onChangeText: (value: string) => void;
+  keyboardType?: 'default' | 'phone-pad';
+  styles: ReturnType<typeof makeStyles>;
+}) {
+  return (
+    <View style={styles.editField}>
+      <Text style={styles.editFieldLabel}>{label}</Text>
+      <TextInput
+        value={value}
+        onChangeText={onChangeText}
+        style={styles.editInput}
+        keyboardType={keyboardType}
+        placeholder={`Enter ${label.toLowerCase()}`}
+        placeholderTextColor={styles.placeholder.color}
+        autoCapitalize={label === 'Contact No.' ? 'none' : 'words'}
+      />
+    </View>
   );
 }
 
@@ -232,64 +387,129 @@ const makeStyles = (c: ThemeColors) => {
   const WHITE = c.onAccent;
   return StyleSheet.create({
   loaderWrap: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  hero: { alignItems: 'center', marginBottom: 18 },
+  sectionCard: { borderRadius: 13, padding: 11, marginBottom: 9 },
+  heroCard: {
+    position: 'relative',
+    overflow: 'hidden',
+    borderRadius: 15,
+    backgroundColor: c.surface,
+    borderWidth: 1,
+    borderColor: LINE,
+    marginBottom: 10,
+  },
+  heroAccent: { height: 3, backgroundColor: PRUSSIAN },
+  hero: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 13,
+  },
   avatar: {
-    width: 96,
-    height: 96,
-    borderRadius: 48,
+    width: 70,
+    height: 70,
+    borderRadius: 35,
     backgroundColor: BUTTER,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  avatarImage: { width: 96, height: 96, borderRadius: 48, borderWidth: 2, borderColor: BUTTER },
-  avatarText: { color: PRUSSIAN, fontSize: 36, fontWeight: '900', fontFamily: fonts.extrabold },
+  avatarImage: { width: 70, height: 70, borderRadius: 35, borderWidth: 2, borderColor: BUTTER },
+  avatarText: { color: PRUSSIAN, fontSize: 27, fontWeight: '900', fontFamily: fonts.extrabold },
   camBadge: {
     position: 'absolute',
     right: 0,
     bottom: 0,
-    width: 28,
-    height: 28,
-    borderRadius: 14,
+    width: 23,
+    height: 23,
+    borderRadius: 12,
     backgroundColor: c.surface,
     borderWidth: 1,
     borderColor: LINE,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  tapHint: { color: MUTED, fontSize: 11, marginTop: 8 },
-  msgOk: { color: c.ok, fontSize: 12, fontWeight: '700', fontFamily: fonts.bold, marginBottom: 10 },
-  msgErr: { color: c.danger, fontSize: 12, fontWeight: '700', fontFamily: fonts.bold, marginBottom: 10 },
-  label: { color: MUTED, fontSize: 12, fontWeight: '700', fontFamily: fonts.bold, marginBottom: 6 },
+  heroCopy: { flex: 1, minWidth: 0 },
+  tapHint: { color: MUTED, fontSize: 9, marginTop: 4 },
+  heroEyebrow: { color: PRUSSIAN, fontSize: 8, letterSpacing: 1.4, fontFamily: fonts.extrabold },
+  heroName: { color: PRUSSIAN, fontSize: 17, fontFamily: fonts.extrabold, marginTop: 1 },
+  heroEmail: { color: MUTED, fontSize: 9, fontFamily: fonts.medium, marginTop: 1 },
+  msgOk: { color: c.ok, fontSize: 10, fontWeight: '700', fontFamily: fonts.bold, marginBottom: 7 },
+  msgErr: { color: c.danger, fontSize: 10, fontWeight: '700', fontFamily: fonts.bold, marginBottom: 7 },
+  securityIntro: { color: MUTED, fontSize: 9, lineHeight: 13, fontFamily: fonts.medium, marginBottom: 8 },
+  label: { color: MUTED, fontSize: 10, fontWeight: '700', fontFamily: fonts.bold, marginBottom: 4 },
   inputBox: {
     flexDirection: 'row',
     alignItems: 'center',
     borderWidth: 1,
     borderColor: LINE,
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    marginBottom: 12,
+    borderRadius: 9,
+    paddingHorizontal: 9,
+    paddingVertical: 7,
+    marginBottom: 8,
     backgroundColor: c.surfaceMuted,
   },
-  inputIcon: { marginRight: 8 },
-  input: { flex: 1, fontSize: 14, color: PRUSSIAN },
-  saveBtn: { backgroundColor: PRUSSIAN, borderRadius: 12, paddingVertical: 12, alignItems: 'center' },
-  saveText: { color: WHITE, fontSize: 13, fontWeight: '800', fontFamily: fonts.extrabold },
+  inputIcon: { marginRight: 6 },
+  input: { flex: 1, fontSize: 12, color: PRUSSIAN },
+  passwordChecklist: {
+    backgroundColor: c.surfaceMuted,
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    marginTop: -4,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: LINE,
+  },
+  checkRow: { flexDirection: 'row', alignItems: 'center', gap: 5, marginVertical: 1 },
+  checkText: { color: MUTED, fontSize: 9, fontFamily: fonts.medium },
+  checkTextMet: { color: c.ok, fontFamily: fonts.semibold },
+  matchOk: { color: c.ok, fontSize: 9, fontFamily: fonts.bold, marginTop: -5, marginBottom: 7 },
+  matchErr: { color: DANGER, fontSize: 9, fontFamily: fonts.bold, marginTop: -5, marginBottom: 7 },
+  saveBtn: { backgroundColor: PRUSSIAN, borderRadius: 9, paddingVertical: 9, alignItems: 'center' },
+  saveBtnDisabled: { opacity: 0.45 },
+  saveText: { color: WHITE, fontSize: 11, fontWeight: '800', fontFamily: fonts.extrabold },
   detailRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    paddingVertical: 10,
+    paddingVertical: 7,
     borderBottomWidth: 1,
     borderBottomColor: LINE,
   },
   detailRowLast: { borderBottomWidth: 0 },
-  detailLabel: { color: MUTED, fontSize: 13, fontWeight: '600', fontFamily: fonts.semibold },
-  detailValue: { color: PRUSSIAN, fontSize: 13, fontWeight: '800', fontFamily: fonts.extrabold, maxWidth: '55%', textAlign: 'right' },
+  detailLabel: { color: MUTED, fontSize: 11, fontWeight: '600', fontFamily: fonts.semibold },
+  detailValue: { color: PRUSSIAN, fontSize: 11, fontWeight: '800', fontFamily: fonts.extrabold, maxWidth: '55%', textAlign: 'right' },
+  editField: {
+    backgroundColor: c.surfaceMuted,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: LINE,
+    marginBottom: 6,
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+  },
+  editFieldLabel: {
+    color: MUTED,
+    fontSize: 9,
+    fontFamily: fonts.bold,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  editInput: {
+    color: PRUSSIAN,
+    fontSize: 12,
+    fontFamily: fonts.semibold,
+    paddingVertical: 3,
+  },
+  placeholder: { color: MUTED },
+  profileSaveBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 7,
+    backgroundColor: PRUSSIAN,
+    borderRadius: 9,
+    paddingVertical: 9,
+    marginTop: 10,
+  },
   });
 };
-
-
-
-
-
-

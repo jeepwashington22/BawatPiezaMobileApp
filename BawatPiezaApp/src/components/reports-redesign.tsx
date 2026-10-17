@@ -24,8 +24,6 @@ type HeroMetric = {
   prefix?: string;
   suffix?: string;
   desc: string;
-  /** 0-1 share drawn on the hero progress track. */
-  fill: number;
   values: Record<ReportRange, string>;
 };
 
@@ -39,7 +37,6 @@ const METRICS: HeroMetric[] = [
     label: 'kWh harvested',
     suffix: 'kWh',
     desc: 'Kinetic energy captured across all zones',
-    fill: 0.72,
     values: { today: '30', week: '214', month: '890' },
   },
   {
@@ -48,7 +45,6 @@ const METRICS: HeroMetric[] = [
     label: 'Billing impact',
     prefix: '\u20B1',
     desc: 'Meralco savings from harvested energy',
-    fill: 0.64,
     values: { today: '114', week: '688', month: '2,314' },
   },
 ];
@@ -68,7 +64,6 @@ export function ReportsRedesign() {
   const heroInk = mode === 'dark' ? '#FFFFFF' : '#2B1205';
   const heroInkSoft = mode === 'dark' ? 'rgba(255,255,255,0.70)' : 'rgba(43,18,5,0.72)';
   const heroTrack = mode === 'dark' ? 'rgba(255,255,255,0.14)' : 'rgba(43,18,5,0.16)';
-  const heroFillColors: [string, string] = mode === 'dark' ? ['#FDBA74', '#F97316'] : ['#F97316', '#C2410C'];
   const heroBtnBg = mode === 'dark' ? 'rgba(255,255,255,0.10)' : 'rgba(255,255,255,0.55)';
   const heroBtnBorder = mode === 'dark' ? 'rgba(255,255,255,0.22)' : 'rgba(255,255,255,0.85)';
 
@@ -136,15 +131,6 @@ export function ReportsRedesign() {
             >
               <Ionicons name="chevron-forward" size={scale(18)} color={heroInk} />
             </Pressable>
-          </View>
-
-          <View style={[styles.heroTrack, { backgroundColor: heroTrack }]}>
-            <LinearGradient
-              colors={heroFillColors}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 0 }}
-              style={[styles.heroFill, { width: `${active.fill * 100}%` }]}
-            />
           </View>
 
           <View style={styles.heroDots}>
@@ -274,8 +260,6 @@ const styles = StyleSheet.create({
   heroNumber: { fontSize: scale(56), lineHeight: scale(62), letterSpacing: -2, fontFamily: fonts.extrabold },
   heroUnit: { fontSize: scale(20), marginLeft: scale(3), fontFamily: fonts.extrabold },
   heroDesc: { fontSize: scale(9.5), textAlign: 'center', marginTop: scale(8), fontFamily: fonts.medium },
-  heroTrack: { alignSelf: 'stretch', height: scale(6), borderRadius: 99, overflow: 'hidden', marginTop: scale(14) },
-  heroFill: { height: '100%', borderRadius: 99 },
   heroDots: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: scale(6), marginTop: scale(12) },
   heroDot: { width: scale(6), height: scale(6), borderRadius: 99 },
 

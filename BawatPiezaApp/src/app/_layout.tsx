@@ -83,7 +83,29 @@ function AuthedShell() {
           animation: "none",
           gestureEnabled: true,
         }}
-      />
+      >
+        <Stack.Screen
+          name="login"
+          options={{
+            animation: "slide_from_right",
+            animationDuration: 280,
+          }}
+        />
+        <Stack.Screen
+          name="forgot-password"
+          options={{
+            animation: "slide_from_right",
+            animationDuration: 280,
+          }}
+        />
+        <Stack.Screen
+          name="signup"
+          options={{
+            animation: "slide_from_right",
+            animationDuration: 280,
+          }}
+        />
+      </Stack>
       {/* Single global Quick Overrides sheet — one modal for the whole app. */}
       <GlobalOverridesSheet />
     </View>

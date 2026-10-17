@@ -42,6 +42,7 @@ export const NAV_SECTIONS: NavSection[] = [
       { label: 'Profile', href: '/pages/profile', icon: 'person-outline', activeIcon: 'person' },
       { label: 'My Account', href: '/pages/edit-profile', icon: 'person-circle-outline', activeIcon: 'person-circle' },
       { label: 'Shared Users', href: '/pages/accounts', icon: 'people-outline', activeIcon: 'people' },
+      { label: 'Notifications', href: '/pages/notifications', icon: 'notifications-outline', activeIcon: 'notifications' },
       { label: 'Device', href: '/pages/device', icon: 'hardware-chip-outline', activeIcon: 'hardware-chip' },
       { label: 'Preferences', href: '/pages/preferences', icon: 'options-outline', activeIcon: 'options' },
     ],
