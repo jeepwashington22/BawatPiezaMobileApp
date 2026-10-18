@@ -148,7 +148,19 @@ function Monitor({ c, mode }: { c: ThemeColors; mode: Mode }) {
 function Configure({ c, mode }: { c: ThemeColors; mode: Mode }) {
   return (
     <>
-      <View style={styles.bankStack}>
+      <View style={styles.configureIntro}>
+        <View style={[styles.configureIntroIcon, { backgroundColor: c.accentSoft }]}>
+          <Ionicons name="options-outline" size={scale(18)} color={c.orange} />
+        </View>
+        <View style={styles.configureIntroCopy}>
+          <Text style={[styles.configureIntroTitle, { color: c.text }]}>Power rules</Text>
+          <Text style={[styles.configureIntroText, { color: c.muted }]}>Set safe battery thresholds and when the system changes power source.</Text>
+        </View>
+      </View>
+
+      <SectionLabel label="BATTERY PROTECTION" action="2 banks configured" c={c} />
+
+      <View style={styles.thresholdRowCards}>
         <ThresholdCard name="BANK A" c={c} />
         <ThresholdCard name="BANK B" c={c} />
       </View>
@@ -156,6 +168,19 @@ function Configure({ c, mode }: { c: ThemeColors; mode: Mode }) {
       <SectionLabel label="TIME-OF-USE SCHEDULER" c={c} />
 
       <Card mode={mode} style={styles.schedulerCard}>
+        <View style={styles.schedulerHeader}>
+          <View style={[styles.schedulerHeaderIcon, { backgroundColor: c.accentSoft }]}>
+            <Ionicons name="time-outline" size={scale(18)} color={c.orange} />
+          </View>
+          <View style={styles.schedulerHeaderCopy}>
+            <Text style={[styles.schedulerTitle, { color: c.text }]}>Daily power schedule</Text>
+            <Text style={[styles.schedulerSubtitle, { color: c.muted }]}>Automatic switching windows</Text>
+          </View>
+          <View style={[styles.activePill, { backgroundColor: c.accentSoft }]}>
+            <View style={[styles.activeDot, { backgroundColor: c.ok }]} />
+            <Text style={[styles.activePillText, { color: c.onAccentSoft }]}>ACTIVE</Text>
+          </View>
+        </View>
         <ScheduleRow title="Peak Hours" note="Use battery power" time="7:00 AM - 7:00 PM" c={c} mode={mode} />
         <ScheduleRow title="Off-Peak Hours" note="Draw from grid" time="8:00 PM - 6:00 AM" c={c} mode={mode} />
 
@@ -267,12 +292,23 @@ function BankCard({
 }
 
 function ThresholdCard({ name, c }: { name: string; c: ThemeColors }) {
+  const cardColor = name === 'BANK A' ? '#0B63B7' : c.orange;
+
   return (
-    <View style={[styles.thresholdCard, { backgroundColor: name === 'BANK A' ? '#0B63B7' : '#F97316' }]}>
-      <View style={styles.thresholdHeader}><View style={styles.thresholdIcon}><Ionicons name={name === 'BANK A' ? 'battery-full-outline' : 'battery-half-outline'} size={scale(19)} color="#FFFFFF" /></View><Text style={styles.thresholdName}>{name}</Text><Text style={styles.thresholdBadge}>ALERT</Text></View>
+    <View style={[styles.thresholdCard, { backgroundColor: cardColor, borderColor: cardColor }]}>
+      <View style={styles.thresholdHeader}>
+        <View style={[styles.thresholdIcon, { backgroundColor: 'rgba(255,255,255,0.18)' }]}>
+          <Ionicons name={name === 'BANK A' ? 'battery-full-outline' : 'battery-half-outline'} size={scale(18)} color="#FFFFFF" />
+        </View>
+        <Text style={[styles.thresholdName, { color: '#FFFFFF' }]}>{name}</Text>
+        <Text style={[styles.thresholdBadge, { color: '#FFFFFF', backgroundColor: 'rgba(255,255,255,0.18)' }]}>SAFE</Text>
+      </View>
       <View style={styles.thresholdRow}>
-        <Text style={styles.thresholdCopy}>Alert below</Text>
-        <Text style={styles.thresholdValue}>25%</Text>
+        <Text style={[styles.thresholdCopy, { color: 'rgba(255,255,255,0.78)' }]}>Alert below</Text>
+        <Text style={[styles.thresholdValue, { color: '#FFFFFF' }]}>25%</Text>
+      </View>
+      <View style={[styles.thresholdTrack, { backgroundColor: 'rgba(255,255,255,0.22)' }]}>
+        <View style={[styles.thresholdFill, { backgroundColor: '#FFFFFF' }]} />
       </View>
     </View>
   );
@@ -281,7 +317,10 @@ function ThresholdCard({ name, c }: { name: string; c: ThemeColors }) {
 function ScheduleRow({ title, note, time, c, mode }: { title: string; note: string; time: string; c: ThemeColors; mode: Mode }) {
   return (
     <View style={[styles.scheduleRow, { borderBottomColor: mode === 'dark' ? 'rgba(255,255,255,0.12)' : 'rgba(10,42,74,0.1)' }]}>
-      <View>
+      <View style={[styles.scheduleIcon, { backgroundColor: c.surfaceMuted }]}>
+        <Ionicons name={title === 'Peak Hours' ? 'battery-charging-outline' : 'flash-outline'} size={scale(15)} color={c.orange} />
+      </View>
+      <View style={styles.scheduleCopy}>
         <Text style={[styles.smallBold, { color: c.text }]}>{title}</Text>
         <Text style={[styles.cardCopy, { color: c.muted }]}>{note}</Text>
       </View>
@@ -644,78 +683,110 @@ const styles = StyleSheet.create({
     fontFamily: fonts.extrabold,
   },
   thresholdCard: {
-    width: '100%',
-    padding: scale(15),
-    minHeight: scale(96),
-    borderRadius: scale(17),
+    flex: 1,
+    padding: scale(11),
+    minHeight: scale(126),
+    borderRadius: scale(16),
+    borderWidth: 1,
     shadowColor: '#0A2A4A',
-    shadowOpacity: 0.14,
+    shadowOpacity: 0.08,
     shadowRadius: scale(9),
     shadowOffset: { width: 0, height: 4 },
     elevation: 3,
   },
+  configureIntro: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: scale(10),
+    padding: scale(13),
+    borderRadius: scale(17),
+    marginBottom: scale(15),
+    backgroundColor: 'rgba(249,115,22,0.07)',
+    borderWidth: 1,
+    borderColor: 'rgba(249,115,22,0.16)',
+  },
+  configureIntroIcon: {
+    width: scale(38),
+    height: scale(38),
+    borderRadius: scale(13),
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  configureIntroCopy: { flex: 1 },
+  configureIntroTitle: { fontSize: scale(12), fontFamily: fonts.extrabold },
+  configureIntroText: { fontSize: scale(8.5), lineHeight: scale(12), marginTop: scale(2), fontFamily: fonts.medium },
+  thresholdRowCards: { flexDirection: 'row', gap: scale(9), marginBottom: scale(14) },
   thresholdHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: scale(9),
+    gap: scale(6),
   },
   thresholdIcon: {
-    width: scale(34),
-    height: scale(34),
+    width: scale(30),
+    height: scale(30),
     borderRadius: scale(11),
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(255,255,255,0.18)',
   },
   thresholdName: {
     flex: 1,
-    color: '#FFFFFF',
-    fontSize: scale(10),
-    letterSpacing: 1.1,
+    fontSize: scale(9),
+    letterSpacing: 0.8,
     fontFamily: fonts.extrabold,
   },
   thresholdBadge: {
-    color: '#FFFFFF',
-    fontSize: scale(7),
-    letterSpacing: 0.8,
-    paddingHorizontal: scale(7),
-    paddingVertical: scale(4),
-    borderRadius: 99,
-    backgroundColor: 'rgba(255,255,255,0.18)',
+    fontSize: scale(6.5),
+    letterSpacing: 0.6,
+    paddingHorizontal: scale(5),
+    paddingVertical: scale(3),
+    borderRadius: scale(7),
     fontFamily: fonts.extrabold,
   },
   thresholdRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'baseline',
-    marginTop: scale(18),
+    marginTop: scale(15),
   },
   thresholdValue: {
-    color: '#FFFFFF',
     fontSize: scale(20),
     fontFamily: fonts.extrabold,
   },
   thresholdCopy: {
-    color: 'rgba(255,255,255,0.74)',
-    fontSize: scale(9),
+    fontSize: scale(8),
     fontFamily: fonts.medium,
   },
+  thresholdTrack: { height: scale(5), borderRadius: 99, overflow: 'hidden', marginTop: scale(9) },
+  thresholdFill: { width: '25%', height: '100%', borderRadius: 99 },
   schedulerCard: {
-    padding: scale(16),
+    padding: scale(13),
     borderRadius: scale(18),
     marginBottom: scale(20),
   },
+  schedulerHeader: { flexDirection: 'row', alignItems: 'center', gap: scale(9), marginBottom: scale(5) },
+  schedulerHeaderIcon: { width: scale(34), height: scale(34), borderRadius: scale(11), alignItems: 'center', justifyContent: 'center' },
+  schedulerHeaderCopy: { flex: 1 },
+  schedulerTitle: { fontSize: scale(11), fontFamily: fonts.extrabold },
+  schedulerSubtitle: { fontSize: scale(8), marginTop: scale(2), fontFamily: fonts.medium },
+  activePill: { flexDirection: 'row', alignItems: 'center', gap: scale(4), paddingHorizontal: scale(6), paddingVertical: scale(4), borderRadius: 99 },
+  activeDot: { width: scale(5), height: scale(5), borderRadius: 99 },
+  activePillText: { fontSize: scale(6.5), letterSpacing: 0.6, fontFamily: fonts.extrabold },
   scheduleRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingVertical: scale(12),
+    alignItems: 'center',
+    gap: scale(9),
+    paddingVertical: scale(10),
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(255,255,255,0.12)',
   },
+  scheduleIcon: { width: scale(29), height: scale(29), borderRadius: scale(9), alignItems: 'center', justifyContent: 'center' },
+  scheduleCopy: { flex: 1 },
   scheduleTime: {
     fontSize: scale(11),
     fontFamily: fonts.extrabold,
     alignSelf: 'center',
+    textAlign: 'right',
+    maxWidth: '43%',
   },
   scheduleLink: {
     flexDirection: 'row',
