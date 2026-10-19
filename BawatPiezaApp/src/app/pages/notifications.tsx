@@ -174,10 +174,27 @@ export default function NotificationsScreen() {
     setLoading(true);
     setError(null);
     const cacheKey = session?.user?.id ? `${NOTIFICATION_CACHE_PREFIX}${session.user.id}` : null;
+    let hasCachedFeed = false;
+    if (cacheKey) {
+      try {
+        const cachedValue = await AsyncStorage.getItem(cacheKey);
+        if (cachedValue) {
+          const cached = JSON.parse(cachedValue) as NotificationCache;
+          if (Array.isArray(cached.notifications)) {
+            hasCachedFeed = true;
+            setItems(mapNotifications(cached.notifications));
+            setUnread(cached.unread);
+            setLoading(false);
+          }
+        }
+      } catch {
+        // A corrupt or unavailable cache must not block the live request.
+      }
+    }
     try {
       const token = await getToken();
       if (!token) throw new Error('Not signed in');
-      const res = await apiFetch('/notifications', {
+      const res = await apiFetch('/notifications', { timeoutMs: 5_000,
         headers: { Authorization: `Bearer ${token}` },
       });
       const json = (await res.json().catch(() => null)) as {
@@ -200,7 +217,7 @@ export default function NotificationsScreen() {
         }
       }
     } catch (e) {
-      if (cacheKey) {
+      if (cacheKey && !hasCachedFeed) {
         try {
           const cachedValue = await AsyncStorage.getItem(cacheKey);
           if (cachedValue) {
@@ -216,7 +233,9 @@ export default function NotificationsScreen() {
           // A corrupt or unavailable cache must not hide the original error.
         }
       }
-      setError(describeApiFailure(e, 'Failed to load notifications'));
+      if (!hasCachedFeed) {
+        setError(describeApiFailure(e, 'Failed to load notifications'));
+      }
     } finally {
       setLoading(false);
     }

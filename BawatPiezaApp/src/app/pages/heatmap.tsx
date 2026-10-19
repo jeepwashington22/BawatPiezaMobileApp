@@ -31,8 +31,6 @@ const FLAG_THRESHOLD = 0.75;
 
 const TILE_ORANGE_RAMP = ['#7C2D12', '#9A3412', '#C2410C', '#EA580C', '#F97316'];
 const TILE_ORANGE = '#F97316';
-const PANEL_TOP = '#0C2A4C';
-const PANEL_BOTTOM = '#06182D';
 
 const PREDICTIVE = [
   { tile: 'Tile 1', note: 'Flagged for inspection now', metric: '1.8 J/step' },
@@ -89,7 +87,7 @@ function Segmented({
               {active && <LinearGradient colors={['#FBA94C', '#F97316']} style={StyleSheet.absoluteFill} />}
               <Ionicons
                 name={item.icon}
-                size={scale(14)}
+                size={scale(12)}
                 color={active ? '#FFFFFF' : c.muted}
               />
               <Text style={[styles.segText, { color: active ? '#FFFFFF' : c.textSoft }]}>
@@ -196,7 +194,7 @@ export default function HeatmapScreen() {
     <ScreenShell scroll title="Heatmap" showBack>
       {/* ===== page header ===== */}
       <FadeIn delay={0}>
-        <View style={styles.header}>
+        <View style={[styles.header, { backgroundColor: mode === 'dark' ? 'rgba(255,255,255,0.04)' : 'rgba(255,255,255,0.72)', borderColor: c.line }]}>
           <View style={styles.headerEyebrowRow}>
             <View
               style={[
@@ -218,7 +216,7 @@ export default function HeatmapScreen() {
           <Text
             style={{
               color: c.text,
-              fontSize: scale(24),
+            fontSize: scale(20),
               fontFamily: fonts.extrabold,
               letterSpacing: -0.3,
             }}
@@ -240,7 +238,7 @@ export default function HeatmapScreen() {
 
       {/* ===== view / diagnostic toggle ===== */}
       <FadeIn delay={80}>
-        <View style={{ marginTop: scale(14) }}>
+        <View style={{ marginTop: scale(10), marginBottom: scale(8) }}>
           <Segmented value={viewMode} onChange={setViewMode} />
         </View>
       </FadeIn>
@@ -403,8 +401,8 @@ export default function HeatmapScreen() {
 const styles = StyleSheet.create({
   /* segmented control */
   segWrap: {
-    borderRadius: scale(26),
-    padding: scale(3),
+    borderRadius: scale(14),
+    padding: scale(2),
     position: 'relative',
     overflow: 'hidden',
   },
@@ -417,30 +415,33 @@ const styles = StyleSheet.create({
   },
   segRow: {
     flexDirection: 'row',
-    gap: scale(3),
+    gap: scale(2),
   },
   segItem: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: scale(5),
-    paddingVertical: scale(9),
+    gap: scale(4),
+    paddingVertical: scale(6),
   },
   segItemActive: {
-    borderRadius: scale(22),
+    borderRadius: scale(11),
     overflow: 'hidden',
   },
   segText: {
-    fontSize: scale(12),
+    fontSize: scale(9),
     fontFamily: fonts.extrabold,
     letterSpacing: 0.6,
   },
 
   /* page header */
   header: {
-    marginTop: scale(6),
-    marginBottom: scale(6),
+    marginTop: scale(4),
+    marginBottom: scale(4),
+    padding: scale(12),
+    borderRadius: scale(18),
+    borderWidth: 1,
   },
   headerEyebrowRow: {
     flexDirection: 'row',
@@ -459,10 +460,10 @@ const styles = StyleSheet.create({
   heatSurface: {
     position: 'relative',
     overflow: 'hidden',
-    minHeight: scale(236),
-    borderRadius: scale(22),
-    paddingHorizontal: scale(16),
-    paddingVertical: scale(14),
+    minHeight: scale(222),
+    borderRadius: scale(20),
+    paddingHorizontal: scale(12),
+    paddingVertical: scale(12),
     backgroundColor: '#1D1A2A',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.16)',
@@ -482,18 +483,18 @@ const styles = StyleSheet.create({
   heatGridContent: {
     position: 'relative',
   },
-  gridRow: { flexDirection: 'row', gap: scale(7), marginBottom: scale(7) },
+  gridRow: { flexDirection: 'row', gap: scale(6), marginBottom: scale(6) },
   tileCard: {
     flex: 1,
-    height: scale(96),
-    borderRadius: scale(10),
-    padding: scale(9),
+    height: scale(91),
+    borderRadius: scale(13),
+    padding: scale(8),
     overflow: 'hidden',
     borderWidth: 1.5,
     shadowColor: '#090B12',
     shadowOpacity: 0.48,
-    shadowRadius: scale(7),
-    shadowOffset: { width: 0, height: 5 },
+    shadowRadius: scale(9),
+    shadowOffset: { width: 0, height: 6 },
     elevation: 7,
   },
   tileDepth: {
@@ -548,7 +549,7 @@ const styles = StyleSheet.create({
     fontFamily: fonts.bold,
   },
   tileTraffic: {
-    fontSize: scale(18),
+    fontSize: scale(17),
     fontFamily: fonts.extrabold,
     marginTop: scale(3),
   },

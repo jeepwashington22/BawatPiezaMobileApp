@@ -65,6 +65,16 @@ type ApiNotification = {
   created_at: string;
 };
 
+type NotificationSnapshot = {
+  feed: FeedItem[];
+  unread: number;
+  fetchedAt: number;
+};
+
+const NOTIFICATION_CACHE_TTL_MS = 30_000;
+const notificationSnapshots = new Map<string, NotificationSnapshot>();
+const notificationAttempts = new Map<string, number>();
+
 export type TopBarProps = {
   gutter?: number;
   title?: string;
@@ -121,7 +131,18 @@ export function TopBar({ gutter = 18, title, subtitle, showBack = false, showTit
       const { data: authData } = await supabase.auth.getSession();
       const token = authData.session?.access_token;
       if (!token) return;
-      const res = await apiFetch('/notifications', {
+      const userId = authData.session?.user?.id;
+      if (!userId) return;
+      const attemptedAt = notificationAttempts.get(userId);
+      const cached = notificationSnapshots.get(userId);
+      if (cached && Date.now() - cached.fetchedAt < NOTIFICATION_CACHE_TTL_MS) {
+        setFeed(cached.feed);
+        setUnread(cached.unread);
+        return;
+      }
+      if (attemptedAt && Date.now() - attemptedAt < NOTIFICATION_CACHE_TTL_MS) return;
+      notificationAttempts.set(userId, Date.now());
+      const res = await apiFetch('/notifications', { timeoutMs: 3_000,
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!res.ok) return;
@@ -145,7 +166,13 @@ export function TopBar({ gutter = 18, title, subtitle, showBack = false, showTit
         };
       });
       setFeed(items);
-      setUnread(json.unread ?? 0);
+      const unreadCount = json.unread ?? 0;
+      setUnread(unreadCount);
+      notificationSnapshots.set(userId, {
+        feed: items,
+        unread: unreadCount,
+        fetchedAt: Date.now(),
+      });
     } catch {
       // Offline or API down — the panel shows an empty/error state instead
       // of fake notifications.
@@ -178,10 +205,6 @@ export function TopBar({ gutter = 18, title, subtitle, showBack = false, showTit
       setRespondingId(null);
     }
   };
-
-  useEffect(() => {
-    void loadNotifications();
-  }, []);
 
   useEffect(() => {
     (async () => {
@@ -234,7 +257,13 @@ export function TopBar({ gutter = 18, title, subtitle, showBack = false, showTit
                   <Pressable
                     accessibilityRole="button"
                     accessibilityLabel="Go back"
-                    onPress={() => router.back()}
+                    onPress={() => {
+                      if (router.canGoBack()) {
+                        router.back();
+                      } else {
+                        router.replace('/home');
+                      }
+                    }}
                     style={({ pressed }) => [styles.backButton, { opacity: pressed ? 0.7 : 1 }]}
                   >
                     <Ionicons name="arrow-back" size={20} color={foreground} />

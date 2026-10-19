@@ -22,7 +22,9 @@ import {
   NAVY,
 } from "../../components/glass-ui";
 import { LinearGradient } from "expo-linear-gradient";
-import Svg, { Line, Path } from "react-native-svg";
+import Svg, { Defs, LinearGradient as SvgGradient, Line, Path, Stop } from "react-native-svg";
+
+const AnimatedPath = Animated.createAnimatedComponent(Path);
 
 /* ------------------------------ demo data ------------------------------- */
 const HEAT_ROWS = 2;
@@ -170,7 +172,7 @@ function ZoneSwitch({
 
 export default function HomeScreen() {
   const { colors: c, mode } = useTheme();
-  const { ready, isLoggedIn } = useAuth();
+  const { ready, isLoggedIn, user } = useAuth();
   const router = useRouter();
   const { usingGrid, openOverrides } = usePowerOverride();
   const accent = (alpha = 1) => brandAccent(mode, alpha);
@@ -181,6 +183,36 @@ export default function HomeScreen() {
   const [displayVoltage] = useState("224.50");
   const [consumptionRange, setConsumptionRange] = useState<"today" | "7days" | "month">("today");
   const [rangeMenuOpen, setRangeMenuOpen] = useState(false);
+  const statsPop = useRef(new Animated.Value(0)).current;
+  const graphProgress = useRef(new Animated.Value(0)).current;
+  const currentHour = new Date().getHours();
+  const greeting =
+    currentHour < 12 ? "Good morning" : currentHour < 18 ? "Good afternoon" : "Good evening";
+  const metadataName =
+    typeof user?.user_metadata?.firstname === "string"
+      ? user.user_metadata.firstname
+      : typeof user?.user_metadata?.first_name === "string"
+        ? user.user_metadata.first_name
+        : typeof user?.user_metadata?.full_name === "string"
+          ? user.user_metadata.full_name.split(" ")[0]
+          : "";
+
+  useEffect(() => {
+    Animated.parallel([
+      Animated.spring(statsPop, {
+        toValue: 1,
+        friction: 8,
+        tension: 55,
+        useNativeDriver: true,
+      }),
+      Animated.timing(graphProgress, {
+        toValue: 1,
+        duration: 1100,
+        delay: 180,
+        useNativeDriver: false,
+      }),
+    ]).start();
+  }, [graphProgress, statsPop]);
 
   const [zones, setZones] = useState([
     {
@@ -231,7 +263,7 @@ export default function HomeScreen() {
     <ScreenShell>
       {/* ============ HERO: TOP BAR + BATTERY HEALTH ============ */}
       <View style={st.hero}>
-        <HeroGlow mode={mode} intensity={isActive ? 1 : mode === "dark" ? 0.4 : 0.85} bleedBottom={scale(40)} />
+        <HeroGlow mode={mode} intensity={isActive ? 1 : mode === "dark" ? 0.4 : 0.85} bleedBottom={scale(76)} />
 
         <View style={st.heroTopBar}>
           <TopBar gutter={0} title="Dashboard" />
@@ -240,53 +272,72 @@ export default function HomeScreen() {
       </View>
 
       <EnterView delay={90} style={st.statsSection}>
+        <View style={st.greetingRow}>
+          <View style={st.greeting}>
+            <Text style={[st.greetingEyebrow, { color: c.muted }]}>WELCOME BACK</Text>
+            <Text style={[st.greetingTitle, { color: c.text }]}>
+              {greeting}, {metadataName || "there"}
+            </Text>
+          </View>
+          <View style={st.statsFilterWrap}>
+            <Pressable
+              onPress={() => setRangeMenuOpen((open) => !open)}
+              style={[st.statsFilterButton, { backgroundColor: c.surface, borderColor: c.line }]}
+              accessibilityRole="button"
+              accessibilityLabel={`Consumption date range: ${selectedConsumption.label}`}
+            >
+              <Ionicons name="calendar-outline" size={scale(11)} color={c.orange} />
+              <Text style={[st.statsFilterButtonText, { color: c.text }]}>{selectedConsumption.label}</Text>
+              <Ionicons name={rangeMenuOpen ? "chevron-up" : "chevron-down"} size={scale(10)} color={c.muted} />
+            </Pressable>
+            {rangeMenuOpen && (
+              <View style={[st.statsFilterMenu, { backgroundColor: c.surface, borderColor: c.line }]}>
+                {(Object.keys(consumptionData) as Array<keyof typeof consumptionData>).map((range) => (
+                  <Pressable
+                    key={range}
+                    onPress={() => {
+                      setConsumptionRange(range);
+                      setRangeMenuOpen(false);
+                    }}
+                    style={st.rangeOption}
+                  >
+                    <Text style={[st.rangeOptionText, { color: range === consumptionRange ? c.orange : c.muted }]}>
+                      {consumptionData[range].label}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+            )}
+          </View>
+        </View>
+        <Animated.View
+          style={[
+            st.statsPop,
+            {
+              opacity: statsPop,
+              transform: [
+                {
+                  scale: statsPop.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [0.94, 1],
+                  }),
+                },
+              ],
+            },
+          ]}
+        >
         <LinearGradient
           colors={
             isActive
               ? mode === "dark"
                 ? ["#9A3412", "#EA580C", "#F97316"]
-                : ["#FDBA74", "#FB923C", "#F97316"]
+                : ["#F97316", "#EA580C", "#C2410C"]
               : ["#475569", "#64748B", "#94A3B8"]
           }
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 1 }}
           style={st.scCard}
         >
-          <View pointerEvents="none" style={st.scSheenA} />
-          <View pointerEvents="none" style={st.scSheenB} />
-          <View style={st.statsFilterRow}>
-            <Text style={st.statsFilterLabel}>CONSUMPTION</Text>
-            <View style={st.statsFilterWrap}>
-              <Pressable
-                onPress={() => setRangeMenuOpen((open) => !open)}
-                style={st.statsFilterButton}
-                accessibilityRole="button"
-                accessibilityLabel={`Consumption date range: ${selectedConsumption.label}`}
-              >
-                <Ionicons name="calendar-outline" size={scale(11)} color="#FFFFFF" />
-                <Text style={st.statsFilterButtonText}>{selectedConsumption.label}</Text>
-                <Ionicons name={rangeMenuOpen ? "chevron-up" : "chevron-down"} size={scale(10)} color="rgba(255,255,255,0.78)" />
-              </Pressable>
-              {rangeMenuOpen && (
-                <View style={[st.statsFilterMenu, { backgroundColor: c.surface, borderColor: c.line }]}>
-                  {(Object.keys(consumptionData) as Array<keyof typeof consumptionData>).map((range) => (
-                    <Pressable
-                      key={range}
-                      onPress={() => {
-                        setConsumptionRange(range);
-                        setRangeMenuOpen(false);
-                      }}
-                      style={st.rangeOption}
-                    >
-                      <Text style={[st.rangeOptionText, { color: range === consumptionRange ? c.orange : c.muted }]}>
-                        {consumptionData[range].label}
-                      </Text>
-                    </Pressable>
-                  ))}
-                </View>
-              )}
-            </View>
-          </View>
           <View style={st.scTop}>
             <View>
               <Text style={st.scEyebrow}>{selectedConsumption.label}&apos;s consumption</Text>
@@ -327,6 +378,7 @@ export default function HomeScreen() {
             })}
           </View>
         </LinearGradient>
+        </Animated.View>
       </EnterView>
 
       <EnterView delay={120} style={st.dashboardCard}>
@@ -364,21 +416,22 @@ export default function HomeScreen() {
                     {
                       backgroundColor: usingGrid
                         ? "rgba(22,163,74,0.14)"
-                        : "rgba(255,255,255,0.20)",
+                        : mode === "dark"
+                          ? "rgba(249,115,22,0.18)"
+                          : "rgba(249,115,22,0.12)",
                     },
                   ]}
                 >
                   <Ionicons
                     name={usingGrid ? "flash" : "battery-charging"}
-                    size={scale(16)}
+                    size={scale(21)}
                     color={usingGrid ? "#16A34A" : batteryCardInk}
                   />
                 </View>
                 <View>
                   <Text style={[st.batteryCardEyebrow, { color: usingGrid ? "#16A34A" : batteryCardMutedInk }]}>
-                    {usingGrid ? "GRID" : "BATTERY"}
+                    {usingGrid ? "GRID USAGE" : "BATTERY PERCENTAGE"}
                   </Text>
-                  <Text style={[st.batteryCardTitle, { color: usingGrid ? "#16A34A" : batteryCardInk }]}>Battery percentage</Text>
                 </View>
               </View>
               <View style={st.batteryCardIndicator}>
@@ -391,13 +444,13 @@ export default function HomeScreen() {
                   </Text>
                   <Text style={[st.batteryCardUnit, { color: usingGrid ? "#16A34A" : batteryCardInk }]}>%</Text>
                 </View>
-                <View style={[st.batteryCardTrack, { backgroundColor: usingGrid ? (mode === "dark" ? "rgba(255,255,255,0.12)" : "rgba(10,42,74,0.10)") : "rgba(255,255,255,0.28)" }]}>
+                <View style={[st.batteryCardTrack, { backgroundColor: usingGrid ? (mode === "dark" ? "rgba(255,255,255,0.12)" : "rgba(10,42,74,0.10)") : "rgba(249,115,22,0.22)" }]}>
                   <View
                     style={[
                       st.batteryCardFill,
                       {
                         width: `${isActive ? batteryPct : 0}%`,
-                        backgroundColor: usingGrid ? "#22C55E" : "#FFFFFF",
+                        backgroundColor: usingGrid ? "#22C55E" : c.orange,
                       },
                     ]}
                   />
@@ -426,6 +479,69 @@ export default function HomeScreen() {
             </View>
           </Glass>
         </Pressable>
+      </EnterView>
+
+      <EnterView delay={180} style={st.dashboardCard}>
+        <View style={st.sectionTitleRow}>
+          <Ionicons name="analytics" size={scale(15)} color={c.orange} />
+          <Text style={[st.sectionTitle, { color: c.text }]}>Energy consumption</Text>
+        </View>
+        <Card
+          mode={mode}
+          style={[
+            st.balanceChartCard,
+            {
+              backgroundColor: mode === "dark" ? "#101010" : c.surface,
+              borderColor: c.line,
+              shadowColor: c.orange,
+            },
+          ]}
+        >
+          <View style={st.balanceChartHeader}>
+            <View>
+              <Text style={[st.balanceChartEyebrow, { color: c.muted }]}>ENERGY BALANCE</Text>
+              <Text style={[st.balanceChartValue, { color: c.text }]}>4.82 kWh</Text>
+              <Text style={[st.balanceChartPeriod, { color: c.muted }]}>Today&apos;s consumption</Text>
+            </View>
+            <View style={[st.balanceChartChange, { backgroundColor: c.accentSoft }]}>
+              <Ionicons name="trending-down" size={scale(11)} color={c.orange} />
+              <Text style={[st.balanceChartChangeText, { color: c.orange }]}>10.1%</Text>
+            </View>
+          </View>
+          <View style={st.balanceGraph}>
+            <Svg viewBox="0 0 320 88" width="100%" height="100%">
+              <Defs>
+                <SvgGradient id="balanceArea" x1="0" y1="0" x2="0" y2="1">
+                  <Stop offset="0" stopColor={c.orange} stopOpacity="0.38" />
+                  <Stop offset="1" stopColor={c.orange} stopOpacity="0" />
+                </SvgGradient>
+              </Defs>
+              <Line x1="0" y1="78" x2="320" y2="78" stroke={c.line} strokeWidth="1" />
+              <Path
+                d="M0 58 C25 51 38 50 57 46 S83 43 98 34 S118 55 137 42 S159 38 177 29 S197 35 213 25 S235 29 249 16 S270 20 286 6 S305 11 320 2 L320 78 L0 78 Z"
+                fill="url(#balanceArea)"
+              />
+              <AnimatedPath
+                d="M0 58 C25 51 38 50 57 46 S83 43 98 34 S118 55 137 42 S159 38 177 29 S197 35 213 25 S235 29 249 16 S270 20 286 6 S305 11 320 2"
+                fill="none"
+                stroke={c.orange}
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                strokeDasharray="430"
+                strokeDashoffset={graphProgress.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [430, 0],
+                })}
+              />
+            </Svg>
+            <View style={st.balanceChartLabels}>
+              <Text style={[st.balanceChartLabel, st.balanceChartLabelStart, { color: c.orange }]}>6 AM</Text>
+              <Text style={[st.balanceChartLabel, { color: c.orange }]}>12 PM</Text>
+              <Text style={[st.balanceChartLabel, { color: c.orange }]}>6 PM</Text>
+              <Text style={[st.balanceChartLabel, st.balanceChartLabelEnd, { color: c.orange }]}>NOW</Text>
+            </View>
+          </View>
+        </Card>
       </EnterView>
 
       <View style={st.quickActionsSection}>
@@ -463,46 +579,6 @@ export default function HomeScreen() {
         ))}
         </ScrollView>
       </View>
-
-      <EnterView delay={180} style={st.dashboardCard}>
-        <View style={st.dashboardChartSectionHeader}>
-          <View>
-            <Text style={[st.dashboardCardTitle, { color: c.text }]}>Energy consumption</Text>
-            <Text style={[st.dashboardCardSubtitle, { color: c.muted }]}>Today&apos;s usage by time of day</Text>
-          </View>
-          <Text style={[st.dashboardBadge, { color: mode === "dark" ? "#FDBA74" : "#C2410C", backgroundColor: mode === "dark" ? "rgba(249,115,22,0.16)" : "#FFF1D8" }]}>LIVE</Text>
-        </View>
-        <Card mode={mode} style={st.dashboardChartCard}>
-          <View style={[st.dashboardChart, { backgroundColor: mode === "dark" ? "#111820" : "#F7F9FC" }]}>
-            <View style={st.dashboardYAxis}>
-              {["100W", "75W", "50W", "25W"].map((label) => <Text key={label} style={[st.dashboardAxisLabel, { color: c.muted }]}>{label}</Text>)}
-            </View>
-            <View style={st.dashboardLineArea}>
-              <Svg viewBox="0 0 320 100" width="100%" height="100%">
-                <Line x1="0" y1="88" x2="320" y2="88" stroke={mode === "dark" ? "rgba(255,255,255,0.18)" : "rgba(10,42,74,0.14)"} strokeWidth="1" />
-                <Path
-                  d="M0 46 C26 34 43 28 65 34 S96 65 122 53 S153 19 180 37 S207 59 232 34 S267 20 291 30 S307 43 320 46 L320 88 L0 88 Z"
-                  fill={mode === "dark" ? "rgba(249,115,22,0.18)" : "rgba(249,115,22,0.10)"}
-                />
-                <Path
-                  d="M0 46 C26 34 43 28 65 34 S96 65 122 53 S153 19 180 37 S207 59 232 34 S267 20 291 30 S307 43 320 46"
-                  fill="none"
-                  stroke={mode === "dark" ? "#FDBA74" : "#F97316"}
-                  strokeWidth="2.4"
-                  strokeLinecap="round"
-                />
-              </Svg>
-              <View style={st.dashboardLineLabels}>
-                <Text style={[st.dashboardAxisLabel, { color: c.muted }]}>6 AM</Text>
-                <Text style={[st.dashboardAxisLabel, { color: c.muted }]}>12 PM</Text>
-                <Text style={[st.dashboardAxisLabel, { color: c.muted }]}>6 PM</Text>
-                <Text style={[st.dashboardAxisLabel, { color: c.muted }]}>NOW</Text>
-              </View>
-            </View>
-          </View>
-        </Card>
-      </EnterView>
-
       <EnterView delay={270} style={st.zonesSection}>
         <View
           pointerEvents={isActive ? "auto" : "none"}
@@ -1175,34 +1251,7 @@ const st = StyleSheet.create({
     shadowOffset: { width: 0, height: 8 },
     elevation: 7,
   },
-  scSheenA: {
-    position: "absolute",
-    top: scale(-60),
-    right: scale(-40),
-    width: scale(170),
-    height: scale(170),
-    borderRadius: scale(85),
-    backgroundColor: "rgba(255,255,255,0.10)",
-  },
-  scSheenB: {
-    position: "absolute",
-    bottom: scale(-70),
-    left: scale(-50),
-    width: scale(150),
-    height: scale(150),
-    borderRadius: scale(75),
-    backgroundColor: "rgba(255,255,255,0.06)",
-  },
   scTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  statsFilterRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: scale(2),
-    position: "relative",
-    zIndex: 8,
-  },
-  statsFilterLabel: { color: "rgba(255,255,255,0.68)", fontSize: scale(7), letterSpacing: 0.9, fontFamily: fonts.bold },
   statsFilterWrap: { position: "relative", zIndex: 9 },
   statsFilterButton: {
     flexDirection: "row",
@@ -1212,7 +1261,7 @@ const st = StyleSheet.create({
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.28)",
     backgroundColor: "rgba(255,255,255,0.16)",
-    paddingHorizontal: scale(7),
+    paddingHorizontal: scale(8),
     paddingVertical: scale(4),
   },
   statsFilterButtonText: { color: "#FFFFFF", fontSize: scale(7.5), fontFamily: fonts.bold },
@@ -1233,7 +1282,7 @@ const st = StyleSheet.create({
   rangeOption: { paddingHorizontal: scale(8), paddingVertical: scale(7) },
   rangeOptionText: { color: "#5B6A94", fontSize: scale(8), fontFamily: fonts.semibold },
   rangeOptionSelected: { color: "#EA580C", fontFamily: fonts.extrabold },
-  scEyebrow: { color: "rgba(255,255,255,0.92)", fontSize: scale(8), fontFamily: fonts.semibold },
+  scEyebrow: { color: "rgba(255,255,255,0.92)", fontSize: scale(8), fontFamily: fonts.semibold,paddingHorizontal: scale(8)},
   scKwhRow: { flexDirection: "row", alignItems: "baseline", gap: scale(3), marginTop: scale(1) },
   scKwh: { color: "#FFFFFF", fontSize: scale(19), letterSpacing: -0.6, fontFamily: fonts.extrabold },
   scKwhUnit: { color: "rgba(255,255,255,0.95)", fontSize: scale(9), fontFamily: fonts.bold },
@@ -1243,7 +1292,7 @@ const st = StyleSheet.create({
     gap: scale(3),
     alignSelf: "flex-start",
     marginTop: scale(1),
-    paddingHorizontal: scale(6),
+    paddingHorizontal: scale(8),
     paddingVertical: scale(2),
     borderRadius: scale(8),
     backgroundColor: "rgba(21,128,61,0.28)",
@@ -1440,7 +1489,26 @@ const st = StyleSheet.create({
     backgroundColor: "#FFF7ED",
   },
   statsSection: { marginTop: scale(2), zIndex: 2 },
+  statsPop: {},
+  greetingRow: {
+    flexDirection: "row",
+    alignItems: "flex-end",
+    justifyContent: "space-between",
+    marginBottom: scale(7),
+    paddingHorizontal: scale(2),
+    zIndex: 10,
+  },
+  greeting: { flex: 1, marginRight: scale(8) },
+  greetingEyebrow: { fontSize: scale(7), letterSpacing: 1.2, fontFamily: fonts.extrabold },
+  greetingTitle: { fontSize: scale(17), lineHeight: scale(22), marginTop: scale(1), fontFamily: fonts.extrabold },
   dashboardCard: { marginTop: scale(12) },
+  sectionTitle: { fontSize: scale(12), lineHeight: scale(16), fontFamily: fonts.extrabold },
+  sectionTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: scale(6),
+    marginBottom: scale(6),
+  },
   quickActionsSection: { marginTop: scale(10) },
   quickActionsTitle: { fontSize: scale(12), fontFamily: fonts.extrabold, marginBottom: scale(6) },
   quickActions: { flexDirection: "row", gap: scale(8), paddingRight: scale(4) },
@@ -1464,19 +1532,32 @@ const st = StyleSheet.create({
     marginBottom: scale(4),
   },
   quickActionLabel: { fontSize: scale(8), fontFamily: fonts.bold, textAlign: "center" },
-  dashboardChartCard: { padding: scale(10), borderRadius: scale(16) },
-  dashboardChartSectionHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", paddingHorizontal: scale(2), marginBottom: scale(6) },
-  dashboardCardTitle: { fontSize: scale(12), fontFamily: fonts.bold },
-  dashboardCardSubtitle: { fontSize: scale(9), fontFamily: fonts.medium, marginTop: scale(2) },
-  dashboardBadge: { borderRadius: scale(10), paddingHorizontal: scale(8), paddingVertical: scale(4), fontSize: scale(8), fontFamily: fonts.bold },
-  dashboardStatus: { alignSelf: "flex-start", flexDirection: "row", alignItems: "center", gap: scale(5), borderRadius: scale(10), paddingHorizontal: scale(8), paddingVertical: scale(5), marginTop: scale(9) },
-  dashboardStatusDot: { width: scale(6), height: scale(6), borderRadius: scale(3), backgroundColor: "#0B63B7" },
-  dashboardStatusText: { fontSize: scale(8), fontFamily: fonts.bold },
-  dashboardChart: { flexDirection: "row", height: scale(150), marginTop: scale(6), borderRadius: scale(10), padding: scale(6), paddingBottom: scale(2) },
-  dashboardYAxis: { justifyContent: "space-between", paddingBottom: scale(16), paddingRight: scale(5) },
-  dashboardLineArea: { flex: 1, height: "100%", position: "relative" },
-  dashboardLineLabels: { flexDirection: "row", justifyContent: "space-between", paddingHorizontal: scale(1), marginTop: 0 },
-  dashboardAxisLabel: { fontSize: scale(7), fontFamily: fonts.medium },
+  balanceChartCard: {
+    borderRadius: scale(17),
+    padding: scale(13),
+    shadowOpacity: 0.14,
+    shadowRadius: scale(12),
+    shadowOffset: { width: 0, height: 5 },
+    elevation: 4,
+  },
+  balanceChartHeader: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between" },
+  balanceChartEyebrow: { fontSize: scale(7), letterSpacing: 1, fontFamily: fonts.bold },
+  balanceChartValue: { fontSize: scale(20), marginTop: scale(2), letterSpacing: -0.4, fontFamily: fonts.extrabold },
+  balanceChartPeriod: { fontSize: scale(7.5), marginTop: scale(2), fontFamily: fonts.medium },
+  balanceChartChange: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: scale(3),
+    borderRadius: scale(8),
+    paddingHorizontal: scale(6),
+    paddingVertical: scale(4),
+  },
+  balanceChartChangeText: { fontSize: scale(8), fontFamily: fonts.extrabold },
+  balanceGraph: { height: scale(126), marginTop: scale(10), marginHorizontal: scale(-7), paddingHorizontal: scale(6), overflow: "hidden" },
+  balanceChartLabels: { position: "absolute", left: scale(6), right: scale(6), bottom: 0, height: scale(15), flexDirection: "row", justifyContent: "space-between", alignItems: "flex-end" },
+  balanceChartLabel: { width: "25%", textAlign: "center", fontSize: scale(7), fontFamily: fonts.medium },
+  balanceChartLabelStart: { textAlign: "left" },
+  balanceChartLabelEnd: { textAlign: "right" },
   batteryCard: {
     borderRadius: scale(18),
     padding: scale(12),
@@ -1490,9 +1571,9 @@ const st = StyleSheet.create({
   batteryCardAccent: { position: "absolute", top: 0, left: scale(14), right: scale(14), height: scale(2), borderRadius: 99, opacity: 0.9 },
   batteryCardHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: scale(10) },
   batteryCardIdentity: { flex: 1, flexDirection: "row", alignItems: "center", gap: scale(9) },
-  batteryCardIcon: { width: scale(34), height: scale(34), borderRadius: scale(11), alignItems: "center", justifyContent: "center" },
+  batteryCardIcon: { width: scale(42), height: scale(42), borderRadius: scale(13), alignItems: "center", justifyContent: "center" },
   batteryCardIndicator: { width: scale(104), alignItems: "flex-end" },
-  batteryCardEyebrow: { fontSize: scale(7), letterSpacing: 1.2, fontFamily: fonts.extrabold },
+  batteryCardEyebrow: { fontSize: scale(10), letterSpacing: 1.3, fontFamily: fonts.extrabold },
   batteryCardTitle: { fontSize: scale(14), marginTop: scale(2), fontFamily: fonts.extrabold },
   batteryCardLevelLabel: { fontSize: scale(6.5), letterSpacing: 1, fontFamily: fonts.extrabold, marginBottom: scale(1) },
   batteryCardValueRow: { flexDirection: "row", alignItems: "baseline", justifyContent: "flex-end" },
