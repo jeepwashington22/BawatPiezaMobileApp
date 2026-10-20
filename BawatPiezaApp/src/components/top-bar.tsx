@@ -142,7 +142,39 @@ export function TopBar({ gutter = 18, title, subtitle, showBack = false, showTit
       }
       if (attemptedAt && Date.now() - attemptedAt < NOTIFICATION_CACHE_TTL_MS) return;
       notificationAttempts.set(userId, Date.now());
-      const res = await apiFetch('/notifications', { timeoutMs: 3_000,
+      const { data: notificationRows, error: notificationError } = await supabase
+        .from('notifications')
+        .select('id, type, title, body, reference_id, read_at, created_at')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false })
+        .limit(30);
+      if (!notificationError) {
+        const notifications = (notificationRows ?? []) as ApiNotification[];
+        const items: FeedItem[] = notifications.map((n) => {
+          const { icon, tone } = toneForType(n.type);
+          return {
+            id: n.id,
+            icon,
+            tone,
+            title: n.title,
+            detail: n.body ?? '',
+            time: timeAgo(n.created_at),
+            kind: n.type,
+            refId: n.reference_id,
+            read: n.read_at !== null,
+          };
+        });
+        const unreadCount = notifications.filter((notification) => notification.read_at === null).length;
+        setFeed(items);
+        setUnread(unreadCount);
+        notificationSnapshots.set(userId, {
+          feed: items,
+          unread: unreadCount,
+          fetchedAt: Date.now(),
+        });
+        return;
+      }
+      const res = await apiFetch('/notifications', { timeoutMs: 1_000, silent: true,
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!res.ok) return;
@@ -180,6 +212,10 @@ export function TopBar({ gutter = 18, title, subtitle, showBack = false, showTit
       setFeedLoading(false);
     }
   };
+
+  useEffect(() => {
+    void loadNotifications();
+  }, []);
 
   /** Accept / decline a shared-user invite without leaving the bell panel. */
   const respondToInvite = async (item: FeedItem, action: 'accept' | 'decline'): Promise<void> => {

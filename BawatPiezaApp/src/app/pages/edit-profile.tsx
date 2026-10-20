@@ -223,18 +223,13 @@ export default function EditProfileScreen() {
     }
   };
 
-  if (loading) {
-    return (
-      <ScreenShell title="Edit Profile" showBack>
-        <View style={styles.loaderWrap}>
-          <TileLoader label="Loading account" size="lg" />
-        </View>
-      </ScreenShell>
-    );
-  }
-
   return (
     <ScreenShell title="Edit Profile" showBack>
+      {loading ? (
+        <View style={styles.loaderWrap}>
+          <TileLoader label="Loading account" size="md" />
+        </View>
+      ) : null}
       {/* Avatar + upload */}
       <View style={styles.heroCard}>
         <View style={styles.heroAccent} />

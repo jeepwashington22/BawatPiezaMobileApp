@@ -100,11 +100,12 @@ export default function ProfileScreen() {
           const { data: sessionData } = await supabase.auth.getSession();
           const token = sessionData.session?.access_token;
           if (token) {
-            try {
+            void (async () => {
+              try {
               const headers = { Authorization: `Bearer ${token}` };
               const [sharedResponse, invitesResponse] = await Promise.all([
-                apiFetch('/accounts?shared=1', { headers }),
-                apiFetch('/accounts/invites', { headers }),
+                apiFetch('/accounts?shared=1', { headers, timeoutMs: 1_000, silent: true }),
+                apiFetch('/accounts/invites', { headers, timeoutMs: 1_000, silent: true }),
               ]);
               if (sharedResponse.ok && invitesResponse.ok) {
                 const sharedJson = (await sharedResponse.json()) as { accounts?: unknown[] };
@@ -119,10 +120,10 @@ export default function ProfileScreen() {
                   pending: pendingReceived + pendingSent,
                 });
               }
-            } catch {
-              // Access counts are supplementary; keep the profile usable if
-              // the accounts API is temporarily unavailable.
-            }
+              } catch {
+                // Access counts are supplementary and must not delay the profile.
+              }
+            })();
           }
           const { data: rows, error: profErr } = await supabase
             .from('user_accounts')
@@ -262,9 +263,9 @@ export default function ProfileScreen() {
 
   if (loading) {
     return (
-      <ScreenShell title="Profile">
-        <View style={styles.loaderWrap}>
-          <TileLoader label="Loading profile" size="lg" />
+      <ScreenShell title="Profile" scroll={false}>
+        <View style={styles.loaderScreen}>
+          <TileLoader label="Loading profile" size="md" />
         </View>
       </ScreenShell>
     );
@@ -453,7 +454,11 @@ const makeStyles = (c: ThemeColors, f: any) => {
   const DANGER = c.danger;
   const WHITE = c.onAccent;
   return StyleSheet.create({
-  loaderWrap: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  loaderScreen: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   profileHeader: { alignItems: 'center', marginBottom: 8 },
   profileAvatar: { width: 62, height: 62, borderRadius: 31, borderWidth: 2, borderColor: BUTTER },
   profileAvatarPlaceholder: { width: 62, height: 62, borderRadius: 31, backgroundColor: BUTTER, alignItems: 'center', justifyContent: 'center' },

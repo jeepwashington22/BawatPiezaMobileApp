@@ -230,6 +230,8 @@ export interface ApiRequestOptions extends RequestInit {
   timeoutMs?: number;
   /** Override the candidate list (probes / tests). */
   baseUrls?: string[];
+  /** Suppress console warnings for optional background requests. */
+  silent?: boolean;
 }
 
 /**
@@ -245,7 +247,12 @@ export async function apiFetch(
   path: string,
   options: ApiRequestOptions = {},
 ): Promise<Response> {
-  const { timeoutMs = 15_000, baseUrls = apiBaseCandidates(), ...init } = options;
+  const {
+    timeoutMs = 15_000,
+    baseUrls = apiBaseCandidates(),
+    silent = false,
+    ...init
+  } = options;
   const suffix = path.startsWith('/') ? path : `/${path}`;
   const tried: string[] = [];
   let lastError: unknown = null;
@@ -257,7 +264,9 @@ export async function apiFetch(
       return await fetchWithTimeout(url, { ...init, timeoutMs });
     } catch (err) {
       lastError = err;
-      console.warn('[api] Unreachable, trying the next address:', url, (err as Error)?.message);
+      if (!silent) {
+        console.warn('[api] Unreachable, trying the next address:', url, (err as Error)?.message);
+      }
     }
   }
 

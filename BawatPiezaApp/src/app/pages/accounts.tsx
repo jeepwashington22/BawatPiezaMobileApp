@@ -11,6 +11,7 @@ import {
 import { AppText as Text } from '../../components/app-text';
 import { Ionicons } from '@expo/vector-icons';
 import { ScreenShell } from '../../components/screen-shell';
+import { TileLoader } from '../../components/tile-loader';
 import { ContentCard } from '../../components/content-card';
 import { supabase } from '../../lib/supabase';
 import { apiFetch, describeApiBase } from '../../lib/api';
@@ -255,19 +256,13 @@ export default function AccountsScreen() {
     [sentInvites],
   );
 
-  if (loading) {
-    return (
-      <ScreenShell title="Shared Users" showBack>
-        <View style={styles.loaderWrap}>
-          <ActivityIndicator size="large" color={PRUSSIAN} />
-          <Text style={[styles.hint, { marginTop: 10 }]}>Loading shared users</Text>
-        </View>
-      </ScreenShell>
-    );
-  }
-
   return (
     <ScreenShell title="Shared Users" showBack>
+      {loading ? (
+        <View style={styles.loaderWrap}>
+          <TileLoader label="Loading shared users" size="md" />
+        </View>
+      ) : null}
       {/* Search sits at the very top — first glance — always visible. */}
       {!error && (
         <View style={styles.searchWrap}>

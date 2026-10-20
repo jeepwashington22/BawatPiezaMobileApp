@@ -9,7 +9,6 @@ import { useAuth } from "../../hooks/use-auth";
 import { usePowerOverride } from "../../hooks/use-power-override";
 import { TopBar } from "../../components/top-bar";
 import { HeroGlow } from "../../components/hero-glow";
-import { LoadingScreen } from "../../components/loading-screen";
 
 import {
   Card,
@@ -232,9 +231,8 @@ export default function HomeScreen() {
   ]);
   const [activeTile, setActiveTile] = useState<number | null>(null);
 
-  if (!ready || !isLoggedIn) {
-    return <LoadingScreen label="Verifying session" />;
-  }
+  // Auth is enforced by AuthGate + splash — no fixed loader here so
+  // navigation never blocks on a full-screen tile animation.
 
   const isActive = true;
 
@@ -339,7 +337,7 @@ export default function HomeScreen() {
           style={st.scCard}
         >
           <View style={st.scTop}>
-            <View>
+            <View style={st.scTopData}>
               <Text style={st.scEyebrow}>{selectedConsumption.label}&apos;s consumption</Text>
               <View style={st.scKwhRow}>
                 <Text style={st.scKwh}>
@@ -355,10 +353,18 @@ export default function HomeScreen() {
               </View>
             </View>
             <View style={[st.scDelta, !isActive && { opacity: 0.5 }]}>
-                <Ionicons name="trending-down" size={scale(14)} color="#FFFFFF" />
+                <Ionicons
+                  name={usingGrid ? "battery-charging" : "trending-down"}
+                  size={scale(14)}
+                  color="#FFFFFF"
+                />
                 <View>
-                  <Text style={st.scDeltaValue}>{selectedConsumption.delta}</Text>
-                  <Text style={st.scDeltaLabel}>{selectedConsumption.deltaLabel}</Text>
+                  <Text style={st.scDeltaValue}>
+                    {usingGrid ? `${Math.floor(batteryPct)}%` : selectedConsumption.delta}
+                  </Text>
+                  <Text style={st.scDeltaLabel}>
+                    {usingGrid ? "battery health" : selectedConsumption.deltaLabel}
+                  </Text>
                 </View>
             </View>
           </View>
@@ -383,10 +389,11 @@ export default function HomeScreen() {
 
       <EnterView delay={120} style={st.dashboardCard}>
         <Pressable
-          onPress={openOverrides}
-          accessibilityRole="button"
-          accessibilityLabel="Battery percentage — open quick overrides"
-          accessibilityHint="Opens Quick Overrides to force grid or battery"
+          onPress={usingGrid ? undefined : openOverrides}
+          disabled={usingGrid}
+          accessibilityRole={usingGrid ? undefined : "button"}
+          accessibilityLabel={usingGrid ? undefined : "Battery percentage — open quick overrides"}
+          accessibilityHint={usingGrid ? undefined : "Opens Quick Overrides to force grid or battery"}
           style={({ pressed }) => [pressed && { opacity: 0.96, transform: [{ scale: 0.995 }] }]}
         >
           <Glass
@@ -430,32 +437,34 @@ export default function HomeScreen() {
                 </View>
                 <View>
                   <Text style={[st.batteryCardEyebrow, { color: usingGrid ? "#16A34A" : batteryCardMutedInk }]}>
-                    {usingGrid ? "GRID USAGE" : "BATTERY PERCENTAGE"}
+                    {usingGrid ? "CURRENTLY USING GRID" : "BATTERY PERCENTAGE"}
                   </Text>
                 </View>
               </View>
-              <View style={st.batteryCardIndicator}>
-                <Text style={[st.batteryCardLevelLabel, { color: usingGrid ? "#16A34A" : c.orange }]}>
-                  CHARGE LEVEL
-                </Text>
-                <View style={st.batteryCardValueRow}>
-                  <Text style={[st.batteryCardValue, { color: usingGrid ? "#16A34A" : batteryCardInk }]}>
-                    {isActive ? Math.floor(batteryPct) : "--"}
+              {!usingGrid && (
+                <View style={st.batteryCardIndicator}>
+                  <Text style={[st.batteryCardLevelLabel, { color: c.orange }]}>
+                    CHARGE LEVEL
                   </Text>
-                  <Text style={[st.batteryCardUnit, { color: usingGrid ? "#16A34A" : batteryCardInk }]}>%</Text>
+                  <View style={st.batteryCardValueRow}>
+                    <Text style={[st.batteryCardValue, { color: batteryCardInk }]}>
+                      {isActive ? Math.floor(batteryPct) : "--"}
+                    </Text>
+                    <Text style={[st.batteryCardUnit, { color: batteryCardInk }]}>%</Text>
+                  </View>
+                  <View style={[st.batteryCardTrack, { backgroundColor: "rgba(249,115,22,0.22)" }]}>
+                    <View
+                      style={[
+                        st.batteryCardFill,
+                        {
+                          width: `${isActive ? batteryPct : 0}%`,
+                          backgroundColor: c.orange,
+                        },
+                      ]}
+                    />
+                  </View>
                 </View>
-                <View style={[st.batteryCardTrack, { backgroundColor: usingGrid ? (mode === "dark" ? "rgba(255,255,255,0.12)" : "rgba(10,42,74,0.10)") : "rgba(249,115,22,0.22)" }]}>
-                  <View
-                    style={[
-                      st.batteryCardFill,
-                      {
-                        width: `${isActive ? batteryPct : 0}%`,
-                        backgroundColor: usingGrid ? "#22C55E" : c.orange,
-                      },
-                    ]}
-                  />
-                </View>
-              </View>
+              )}
             </View>
             {usingGrid && (
               <View style={st.batteryGridBanner}>
@@ -471,12 +480,14 @@ export default function HomeScreen() {
                   ? "Strong charge capacity for today's energy needs"
                   : "Awaiting connection to read capacity"}
             </Text>
-            <View style={st.batteryCardTapHint}>
-              <Text style={[st.batteryCardTapText, { color: usingGrid ? "#16A34A" : batteryCardMutedInk }]}>
-                Tap to open Quick Overrides
-              </Text>
-              <Ionicons name="chevron-forward" size={scale(11)} color={usingGrid ? "#16A34A" : batteryCardMutedInk} />
-            </View>
+            {!usingGrid && (
+              <View style={st.batteryCardTapHint}>
+                <Text style={[st.batteryCardTapText, { color: batteryCardMutedInk }]}>
+                  Tap to open Quick Overrides
+                </Text>
+                <Ionicons name="chevron-forward" size={scale(11)} color={batteryCardMutedInk} />
+              </View>
+            )}
           </Glass>
         </Pressable>
       </EnterView>
@@ -1252,6 +1263,7 @@ const st = StyleSheet.create({
     elevation: 7,
   },
   scTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  scTopData: { paddingLeft: scale(6) },
   statsFilterWrap: { position: "relative", zIndex: 9 },
   statsFilterButton: {
     flexDirection: "row",
@@ -1282,10 +1294,10 @@ const st = StyleSheet.create({
   rangeOption: { paddingHorizontal: scale(8), paddingVertical: scale(7) },
   rangeOptionText: { color: "#5B6A94", fontSize: scale(8), fontFamily: fonts.semibold },
   rangeOptionSelected: { color: "#EA580C", fontFamily: fonts.extrabold },
-  scEyebrow: { color: "rgba(255,255,255,0.92)", fontSize: scale(8), fontFamily: fonts.semibold,paddingHorizontal: scale(8)},
+  scEyebrow: { color: "rgba(255,255,255,0.92)", fontSize: scale(9), letterSpacing: 0.2, fontFamily: fonts.bold },
   scKwhRow: { flexDirection: "row", alignItems: "baseline", gap: scale(3), marginTop: scale(1) },
-  scKwh: { color: "#FFFFFF", fontSize: scale(19), letterSpacing: -0.6, fontFamily: fonts.extrabold },
-  scKwhUnit: { color: "rgba(255,255,255,0.95)", fontSize: scale(9), fontFamily: fonts.bold },
+  scKwh: { color: "#FFFFFF", fontSize: scale(23), lineHeight: scale(27), letterSpacing: -0.7, fontFamily: fonts.extrabold },
+  scKwhUnit: { color: "rgba(255,255,255,0.95)", fontSize: scale(10), fontFamily: fonts.extrabold },
   scSavings: {
     flexDirection: "row",
     alignItems: "center",
@@ -1297,7 +1309,7 @@ const st = StyleSheet.create({
     borderRadius: scale(8),
     backgroundColor: "rgba(21,128,61,0.28)",
   },
-  scSavingsText: { color: "#FFFFFF", fontSize: scale(7), fontFamily: fonts.semibold },
+  scSavingsText: { color: "#FFFFFF", fontSize: scale(8), fontFamily: fonts.semibold },
   scDelta: {
     flexDirection: "row",
     alignItems: "center",
@@ -1309,8 +1321,8 @@ const st = StyleSheet.create({
     paddingHorizontal: scale(8),
     paddingVertical: scale(4),
   },
-  scDeltaValue: { color: "#FFFFFF", fontSize: scale(10), fontFamily: fonts.extrabold },
-  scDeltaLabel: { color: "rgba(255,255,255,0.92)", fontSize: scale(6.5), fontFamily: fonts.medium },
+  scDeltaValue: { color: "#FFFFFF", fontSize: scale(13), lineHeight: scale(15), fontFamily: fonts.extrabold },
+  scDeltaLabel: { color: "rgba(255,255,255,0.92)", fontSize: scale(7), fontFamily: fonts.medium },
   scGraphLink: {
     flexDirection: "row",
     alignItems: "center",

@@ -4,6 +4,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AppText as Text } from '../../components/app-text';
 import { Ionicons } from '@expo/vector-icons';
 import { ScreenShell } from '../../components/screen-shell';
+import { TileLoader } from '../../components/tile-loader';
 import { ContentCard } from '../../components/content-card';
 import { useAuth } from '../../hooks/use-auth';
 import { supabase } from '../../lib/supabase';
@@ -194,7 +195,7 @@ export default function NotificationsScreen() {
     try {
       const token = await getToken();
       if (!token) throw new Error('Not signed in');
-      const res = await apiFetch('/notifications', { timeoutMs: 5_000,
+      const res = await apiFetch('/notifications', { timeoutMs: 1_500, silent: true,
         headers: { Authorization: `Bearer ${token}` },
       });
       const json = (await res.json().catch(() => null)) as {
@@ -286,19 +287,13 @@ export default function NotificationsScreen() {
     }
   }
 
-  if (loading) {
-    return (
-      <ScreenShell title="Notifications" showBack>
-        <View style={styles.loaderWrap}>
-          <ActivityIndicator size="large" color={c.accent} />
-          <Text style={[styles.hint, { marginTop: 10 }]}>Loading notifications</Text>
-        </View>
-      </ScreenShell>
-    );
-  }
-
   return (
     <ScreenShell title="Notifications" showBack>
+      {loading ? (
+        <View style={styles.loaderWrap}>
+          <TileLoader label="Loading notifications" size="md" />
+        </View>
+      ) : null}
       {error ? <Text style={styles.errorText}>{error}</Text> : null}
       <ContentCard
         style={styles.notificationsCard}
