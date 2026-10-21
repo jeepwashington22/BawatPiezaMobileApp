@@ -9,6 +9,7 @@ import { useAuth } from "../../hooks/use-auth";
 import { usePowerOverride } from "../../hooks/use-power-override";
 import { TopBar } from "../../components/top-bar";
 import { HeroGlow } from "../../components/hero-glow";
+import { CountUpText } from "../../components/count-up-text";
 
 import {
   Card,
@@ -237,15 +238,15 @@ export default function HomeScreen() {
   const isActive = true;
 
   const stats = [
-    { label: "VOLTAGE", value: displayVoltage, unit: "V" },
+    { label: "VOLTAGE", value: Number(displayVoltage), decimals: 2, unit: "V" },
     {
       label: "POWER",
-      value: livePower !== null ? livePower.toString() : "--",
+      value: livePower ?? 0,
       unit: "W",
     },
     {
       label: "FOOTSTEPS",
-      value: isActive ? "1,248" : "--",
+      value: 1248,
       unit: "steps",
     },
   ];
@@ -340,9 +341,11 @@ export default function HomeScreen() {
             <View style={st.scTopData}>
               <Text style={st.scEyebrow}>{selectedConsumption.label}&apos;s consumption</Text>
               <View style={st.scKwhRow}>
-                <Text style={st.scKwh}>
-                  {isActive ? selectedConsumption.kwh.toFixed(2) : "--"}
-                </Text>
+                {isActive ? (
+                  <CountUpText value={selectedConsumption.kwh} decimals={2} style={st.scKwh} />
+                ) : (
+                  <Text style={st.scKwh}>--</Text>
+                )}
                 <Text style={st.scKwhUnit}>kWh</Text>
               </View>
               <View style={[st.scSavings, !isActive && { opacity: 0.5 }]}>
@@ -375,7 +378,11 @@ export default function HomeScreen() {
                 <View key={s.label} style={[st.scTile, i > 0 && st.scTileDivider]}>
                   <View style={st.scTileIcon}><Ionicons name={icon} size={scale(17)} color="#EA580C" /></View>
                   <View style={st.scTileValueRow}>
-                    <Text style={st.scTileValue} numberOfLines={1}>{s.value}</Text>
+                    {isActive ? (
+                      <CountUpText value={s.value} decimals={s.decimals} style={st.scTileValue} numberOfLines={1} />
+                    ) : (
+                      <Text style={st.scTileValue} numberOfLines={1}>--</Text>
+                    )}
                     <Text style={st.scTileUnit}>{s.unit}</Text>
                   </View>
                   <Text style={st.scTileLabel}>{s.label}</Text>
@@ -447,9 +454,11 @@ export default function HomeScreen() {
                     CHARGE LEVEL
                   </Text>
                   <View style={st.batteryCardValueRow}>
-                    <Text style={[st.batteryCardValue, { color: batteryCardInk }]}>
-                      {isActive ? Math.floor(batteryPct) : "--"}
-                    </Text>
+                    {isActive ? (
+                      <CountUpText value={Math.floor(batteryPct)} style={[st.batteryCardValue, { color: batteryCardInk }]} />
+                    ) : (
+                      <Text style={[st.batteryCardValue, { color: batteryCardInk }]}>--</Text>
+                    )}
                     <Text style={[st.batteryCardUnit, { color: batteryCardInk }]}>%</Text>
                   </View>
                   <View style={[st.batteryCardTrack, { backgroundColor: "rgba(249,115,22,0.22)" }]}>
@@ -511,7 +520,10 @@ export default function HomeScreen() {
           <View style={st.balanceChartHeader}>
             <View>
               <Text style={[st.balanceChartEyebrow, { color: c.muted }]}>ENERGY BALANCE</Text>
-              <Text style={[st.balanceChartValue, { color: c.text }]}>4.82 kWh</Text>
+              <View style={st.balanceChartValueRow}>
+                <CountUpText value={4.82} decimals={2} style={[st.balanceChartValue, { color: c.text }]} />
+                <Text style={[st.balanceChartValue, { color: c.text }]}> kWh</Text>
+              </View>
               <Text style={[st.balanceChartPeriod, { color: c.muted }]}>Today&apos;s consumption</Text>
             </View>
             <View style={[st.balanceChartChange, { backgroundColor: c.accentSoft }]}>
@@ -799,7 +811,7 @@ export default function HomeScreen() {
                   { color: isActive ? c.text : c.muted },
                 ]}
               >
-                {isActive ? "1,248" : "--"}
+                {isActive ? <CountUpText value={1248} style={st.stepsPillText} /> : "--"}
               </Text>
             </View>
           </View>
@@ -1554,7 +1566,8 @@ const st = StyleSheet.create({
   },
   balanceChartHeader: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between" },
   balanceChartEyebrow: { fontSize: scale(7), letterSpacing: 1, fontFamily: fonts.bold },
-  balanceChartValue: { fontSize: scale(20), marginTop: scale(2), letterSpacing: -0.4, fontFamily: fonts.extrabold },
+  balanceChartValueRow: { flexDirection: "row", alignItems: "baseline", marginTop: scale(2) },
+  balanceChartValue: { fontSize: scale(20), letterSpacing: -0.4, fontFamily: fonts.extrabold },
   balanceChartPeriod: { fontSize: scale(7.5), marginTop: scale(2), fontFamily: fonts.medium },
   balanceChartChange: {
     flexDirection: "row",

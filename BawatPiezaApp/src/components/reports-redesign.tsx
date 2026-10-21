@@ -10,6 +10,7 @@ import { TopBar } from './top-bar';
 import { HeroGlow } from './hero-glow';
 import { Card, scale } from './glass-ui';
 import { fonts, useTheme, type ThemeColors } from '../theme';
+import { CountUpText } from './count-up-text';
 
 const FORECAST = [12, 37, 29, 34, 26, 31, 42, 20, 15, 25, 29, 12, 30, 35, 15];
 const TREND = [58, 88, 60, 88, 72, 94, 47];
@@ -113,7 +114,10 @@ export function ReportsRedesign() {
                 {active.prefix ? (
                   <Text style={[styles.heroPrefix, { color: heroInkSoft }]}>{active.prefix}</Text>
                 ) : null}
-                <Text style={[styles.heroNumber, { color: heroInk }]}>{active.values[range]}</Text>
+                <CountUpText
+                  value={Number(active.values[range].replace(/,/g, ''))}
+                  style={[styles.heroNumber, { color: heroInk }]}
+                />
                 {active.suffix ? (
                   <Text style={[styles.heroUnit, { color: heroInkSoft }]}>{active.suffix}</Text>
                 ) : null}
