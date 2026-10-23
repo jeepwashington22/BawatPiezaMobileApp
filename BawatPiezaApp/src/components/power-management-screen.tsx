@@ -66,7 +66,7 @@ export function PowerManagementScreen() {
   }, []);
 
   return (
-    <ScreenShell scroll title="power management">
+    <ScreenShell scroll title="Power Management">
       <View style={[styles.tabs, { backgroundColor: c.surface }]}>
         {(["monitor", "configure", "allocation", 'override'] as Tab[]).map((item) => {
           const active = tab === item;
@@ -95,7 +95,7 @@ export function PowerManagementScreen() {
                   { color: active ? "#FFFFFF" : c.muted },
                 ]}
               >
-                {item[0].toLowerCase()}
+                {item[0].toUpperCase()}
                 {item.slice(1)}
               </Text>
             </Pressable>
@@ -222,7 +222,7 @@ function Monitor({
 
   return (
     <>
-      <SectionLabel label="BATTERY ARRAY" action="live hardware sync" c={c} />
+      <SectionLabel label="BATTERY ARRAY" action="Live Hardware Sync" c={c} />
 
       <View
         style={[
@@ -365,10 +365,10 @@ function Monitor({
           </View>
           <View style={styles.switchHeading}>
             <Text style={[styles.switchEyebrow, { color: c.orange }]}>
-              power intelligence
+              Power Intelligence
             </Text>
             <Text style={[styles.switchTitle, { color: c.text }]}>
-              smart auto-switching
+              Smart Auto-Switching
             </Text>
           </View>
           <Pressable
@@ -379,31 +379,14 @@ function Monitor({
             ]}
             accessibilityRole="switch"
             accessibilityState={{ checked: enabled }}
-            accessibilityLabel="smart auto-switching"
+            accessibilityLabel="Smart Auto-Switching"
           >
             <View style={[styles.toggleKnob, !enabled && styles.toggleOff]} />
           </Pressable>
         </View>
 
-        <View style={[styles.switchDivider, { backgroundColor: c.line }]} />
-        <View style={styles.switchBottom}>
-          <View style={styles.switchStatus}>
-            <View
-              style={[
-                styles.statusDot,
-                { backgroundColor: enabled ? c.ok : c.muted },
-              ]}
-            />
-            <Text style={[styles.switchStatusText, { color: c.textSoft }]}>
-              {enabled
-                ? "system automation active"
-                : "manual switching enabled"}
-            </Text>
-          </View>
-          <Ionicons name="chevron-forward" size={scale(16)} color={c.muted} />
-        </View>
         <Text style={[styles.switchCopy, { color: c.muted }]}>
-          automatically balances grid power, battery capacity, and campus load.
+          Automatically balances grid power, battery capacity, and campus load.
         </Text>
       </Glass>
 
@@ -418,18 +401,18 @@ function Monitor({
         ]}
       >
         <Text style={[styles.noticeTitle, { color: c.orange }]}>
-          4s batteries are at {pctString}
+          4S Batteries are at {pctString}
         </Text>
         <Text style={[styles.noticeCopy, { color: c.muted }]}>
           {batteryPct === 100
-            ? "charging stopped automatically to prevent overcharge. notification sent to admin & maintenance."
-            : "system is actively monitoring the state of charge."}
+            ? "Charging stopped automatically to prevent overcharge. Notification sent to admin & maintenance."
+            : "System is actively monitoring the state of charge."}
         </Text>
       </View>
 
       <SectionLabel
         label="CURRENTLY DISCHARGING"
-        action="change in overrides"
+        action="Change In Overrides"
         c={c}
       />
 
@@ -442,8 +425,8 @@ function Monitor({
           />
           <Text style={styles.overrideBannerText}>
             {usingGrid
-              ? "using grid — battery on standby"
-              : "using battery — grid on standby"}
+              ? "Using Grid — battery on standby"
+              : "Using Battery — grid on standby"}
           </Text>
         </View>
       )}
@@ -472,15 +455,15 @@ function Monitor({
               ]}
             >
               {usingGrid
-                ? "grid is supplying the campus"
+                ? "Grid is supplying the campus"
                 : forcingBattery
-                  ? "battery is supplying the campus"
-                  : "4s batteries are supplying the campus"}
+                  ? "Battery is supplying the campus"
+                  : "4S Batteries are supplying the campus"}
             </Text>
             <Text style={[styles.cardCopy, { color: c.muted }]}>
               {usingGrid || forcingBattery
-                ? "manual override active — tap to change in quick overrides"
-                : "following smart auto-switching — tap to override manually"}
+                ? "Manual override active — tap to change in Quick Overrides"
+                : "Following Smart Auto-Switching — tap to override manually"}
             </Text>
           </View>
           <Ionicons
@@ -500,26 +483,11 @@ function Configure({ c, mode }: { c: ThemeColors; mode: Mode }) {
 
   return (
     <>
-      <View style={styles.configureIntro}>
-        <View
-          style={[styles.configureIntroIcon, { backgroundColor: c.accentSoft }]}
-        >
-          <Ionicons name="options-outline" size={scale(18)} color={c.orange} />
-        </View>
-        <View style={styles.configureIntroCopy}>
-          <Text style={[styles.configureIntroTitle, { color: c.text }]}>
-            power rules
-          </Text>
-          <Text style={[styles.configureIntroText, { color: c.muted }]}>
-            set safe battery thresholds and when the system changes power
-            source.
-          </Text>
-        </View>
-      </View>
+  
 
       <SectionLabel
         label="BATTERY PROTECTION"
-        action="1 array configured"
+        action="1 Array Configured"
         c={c}
       />
 
@@ -541,29 +509,29 @@ function Configure({ c, mode }: { c: ThemeColors; mode: Mode }) {
           </View>
           <View style={styles.schedulerHeaderCopy}>
             <Text style={[styles.schedulerTitle, { color: c.text }]}>
-              daily power schedule
+              Daily Power Schedule
             </Text>
             <Text style={[styles.schedulerSubtitle, { color: c.muted }]}>
-              automatic switching windows
+              Automatic Switching Windows
             </Text>
           </View>
           <View style={[styles.activePill, { backgroundColor: c.accentSoft }]}>
             <View style={[styles.activeDot, { backgroundColor: c.ok }]} />
             <Text style={[styles.activePillText, { color: c.onAccentSoft }]}>
-              active
+              Active
             </Text>
           </View>
         </View>
         <ScheduleRow
-          title="peak hours"
-          note="use battery power"
+          title="Peak Hours"
+          note="Use battery power"
           time="7:00 am - 7:00 pm"
           c={c}
           mode={mode}
         />
         <ScheduleRow
-          title="off-peak hours"
-          note="draw from grid"
+          title="Off-Peak Hours"
+          note="Draw from grid"
           time="8:00 pm - 6:00 am"
           c={c}
           mode={mode}
@@ -582,7 +550,7 @@ function Configure({ c, mode }: { c: ThemeColors; mode: Mode }) {
         >
           <View style={styles.scheduleDetailsHeading}>
             <Text style={[styles.smallBold, { color: c.text }]}>
-            how this schedule is set?{" "}
+            How This Schedule Is Set?{" "}
          </Text>
           </View>
           <Text style={[styles.scheduleDetailsCopy, { color: c.muted }]}>
@@ -606,7 +574,7 @@ function Configure({ c, mode }: { c: ThemeColors; mode: Mode }) {
         </View>
 
         <ActionButton
-          label="Check a zone's runtime need against this window →"
+          label="Check a Zone's Runtime Need Against This Window →"
           onPress={() => router.push('/pages/zones/1/runtime-calculator' as Href)}
         />
       </Card>
@@ -682,7 +650,7 @@ function Allocation({
               </View>
               <View>
                 <Text style={[styles.poolTitle, { color: c.text }]}>
-                  available battery pool
+                  Available Battery Pool
                 </Text>
                 <Text style={[styles.poolSubtitle, { color: c.muted }]}>
                   4S BATTERY ARRAY
@@ -690,16 +658,16 @@ function Allocation({
               </View>
             </View>
             <Text style={[styles.poolNote, { color: c.muted }]}>
-              4s batteries are {batteryPct ?? "--"}% full{"\n"}
-              12.8v nominal total{"\n"}
-              60,000mah mass capacity
+              4S Batteries are {batteryPct ?? "--"}% full{"\n"}
+              12.8V nominal total{"\n"}
+              60,000mAh mass capacity
             </Text>
           </View>
 
           <Text style={[styles.poolValue, { color: c.text }]}>
             ~{totalPool}h{"\n"}
             <Text style={[styles.poolValueUnit, { color: c.muted }]}>
-              stored
+              Stored
             </Text>
           </Text>
         </View>
@@ -718,14 +686,14 @@ function Allocation({
 
         <View style={styles.progressLabels}>
           <Text style={[styles.progressText, { color: c.muted }]}>
-            {Math.floor(progressPct)}% assigned so far
+            {Math.floor(progressPct)}% Assigned So Far
           </Text>
           <Text style={[styles.progressText, { color: c.muted }]}>
-            {remaining.toFixed(1)}h still free
+            {remaining.toFixed(1)}h Still Free
           </Text>
         </View>
 
-        <Text style={[styles.selectionLabel, { color: c.text }]}>Choose a battery first</Text>
+        <Text style={[styles.selectionLabel, { color: c.text }]}>Choose a Battery First</Text>
         <Text style={[styles.selectionHint, { color: c.muted }]}>
           The system will only allocate power from the battery you select.
         </Text>
@@ -766,7 +734,7 @@ function Allocation({
         </View>
 
         <ActionButton
-          label={selectedBattery ? `Let System Allocate from Bank ${selectedBattery}` : 'Choose a battery to continue'}
+          label={selectedBattery ? `Let System Allocate from Bank ${selectedBattery}` : 'Choose a Battery to Continue'}
           disabled={!selectedBattery}
           onPress={() => setSystemAllocated(true)}
         />
@@ -785,11 +753,11 @@ function Allocation({
         ]}
       >
         <Text style={[styles.noticeTitle, { color: c.orange }]}>
-          campus-wide power allocation
+          Campus-Wide Power Allocation
         </Text>
         <Text style={[styles.cardCopy, { color: c.muted }]}>
-          assign each battery-powered zone its hours and start time — nothing
-          changes on campus until u confirm.
+          Assign each battery-powered zone its hours and start time — nothing
+          changes on campus until you confirm.
         </Text>
       </View>
 
@@ -833,7 +801,7 @@ function Allocation({
         remainingPool={remaining}
       />
       <ActionButton
-        label="confirm allocation"
+        label="Confirm Allocation"
         disabled={!selectedBattery}
         onPress={() => setSystemAllocated(true)}
       />
@@ -899,14 +867,14 @@ function ThresholdCard({ name, c }: { name: string; c: ThemeColors }) {
             { color: "#FFFFFF", backgroundColor: "rgba(255,255,255,0.18)" },
           ]}
         >
-          {name === "4S BATTERIES" ? "safe" : "n/a"}
+          {name === "4S BATTERIES" ? "Safe" : "N/A"}
         </Text>
       </View>
       <View style={styles.thresholdRow}>
         <Text
           style={[styles.thresholdCopy, { color: "rgba(255,255,255,0.78)" }]}
         >
-          alert below
+          Alert Below
         </Text>
         <Text style={[styles.thresholdValue, { color: "#FFFFFF" }]}>
           {name === "4S BATTERIES" ? "25%" : "--"}
@@ -958,7 +926,7 @@ function ScheduleRow({
       <View style={[styles.scheduleIcon, { backgroundColor: c.surfaceMuted }]}>
         <Ionicons
           name={
-            title === "peak hours"
+            title === "Peak Hours"
               ? "battery-charging-outline"
               : "flash-outline"
           }

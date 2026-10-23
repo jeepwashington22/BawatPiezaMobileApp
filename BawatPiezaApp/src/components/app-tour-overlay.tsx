@@ -369,6 +369,7 @@ export function AppTourOverlay() {
   const [rect, setRect] = useState<Rect>({ x: 0, y: 0, width: 0, height: 0 });
   const [ready, setReady] = useState(false);
   const measureTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const overlayRef = useRef<RNView>(null);
 
   // Usable viewport inside the status bar and the floating bottom nav.
   const viewportTop = insets.top + 12;
@@ -415,21 +416,36 @@ export function AppTourOverlay() {
         tries += 1;
         return;
       }
-      if (!measureTarget(node, (current) => {
-        const { x, y, width, height } = current;
-        if (width <= 0 || height <= 0) {
+      const overlayNode = overlayRef.current;
+      if (!overlayNode) {
+        if (tries < 30) measureTimer.current = setTimeout(attempt, 120);
+        tries += 1;
+        return;
+      }
+      if (!measureTarget(overlayNode, (overlayOrigin) => {
+        if (!measureTarget(node, (current) => {
+          const { x, y, width, height } = current;
+          if (width <= 0 || height <= 0) {
+            if (tries < 30) measureTimer.current = setTimeout(attempt, 120);
+            tries += 1;
+            return;
+          }
+          // Only nudge the screen once per step, then settle into measuring.
+          if (!scrolled && revealTarget(current)) {
+            scrolled = true;
+            measureTimer.current = setTimeout(attempt, 420);
+            return;
+          }
+          setRect({
+            x: current.x - overlayOrigin.x,
+            y: current.y - overlayOrigin.y,
+            width: current.width,
+            height: current.height,
+          });
+          setReady(true);
+        })) {
           if (tries < 30) measureTimer.current = setTimeout(attempt, 120);
-          tries += 1;
-          return;
         }
-        // Only nudge the screen once per step, then settle into measuring.
-        if (!scrolled && revealTarget(current)) {
-          scrolled = true;
-          measureTimer.current = setTimeout(attempt, 420);
-          return;
-        }
-        setRect(current);
-        setReady(true);
       })) {
         if (tries < 30) measureTimer.current = setTimeout(attempt, 120);
       }
@@ -458,7 +474,12 @@ export function AppTourOverlay() {
   const isLast = stepIndex >= totalSteps - 1;
 
   return (
-    <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
+    <View
+      ref={overlayRef}
+      collapsable={false}
+      style={StyleSheet.absoluteFill}
+      pointerEvents="box-none"
+    >
       <Spotlight rect={ready ? rect : { x: 0, y: 0, width: 0, height: 0 }}>
         {ready && (
           <TourTooltip

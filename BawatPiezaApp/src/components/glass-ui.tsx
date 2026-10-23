@@ -3,6 +3,7 @@ import { View, StyleSheet, Pressable, Platform, Dimensions } from 'react-native'
 import { AppText as Text } from './app-text';
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
+import { Ionicons } from '@expo/vector-icons';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -249,12 +250,21 @@ export function SectionHead({
         <Pressable
           onPress={onLink}
           hitSlop={6}
-          style={{ minHeight: scale(48), justifyContent: 'center' }}
+          style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: scale(4),
+            paddingHorizontal: scale(9),
+            paddingVertical: scale(6),
+            borderRadius: 99,
+            backgroundColor:
+              mode === 'dark' ? 'rgba(255,255,255,0.08)' : 'rgba(245,162,32,0.12)',
+          }}
         >
-          <Text style={{ color: accent, fontSize: scale(13), fontFamily: fonts.bold }}>{link}</Text>
+          <Text style={{ color: accent, fontSize: scale(9.5), fontFamily: fonts.bold }}>{link}</Text>
+          <Ionicons name="arrow-forward" size={scale(13)} color={accent} />
         </Pressable>
       )}
     </View>
   );
 }
-

@@ -20,11 +20,21 @@ export type ScreenShellProps = {
   children: ReactNode;
   scroll?: boolean;
   tourScroll?: boolean;
+  contentPaddingHorizontal?: number;
+  contentPaddingBottom?: number;
   title?: string;
   showBack?: boolean;
 };
 
-export function ScreenShell({ children, scroll = true, tourScroll = false, title, showBack = false }: ScreenShellProps) {
+export function ScreenShell({
+  children,
+  scroll = true,
+  tourScroll = false,
+  contentPaddingHorizontal = 18,
+  contentPaddingBottom = 110,
+  title,
+  showBack = false,
+}: ScreenShellProps) {
   const { colors: c } = useTheme();
   const { scrollContainerRef, setScrollOffsetY } = useAppTour();
 
@@ -42,7 +52,15 @@ export function ScreenShell({ children, scroll = true, tourScroll = false, title
       {children}
     </ScrollView>
   ) : (
-    <View style={[styles.flexContent, { paddingBottom: 110 }]}>
+    <View
+      style={[
+        styles.flexContent,
+        {
+          paddingBottom: contentPaddingBottom,
+          paddingHorizontal: contentPaddingHorizontal,
+        },
+      ]}
+    >
       {title || showBack ? <TopBar gutter={0} title={title} showBack={showBack} /> : null}
       {children}
     </View>

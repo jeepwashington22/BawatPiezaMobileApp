@@ -93,16 +93,15 @@ export default function ProfileScreen() {
   // tap cannot start the tour twice.
   const replaying = useRef(false);
 
-  /**
-   * Replay the quick tour. The tour highlights home-screen elements, so we
-   * navigate back to the dashboard first and start the walkthrough once the
-   * home screen has had a chance to mount its targets.
-   */
+  /** Replay the quick tour on the dashboard, where all targets are mounted. */
   const handleReplayTour = () => {
     if (replaying.current) return;
     replaying.current = true;
-    if (pathname === '/home') {
+    if (pathname === '/home' || pathname === '/') {
       restartTour();
+    } else {
+      restartTour();
+      router.replace('/home');
     }
     replaying.current = false;
   };

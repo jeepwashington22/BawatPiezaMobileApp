@@ -6,6 +6,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../theme';
 import { QuickOverridesModal } from './quick-overrides-modal';
 import { usePowerOverride } from '../hooks/use-power-override';
+import { useAppTour } from '../hooks/use-app-tour';
 
 /**
  * BottomNav — four destinations with a raised center Quick Overrides action.
@@ -43,8 +44,15 @@ export function BottomNav() {
   const pathname = usePathname();
   const { colors: c, fonts: f } = useTheme();
   const { usingGrid } = usePowerOverride();
+  const { registerTarget, unregisterTarget } = useAppTour();
   const insets = useSafeAreaInsets();
   const [showOverrides, setShowOverrides] = React.useState(false);
+  const navRef = React.useRef<View>(null);
+
+  React.useEffect(() => {
+    registerTarget('nav', navRef);
+    return () => unregisterTarget('nav');
+  }, [registerTarget, unregisterTarget]);
 
   const isActive = (href: string) =>
     href === '/home'
@@ -77,6 +85,7 @@ export function BottomNav() {
 
   return (
     <View
+      ref={navRef}
       style={[
         styles.wrap,
         {

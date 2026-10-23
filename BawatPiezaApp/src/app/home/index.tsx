@@ -44,6 +44,8 @@ import Svg, {
 } from "react-native-svg";
 
 const AnimatedPath = Animated.createAnimatedComponent(Path);
+const BRAND_ORANGE = "#F5A220";
+const BRAND_ORANGE_DARK = "#E6641F";
 
 // Helper function to get today's date key formatted as YYYY-MM-DD
 const getTodayDateKey = () => {
@@ -77,8 +79,8 @@ function useGridPalette(usingGrid: boolean): GridPalette {
     gridActive,
     gridGreen,
     gridGreenDark,
-    batteryCardTrack: gridActive ? "rgba(22,163,74,0.22)" : "rgba(249,115,22,0.22)",
-    batteryCardFill: gridActive ? "rgba(22,163,74,1)" : "rgba(249,115,22,1)",
+    batteryCardTrack: gridActive ? "rgba(22,163,74,0.22)" : "rgba(245,162,32,0.22)",
+    batteryCardFill: gridActive ? "rgba(22,163,74,1)" : BRAND_ORANGE_DARK,
   };
 }
 
@@ -98,8 +100,8 @@ const heatTiles: number[] = Array.from(
 );
 
 const HEAT_STOPS: Record<Mode, string[]> = {
-  light: ["#7C2D12", "#9A3412", "#C2410C", "#EA580C", "#F97316"],
-  dark: ["#431407", "#7C2D12", "#9A3412", "#C2410C", "#F97316"],
+  light: ["#8C3B12", "#B94E14", "#D85B1C", BRAND_ORANGE_DARK, BRAND_ORANGE],
+  dark: ["#5C250D", "#8C3B12", "#B94E14", "#D85B1C", BRAND_ORANGE_DARK],
 };
 
 const heatColor = (v: number, mode: Mode) => {
@@ -126,8 +128,8 @@ const SOURCE_META: Record<
 > = {
   Battery: {
     icon: "battery-charging",
-    color: "#C2410C",
-    tint: "rgba(249,115,22,0.14)",
+    color: BRAND_ORANGE_DARK,
+    tint: "rgba(245,162,32,0.14)",
   },
   Grid: { icon: "flash", color: "#7C3AED", tint: "rgba(124,58,237,0.12)" },
   Solar: { icon: "sunny", color: "#B45309", tint: "rgba(245,158,11,0.16)" },
@@ -162,8 +164,8 @@ function ZoneSwitch({
 
   const gridGreen = "#16A34A";
   const gridGreenDark = "#22C55E";
-  const onColor = gridActive ? gridGreen : "rgba(249,115,22,1)";
-  const onColorDark = gridActive ? "rgba(34,197,94,1)" : "rgba(249,115,22,1)";
+  const onColor = gridActive ? gridGreen : BRAND_ORANGE_DARK;
+  const onColorDark = gridActive ? "rgba(34,197,94,1)" : BRAND_ORANGE;
 
   const trackColor = anim.interpolate({
     inputRange: [0, 1],
@@ -194,7 +196,7 @@ function ZoneSwitch({
           borderRadius: H / 2,
           backgroundColor: trackColor,
           justifyContent: "center",
-          shadowColor: gridActive ? gridGreen : "#F97316",
+          shadowColor: gridActive ? gridGreen : BRAND_ORANGE_DARK,
           shadowOpacity: on ? 0.45 : 0,
           shadowRadius: scale(8),
           shadowOffset: { width: 0, height: 3 },
@@ -236,7 +238,7 @@ function ZoneSwitch({
           <Ionicons
             name="power"
             size={scale(11)}
-            color={on ? "#EA580C" : "#9AA3B2"}
+            color={on ? BRAND_ORANGE_DARK : "#9AA3B2"}
           />
         </Animated.View>
       </Animated.View>
@@ -528,7 +530,11 @@ export default function HomeScreen() {
   const dynamicKwhHarvested = (footsteps * 0.0002725).toFixed(2);
 
   return (
-    <ScreenShell scroll={false}>
+    <ScreenShell
+      scroll={false}
+      contentPaddingHorizontal={8}
+      contentPaddingBottom={0}
+    >
       <ScrollView
         ref={(node) => {
           scrollContainerRef.current = node;
@@ -536,12 +542,13 @@ export default function HomeScreen() {
         onScroll={(event) => setScrollOffsetY(event.nativeEvent.contentOffset.y)}
         scrollEventThrottle={16}
         showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ paddingBottom: scale(88) }}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
             onRefresh={onRefresh}
-            tintColor="#F97316"
-            colors={["#F97316"]}
+            tintColor={BRAND_ORANGE_DARK}
+            colors={[BRAND_ORANGE_DARK]}
           />
         }
       >
@@ -629,6 +636,7 @@ export default function HomeScreen() {
               )}
             </View>
           </View>
+          <TourSpot id="live-stats">
           <Animated.View
             style={[
               st.statsPop,
@@ -648,9 +656,7 @@ export default function HomeScreen() {
             <LinearGradient
               colors={
                 isActive
-                  ? mode === "dark"
-                    ? ["#9A3412", "#EA580C", "#F97316"]
-                    : ["#F97316", "#EA580C", "#C2410C"]
+                  ? ["#F5A220", "#E6641F"]
                   : ["#475569", "#64748B", "#94A3B8"]
               }
               start={{ x: 0, y: 0 }}
@@ -719,7 +725,7 @@ export default function HomeScreen() {
                         <Ionicons
                           name={icon}
                           size={scale(17)}
-                          color="#EA580C"
+                          color={BRAND_ORANGE_DARK}
                         />
                       </View>
                       <View style={st.scTileValueRow}>
@@ -735,9 +741,11 @@ export default function HomeScreen() {
               </View>
             </LinearGradient>
           </Animated.View>
+          </TourSpot>
         </EnterView>
 
         {/* ============ BATTERY DETECTOR CARD ============ */}
+        <TourSpot id="battery">
         <EnterView delay={120} style={st.dashboardCard}>
           <Pressable
             onPress={usingGrid ? undefined : openOverrides}
@@ -785,8 +793,8 @@ export default function HomeScreen() {
                         backgroundColor: usingGrid
                           ? "rgba(22,163,74,0.14)"
                           : mode === "dark"
-                            ? "rgba(249,115,22,0.18)"
-                            : "rgba(249,115,22,0.12)",
+                            ? "rgba(245,162,32,0.18)"
+                            : "rgba(245,162,32,0.12)",
                       },
                     ]}
                   >
@@ -805,7 +813,7 @@ export default function HomeScreen() {
                     >
                       {usingGrid
                         ? "CURRENTLY USING GRID"
-                        : "BATTERY PERCENTAGE"}
+                        : "CURRENTLY USING BATTERY"}
                     </Text>
                     <View
                       style={{
@@ -816,7 +824,7 @@ export default function HomeScreen() {
                       }}
                     >
                       <LiveDot
-                        color={mqttStatus === "Live" ? "#22C55E" : "#EA580C"}
+                        color={mqttStatus === "Live" ? "#22C55E" : BRAND_ORANGE_DARK}
                       />
                       <Text
                         style={{
@@ -854,7 +862,7 @@ export default function HomeScreen() {
                     <View
                       style={[
                         st.batteryCardTrack,
-                        { backgroundColor: "rgba(249,115,22,0.22)" },
+                        { backgroundColor: "rgba(245,162,32,0.22)" },
                       ]}
                     >
                       <View
@@ -915,6 +923,7 @@ export default function HomeScreen() {
             </Glass>
           </Pressable>
         </EnterView>
+        </TourSpot>
 
         <EnterView delay={180} style={st.dashboardCard}>
           <View style={st.sectionTitleRow}>
@@ -1086,8 +1095,8 @@ export default function HomeScreen() {
                     {
                       backgroundColor:
                         mode === "dark"
-                          ? "rgba(249,115,22,0.18)"
-                          : "rgba(249,115,22,0.12)",
+                          ? "rgba(245,162,32,0.18)"
+                          : "rgba(245,162,32,0.12)",
                     },
                   ]}
                 >
@@ -1138,14 +1147,14 @@ export default function HomeScreen() {
                     backgroundColor:
                       mode === "dark"
                         ? "rgba(255,255,255,0.08)"
-                        : "rgba(249,115,22,0.10)",
+                        : "rgba(245,162,32,0.12)",
                   },
                 ]}
               >
                 <Text
                   style={[
                     st.manageText,
-                    { color: mode === "dark" ? c.orange : "#C2410C" },
+                    { color: mode === "dark" ? BRAND_ORANGE : BRAND_ORANGE_DARK },
                   ]}
                 >
                   Manage
@@ -1153,7 +1162,7 @@ export default function HomeScreen() {
                 <Ionicons
                   name="arrow-forward"
                   size={scale(13)}
-                  color={mode === "dark" ? c.orange : "#C2410C"}
+                  color={mode === "dark" ? BRAND_ORANGE : BRAND_ORANGE_DARK}
                 />
               </Pressable>
             </View>
@@ -1172,21 +1181,17 @@ export default function HomeScreen() {
                     style={[
                       st.zoneRow,
                       {
-                        backgroundColor: live
-                          ? "rgba(249,115,22,0.12)"
-                          : mode === "dark"
-                            ? "rgba(255,255,255,0.04)"
-                            : "rgba(249,115,22,0.04)",
+                        backgroundColor: "#FFFFFF",
                         borderColor: live
-                          ? "rgba(249,115,22,0.48)"
-                          : "rgba(249,115,22,0.18)",
+                          ? "#E6641F"
+                          : "rgba(230,100,31,0.3)",
                       },
                     ]}
                   >
                     <LinearGradient
                       colors={
                         live
-                          ? ["rgba(249,115,22,0.14)", "rgba(249,115,22,0.02)"]
+                          ? ["rgba(245,162,32,0.14)", "rgba(245,162,32,0.02)"]
                           : ["rgba(148,163,184,0.06)", "rgba(148,163,184,0)"]
                       }
                       start={{ x: 0, y: 0 }}
@@ -1214,7 +1219,7 @@ export default function HomeScreen() {
                     >
                       {live ? (
                         <LinearGradient
-                          colors={["#FB923C", "#EA580C"]}
+                          colors={[BRAND_ORANGE, BRAND_ORANGE_DARK]}
                           start={{ x: 0, y: 0 }}
                           end={{ x: 1, y: 1 }}
                           style={st.zoneIconChip}
@@ -1258,8 +1263,8 @@ export default function HomeScreen() {
                         {z.detail}
                       </Text>
                       <View style={st.zoneState}>
-                        <View style={[st.zoneStateDot, { backgroundColor: live ? "#F97316" : c.muted }]} />
-                        <Text style={[st.zoneStateText, { color: live ? "#C2410C" : c.muted }]}>
+                        <View style={[st.zoneStateDot, { backgroundColor: live ? BRAND_ORANGE_DARK : c.muted }]} />
+                        <Text style={[st.zoneStateText, { color: live ? BRAND_ORANGE_DARK : c.muted }]}>
                           {live ? "Live" : "Standby"}
                         </Text>
                       </View>
@@ -1309,12 +1314,14 @@ export default function HomeScreen() {
           </TourSpot>
       </EnterView>
 
+        <TourSpot id="heatmap">
         <EnterView delay={450}>
           <SectionHead
             title="MOST WALKED-ON TILES"
             link="Full heatmap"
             onLink={() => router.push("/pages/heatmap")}
             mode={mode}
+            accentColor={BRAND_ORANGE_DARK}
           />
           <Card
             mode={mode}
@@ -1435,7 +1442,7 @@ export default function HomeScreen() {
               style={[
                 st.heatGrid,
                 {
-                  backgroundColor: "#1D1A2A",
+                  backgroundColor: "#FFF8ED",
                 },
               ]}
             >
@@ -1455,20 +1462,20 @@ export default function HomeScreen() {
                           st.heatTile,
                           {
                             backgroundColor: heatColor(v, mode),
-                            shadowColor: "#090B12",
+                            shadowColor: BRAND_ORANGE_DARK,
                             shadowOpacity: isActive ? v * 0.9 : 0,
                             shadowRadius: scale(9),
                             borderWidth: 1,
                             borderColor:
                               active && isActive
-                                ? "#FBA94C"
-                                : "rgba(255,255,255,0.22)",
+                                ? BRAND_ORANGE
+                                : "rgba(230,100,31,0.3)",
                           },
                           active &&
                             isActive && [
                               st.heatTileActive,
                               {
-                                borderColor: "#FBA94C",
+                                borderColor: BRAND_ORANGE,
                               },
                             ],
                         ]}
@@ -1478,16 +1485,17 @@ export default function HomeScreen() {
                           style={[
                             st.heatTileDepth,
                             {
-                              backgroundColor: v > 0.75 ? "#9A3412" : "#431407",
+                              backgroundColor:
+                                v > 0.75 ? BRAND_ORANGE_DARK : "#8C3B12",
                             },
                           ]}
                         />
                         <LinearGradient
                           pointerEvents="none"
                           colors={[
-                            "rgba(255,255,255,0.28)",
-                            "rgba(255,255,255,0.04)",
-                            "rgba(0,0,0,0.28)",
+                            "rgba(255,255,255,0.34)",
+                            "rgba(255,255,255,0.08)",
+                            "rgba(122,54,12,0.24)",
                           ]}
                           locations={[0, 0.34, 1]}
                           style={StyleSheet.absoluteFill}
@@ -1594,8 +1602,8 @@ export default function HomeScreen() {
             )}
           </Card>
         </EnterView>
+        </TourSpot>
 
-        <View style={{ height: scale(28) }} />
       </ScrollView>
     </ScreenShell>
   );
@@ -1603,8 +1611,8 @@ export default function HomeScreen() {
 
 const st = StyleSheet.create({
   hero: {
-    marginHorizontal: -20,
-    paddingHorizontal: 20,
+    marginHorizontal: -8,
+    paddingHorizontal: 8,
     paddingBottom: scale(8),
     position: "relative",
     zIndex: 10,
@@ -1680,7 +1688,7 @@ const st = StyleSheet.create({
     fontFamily: fonts.extrabold,
   },
   kwhUnit: {
-    color: "#EA580C",
+    color: BRAND_ORANGE_DARK,
     fontSize: scale(12),
     fontFamily: fonts.extrabold,
   },
@@ -1690,18 +1698,18 @@ const st = StyleSheet.create({
     gap: scale(6),
     borderRadius: scale(12),
     borderWidth: 1,
-    borderColor: "rgba(249,115,22,0.24)",
-    backgroundColor: "rgba(249,115,22,0.10)",
+    borderColor: "rgba(230,100,31,0.24)",
+    backgroundColor: "rgba(245,162,32,0.10)",
     paddingHorizontal: scale(9),
     paddingVertical: scale(7),
   },
   comparisonValue: {
-    color: "#EA580C",
+    color: BRAND_ORANGE_DARK,
     fontSize: scale(11),
     fontFamily: fonts.extrabold,
   },
   comparisonLabel: {
-    color: "#EA580C",
+    color: BRAND_ORANGE_DARK,
     fontSize: scale(7.5),
     marginTop: scale(1),
     fontFamily: fonts.bold,
@@ -1710,14 +1718,14 @@ const st = StyleSheet.create({
     height: scale(5),
     borderRadius: 99,
     overflow: "hidden",
-    backgroundColor: "rgba(249,115,22,0.12)",
+    backgroundColor: "rgba(245,162,32,0.12)",
     marginTop: scale(11),
   },
   comparisonFill: {
     width: "90%",
     height: "100%",
     borderRadius: 99,
-    backgroundColor: "#EA580C",
+    backgroundColor: BRAND_ORANGE_DARK,
   },
   comparisonDetail: {
     fontSize: scale(8.5),
@@ -1726,7 +1734,7 @@ const st = StyleSheet.create({
   },
   statsDivider: {
     height: 1,
-    backgroundColor: "rgba(249,115,22,0.16)",
+    backgroundColor: "rgba(230,100,31,0.16)",
     marginVertical: scale(11),
   },
   // ---- stats (solid orange gradient) ----
@@ -1734,7 +1742,7 @@ const st = StyleSheet.create({
     borderRadius: scale(12),
     padding: scale(8),
     overflow: "visible",
-    shadowColor: "#EA580C",
+    shadowColor: BRAND_ORANGE_DARK,
     shadowOpacity: 0.32,
     shadowRadius: scale(16),
     shadowOffset: { width: 0, height: 8 },
@@ -1776,7 +1784,7 @@ const st = StyleSheet.create({
   },
   rangeOption: { paddingHorizontal: scale(8), paddingVertical: scale(7) },
   rangeOptionText: { color: "#5B6A94", fontSize: scale(10), fontFamily: fonts.semibold },
-  rangeOptionSelected: { color: "#EA580C", fontFamily: fonts.extrabold },
+  rangeOptionSelected: { color: BRAND_ORANGE_DARK, fontFamily: fonts.extrabold },
   scEyebrow: { color: "rgba(255,255,255,0.92)", fontSize: scale(9), letterSpacing: 0.2, fontFamily: fonts.bold },
   scKwhRow: { flexDirection: "row", alignItems: "baseline", gap: scale(3), marginTop: scale(1) },
   scKwh: { color: "#FFFFFF", fontSize: scale(23), lineHeight: scale(27), letterSpacing: -0.7, fontFamily: fonts.extrabold },
@@ -1869,9 +1877,9 @@ const st = StyleSheet.create({
     borderRadius: scale(18),
     padding: scale(12),
     backgroundColor: "#FFFFFF",
-    borderColor: "#F97316",
+    borderColor: BRAND_ORANGE_DARK,
     paddingTop: scale(14),
-    shadowColor: "#F97316",
+    shadowColor: BRAND_ORANGE_DARK,
     shadowOpacity: 0.16,
     shadowRadius: scale(12),
     shadowOffset: { width: 0, height: 4 },
@@ -2083,7 +2091,7 @@ const st = StyleSheet.create({
     paddingVertical: scale(11),
     paddingHorizontal: scale(5),
     borderWidth: 1,
-    borderColor: "rgba(249,115,22,0.16)",
+    borderColor: "rgba(230,100,31,0.16)",
   },
   quickActionPressed: { opacity: 0.72, transform: [{ scale: 0.96 }] },
   quickActionIcon: {
@@ -2152,7 +2160,7 @@ const st = StyleSheet.create({
     borderRadius: scale(18),
     borderWidth: 1,
     overflow: "hidden",
-    shadowColor: "#EA580C",
+    shadowColor: BRAND_ORANGE_DARK,
     shadowOpacity: 0.08,
     shadowRadius: scale(10),
     shadowOffset: { width: 0, height: 4 },
@@ -2190,7 +2198,7 @@ const st = StyleSheet.create({
     paddingHorizontal: scale(5),
     paddingVertical: scale(2),
     borderRadius: 99,
-    backgroundColor: "rgba(249,115,22,0.08)",
+    backgroundColor: "rgba(245,162,32,0.08)",
   },
   zoneStateDot: { width: scale(4), height: scale(4), borderRadius: scale(2) },
   zoneStateText: { fontSize: scale(7.5), fontFamily: fonts.bold },
@@ -2256,7 +2264,7 @@ const st = StyleSheet.create({
     height: 1,
     top: "50%",
     left: "-22%",
-    backgroundColor: "rgba(52,12,6,0.64)",
+    backgroundColor: "rgba(122,54,12,0.64)",
     transform: [{ rotate: "45deg" }],
   },
   heatTileHighlight: {
@@ -2283,11 +2291,11 @@ const st = StyleSheet.create({
     left: 0,
     right: 0,
     height: 2,
-    backgroundColor: "rgba(57,12,5,0.72)",
+    backgroundColor: "rgba(122,54,12,0.72)",
   },
   heatTileActive: {
     borderWidth: 2,
-    borderColor: "#F97316",
+    borderColor: BRAND_ORANGE,
     shadowOpacity: 1,
     shadowRadius: scale(14),
     elevation: 12,
