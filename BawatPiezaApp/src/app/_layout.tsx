@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { View } from "react-native";
-import { Stack, useSegments } from "expo-router";
+import { Stack, usePathname } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import {
   useFonts,
@@ -61,7 +61,7 @@ export default function RootLayout() {
  */
 function AuthedShell() {
   const { ready, isLoggedIn } = useAuth();
-  const segments = useSegments();
+  const pathname = usePathname();
 
   // Hold the splash until fonts + session are resolved: no protected link can
   // render for a logged-out user, and no login flash for a logged-in one.
@@ -71,8 +71,8 @@ function AuthedShell() {
 
   // Same setup-screen exclusion as before: never mount the Network & MQTT
   // banner while configuring a hub.
-  const currentRoute = segments.join("/").toLowerCase();
-  const isHomeScreen = currentRoute === "home";
+  const currentRoute = pathname.toLowerCase();
+  const isHomeScreen = currentRoute === "/home" || currentRoute === "/";
   const isSetupScreen =
     currentRoute.includes("provisioning") ||
     currentRoute.includes("device") ||
