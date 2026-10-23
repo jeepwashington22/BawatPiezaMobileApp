@@ -3,13 +3,14 @@ import { Pressable, StyleSheet, View } from 'react-native';
 import { AppText as Text } from './app-text';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useRouter, type Href } from 'expo-router';
 
 import { ScreenShell } from './screen-shell';
 import { Card, Glass, scale } from './glass-ui';
 import { fonts, useTheme, type Mode, type ThemeColors } from '../theme';
 import { usePowerOverride } from '../hooks/use-power-override';
 
-type Tab = 'monitor' | 'configure' | 'allocation';
+type Tab = 'monitor' | 'configure' | 'allocation' | 'override';
 
 export function PowerManagementScreen() {
   const { colors: c, mode } = useTheme();
@@ -18,14 +19,18 @@ export function PowerManagementScreen() {
   return (
     <ScreenShell scroll title="Power Management">
       <View style={[styles.tabs, { backgroundColor: c.surface }]}>
-        {(['monitor', 'configure', 'allocation'] as Tab[]).map((item) => {
+        {(['monitor', 'configure', 'allocation', 'override'] as Tab[]).map((item) => {
           const active = tab === item;
 
           return (
             <Pressable
               key={item}
               onPress={() => setTab(item)}
-              style={[styles.tab, active && styles.activeTab]}
+              style={[
+                styles.tab,
+                { backgroundColor: active ? 'transparent' : c.surfaceMuted, borderColor: c.line },
+                active && styles.activeTab,
+              ]}
               accessibilityRole="tab"
               accessibilityState={{ selected: active }}
             >
@@ -41,7 +46,77 @@ export function PowerManagementScreen() {
       {tab === 'monitor' && <Monitor c={c} mode={mode} />}
       {tab === 'configure' && <Configure c={c} mode={mode} />}
       {tab === 'allocation' && <Allocation c={c} mode={mode} />}
+      {tab === 'override' && <Override c={c} />}
     </ScreenShell>
+  );
+}
+
+function Override({ c }: { c: ThemeColors }) {
+  const { override, setOverride } = usePowerOverride();
+  const options = [
+    { value: 'grid' as const, label: 'Force Grid', icon: 'flash-outline' as const, color: c.gridGreen },
+    { value: 'battery' as const, label: 'Force Battery', icon: 'battery-charging-outline' as const, color: c.orange },
+    { value: 'shutdown' as const, label: 'Shutdown', icon: 'power-outline' as const, color: c.danger },
+  ];
+
+  return (
+    <>
+      <View style={[styles.overrideIntro, { backgroundColor: c.surface, borderColor: c.line }]}>
+        <View style={[styles.overrideIntroIcon, { backgroundColor: c.accentSoft }]}>
+          <Ionicons name="flash-outline" size={scale(20)} color={override === 'grid' ? c.gridGreen : c.orange} />
+        </View>
+        <View style={styles.overrideIntroCopy}>
+          <Text style={[styles.overrideTitle, { color: c.text }]}>Power override</Text>
+          <Text style={[styles.overrideCopy, { color: c.muted }]}>
+            Choose which source should supply all zones right now.
+          </Text>
+        </View>
+      </View>
+
+      <SectionLabel label="SELECT POWER SOURCE" c={c} />
+      <View style={styles.overrideOptions}>
+        {options.map((option) => {
+          const active = override === option.value;
+          return (
+            <Pressable
+              key={option.value}
+              onPress={() => setOverride(option.value)}
+              style={[
+                styles.overrideOption,
+                {
+                  backgroundColor: active ? c.accentSoft : c.surface,
+                  borderColor: active ? option.color : c.line,
+                },
+              ]}
+              accessibilityRole="radio"
+              accessibilityState={{ selected: active }}
+              accessibilityLabel={option.label}
+            >
+              <Ionicons name={option.icon} size={scale(21)} color={option.color} />
+              <Text style={[styles.overrideOptionText, { color: c.text }]}>{option.label}</Text>
+              <Ionicons
+                name={active ? 'radio-button-on' : 'radio-button-off'}
+                size={scale(18)}
+                color={active ? option.color : c.muted}
+              />
+            </Pressable>
+          );
+        })}
+      </View>
+
+      <View style={[styles.overrideStatus, { backgroundColor: c.surfaceMuted, borderColor: c.line }]}>
+        <View style={[styles.statusDot, { backgroundColor: override === 'grid' ? c.gridGreen : override ? c.orange : c.muted }]} />
+        <Text style={[styles.overrideStatusText, { color: c.muted }]}>
+          {override === 'grid'
+            ? 'Grid is supplying all zones.'
+            : override === 'battery'
+              ? 'Battery is supplying all zones.'
+              : override === 'shutdown'
+                ? 'Power is shut down for all zones.'
+                : 'Automatic power selection is active.'}
+        </Text>
+      </View>
+    </>
   );
 }
 
@@ -49,7 +124,7 @@ function Monitor({ c, mode }: { c: ThemeColors; mode: Mode }) {
   const [enabled, setEnabled] = useState(true);
   const { override, usingGrid, openOverrides } = usePowerOverride();
   const forcingBattery = override === 'battery';
-  const bannerColor = usingGrid ? '#16A34A' : forcingBattery ? '#F97316' : c.orange;
+  const bannerColor = usingGrid ? c.gridGreen : forcingBattery ? '#F97316' : c.orange;
   const bannerSoft = usingGrid ? 'rgba(22,163,74,0.12)' : 'rgba(249,115,22,0.10)';
 
   return (
@@ -82,17 +157,6 @@ function Monitor({ c, mode }: { c: ThemeColors; mode: Mode }) {
           </Pressable>
         </View>
 
-        <View style={[styles.switchDivider, { backgroundColor: c.line }]} />
-        <View style={styles.switchBottom}>
-          <View style={styles.switchStatus}>
-            <View style={[styles.statusDot, { backgroundColor: enabled ? c.ok : c.muted }]} />
-            <Text style={[styles.switchStatusText, { color: c.textSoft }]}>{enabled ? 'System automation active' : 'Manual switching enabled'}</Text>
-          </View>
-          <Ionicons name="chevron-forward" size={scale(16)} color={c.muted} />
-        </View>
-        <Text style={[styles.switchCopy, { color: c.muted }]}>
-          Automatically balances grid power, battery capacity, and campus load.
-        </Text>
       </Glass>
 
       <View style={[styles.notice, { backgroundColor: mode === 'dark' ? '#17120D' : '#F4F0E9', borderColor: mode === 'dark' ? 'rgba(251,146,60,0.25)' : 'transparent' }]}>
@@ -146,18 +210,11 @@ function Monitor({ c, mode }: { c: ThemeColors; mode: Mode }) {
 }
 
 function Configure({ c, mode }: { c: ThemeColors; mode: Mode }) {
+  const router = useRouter();
+  const [autoSync, setAutoSync] = useState(true);
+
   return (
     <>
-      <View style={styles.configureIntro}>
-        <View style={[styles.configureIntroIcon, { backgroundColor: c.accentSoft }]}>
-          <Ionicons name="options-outline" size={scale(18)} color={c.orange} />
-        </View>
-        <View style={styles.configureIntroCopy}>
-          <Text style={[styles.configureIntroTitle, { color: c.text }]}>Power rules</Text>
-          <Text style={[styles.configureIntroText, { color: c.muted }]}>Set safe battery thresholds and when the system changes power source.</Text>
-        </View>
-      </View>
-
       <SectionLabel label="BATTERY PROTECTION" action="2 banks configured" c={c} />
 
       <View style={styles.thresholdRowCards}>
@@ -184,12 +241,34 @@ function Configure({ c, mode }: { c: ThemeColors; mode: Mode }) {
         <ScheduleRow title="Peak Hours" note="Use battery power" time="7:00 AM - 7:00 PM" c={c} mode={mode} />
         <ScheduleRow title="Off-Peak Hours" note="Draw from grid" time="8:00 PM - 6:00 AM" c={c} mode={mode} />
 
-        <Pressable style={[styles.scheduleLink, { borderBottomColor: mode === 'dark' ? 'rgba(255,255,255,0.12)' : 'rgba(10,42,74,0.1)' }]}>
-          <Text style={[styles.smallBold, { color: c.text }]}>How this schedule is set? </Text>
-          <Ionicons name="chevron-down" size={scale(13)} color={c.text} />
-        </Pressable>
+        <View style={[styles.scheduleDetails, { borderBottomColor: mode === 'dark' ? 'rgba(255,255,255,0.12)' : 'rgba(10,42,74,0.1)' }]}>
+          <View style={styles.scheduleDetailsHeading}>
+            <Text style={[styles.smallBold, { color: c.text }]}>How this schedule is set?</Text>
+          </View>
+          <Text style={[styles.scheduleDetailsCopy, { color: c.muted }]}>
+            Peak and off-peak windows follow Meralco&apos;s commercial Time-of-Use tariff schedule for the UCC — Congressional Campus account. Windows sync automatically once a day; manual edits here pause auto-sync until it&apos;s turned back on.
+          </Text>
+          <View style={styles.autoSyncRow}>
+            <View style={styles.autoSyncCopy}>
+              <Text style={[styles.smallBold, { color: c.text }]}>Auto-sync from Meralco</Text>
+              <Text style={[styles.autoSyncDate, { color: c.muted }]}>Last synced Aug 30, 2026 · 6:02 AM</Text>
+            </View>
+            <Pressable
+              onPress={() => setAutoSync((current) => !current)}
+              style={[styles.autoSyncToggle, { backgroundColor: autoSync ? '#0755A5' : c.surfaceMuted }]}
+              accessibilityRole="switch"
+              accessibilityState={{ checked: autoSync }}
+              accessibilityLabel="Auto-sync from Meralco"
+            >
+              <View style={[styles.autoSyncKnob, !autoSync && styles.autoSyncKnobOff]} />
+            </Pressable>
+          </View>
+        </View>
 
-        <ActionButton label="Check a zone's runtime need against this window →" />
+        <ActionButton
+          label="Check a zone's runtime need against this window →"
+          onPress={() => router.push('/pages/zones/1/runtime-calculator' as Href)}
+        />
       </Card>
     </>
   );
@@ -197,6 +276,8 @@ function Configure({ c, mode }: { c: ThemeColors; mode: Mode }) {
 
 function Allocation({ c, mode }: { c: ThemeColors; mode: Mode }) {
   const [zone, setZone] = useState('1F');
+  const [selectedBattery, setSelectedBattery] = useState<'A' | 'B' | null>(null);
+  const [systemAllocated, setSystemAllocated] = useState(false);
 
   return (
     <>
@@ -219,10 +300,56 @@ function Allocation({ c, mode }: { c: ThemeColors; mode: Mode }) {
           <Text style={[styles.progressText, { color: c.muted }]}>100% still free</Text>
         </View>
 
-        <ActionButton label="Let System Allocate" />
+        <Text style={[styles.selectionLabel, { color: c.text }]}>Choose a battery first</Text>
+        <Text style={[styles.selectionHint, { color: c.muted }]}>
+          The system will only allocate power from the battery you select.
+        </Text>
+        <View style={styles.batteryChoiceRow}>
+          {[
+            { id: 'A' as const, name: 'BANK A', detail: '100% full' },
+            { id: 'B' as const, name: 'BANK B', detail: '62% full' },
+          ].map((battery) => {
+            const selected = selectedBattery === battery.id;
+            return (
+              <Pressable
+                key={battery.id}
+                onPress={() => {
+                  setSelectedBattery(battery.id);
+                  setSystemAllocated(false);
+                }}
+                style={[
+                  styles.batteryChoice,
+                  { backgroundColor: c.surfaceMuted, borderColor: selected ? c.orange : c.line },
+                  selected && { backgroundColor: c.accentSoft },
+                ]}
+                accessibilityRole="radio"
+                accessibilityState={{ selected }}
+                accessibilityLabel={`Select ${battery.name}, ${battery.detail}`}
+              >
+                <Ionicons
+                  name={selected ? 'radio-button-on' : 'radio-button-off'}
+                  size={scale(18)}
+                  color={selected ? c.orange : c.muted}
+                />
+                <View style={styles.batteryChoiceCopy}>
+                  <Text style={[styles.batteryChoiceName, { color: c.text }]}>{battery.name}</Text>
+                  <Text style={[styles.batteryChoiceDetail, { color: c.muted }]}>{battery.detail}</Text>
+                </View>
+              </Pressable>
+            );
+          })}
+        </View>
+
+        <ActionButton
+          label={selectedBattery ? `Let System Allocate from Bank ${selectedBattery}` : 'Choose a battery to continue'}
+          disabled={!selectedBattery}
+          onPress={() => setSystemAllocated(true)}
+        />
 
         <Text style={[styles.cardCopy, { color: c.muted, marginTop: scale(12) }]}>
-          Gives the most important rooms their full hours first, then splits what&apos;s left. Tap +/- or the start time on any room to set it yourself.
+          {systemAllocated
+            ? `System allocation is using Bank ${selectedBattery}.`
+            : 'Gives the most important rooms their full hours first, then splits what&apos;s left after you choose a battery.'}
         </Text>
       </View>
 
@@ -249,7 +376,11 @@ function Allocation({ c, mode }: { c: ThemeColors; mode: Mode }) {
       </View>
 
       <ZoneCard c={c} mode={mode} />
-      <ActionButton label="Confirm Allocation" />
+      <ActionButton
+        label="Confirm Allocation"
+        disabled={!selectedBattery}
+        onPress={() => setSystemAllocated(true)}
+      />
     </>
   );
 }
@@ -301,7 +432,7 @@ function ThresholdCard({ name, c }: { name: string; c: ThemeColors }) {
           <Ionicons name={name === 'BANK A' ? 'battery-full-outline' : 'battery-half-outline'} size={scale(18)} color="#FFFFFF" />
         </View>
         <Text style={[styles.thresholdName, { color: '#FFFFFF' }]}>{name}</Text>
-        <Text style={[styles.thresholdBadge, { color: '#FFFFFF', backgroundColor: 'rgba(255,255,255,0.18)' }]}>SAFE</Text>
+       
       </View>
       <View style={styles.thresholdRow}>
         <Text style={[styles.thresholdCopy, { color: 'rgba(255,255,255,0.78)' }]}>Alert below</Text>
@@ -329,10 +460,24 @@ function ScheduleRow({ title, note, time, c, mode }: { title: string; note: stri
   );
 }
 
-function ActionButton({ label }: { label: string }) {
+function ActionButton({
+  label,
+  disabled = false,
+  onPress,
+}: {
+  label: string;
+  disabled?: boolean;
+  onPress?: () => void;
+}) {
   return (
-    <Pressable style={styles.actionButton}>
-      <LinearGradient colors={['#F8A742', '#F05A16']} style={StyleSheet.absoluteFill} />
+    <Pressable
+      onPress={onPress}
+      disabled={disabled}
+      style={({ pressed }) => [styles.actionButton, disabled && styles.actionButtonDisabled, pressed && { opacity: 0.82 }]}
+      accessibilityRole="button"
+      accessibilityState={{ disabled }}
+    >
+      <View style={[StyleSheet.absoluteFill, { backgroundColor: disabled ? '#AAB1C2' : '#F5A220' }]} />
       <Text style={styles.actionText}>{label}</Text>
     </Pressable>
   );
@@ -439,6 +584,67 @@ const styles = StyleSheet.create({
     fontSize: scale(9.5),
     fontFamily: fonts.bold,
   },
+  overrideIntro: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: scale(10),
+    padding: scale(14),
+    borderRadius: scale(16),
+    borderWidth: 1,
+    marginBottom: scale(14),
+  },
+  overrideIntroIcon: {
+    width: scale(42),
+    height: scale(42),
+    borderRadius: scale(13),
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  overrideIntroCopy: {
+    flex: 1,
+  },
+  overrideTitle: {
+    fontSize: scale(14),
+    fontFamily: fonts.extrabold,
+  },
+  overrideCopy: {
+    fontSize: scale(10),
+    lineHeight: scale(14),
+    marginTop: scale(3),
+    fontFamily: fonts.medium,
+  },
+  overrideOptions: {
+    gap: scale(9),
+  },
+  overrideOption: {
+    minHeight: scale(52),
+    borderRadius: scale(14),
+    borderWidth: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: scale(10),
+    paddingHorizontal: scale(14),
+  },
+  overrideOptionText: {
+    flex: 1,
+    fontSize: scale(13),
+    fontFamily: fonts.bold,
+  },
+  overrideStatus: {
+    minHeight: scale(48),
+    borderRadius: scale(14),
+    borderWidth: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: scale(8),
+    paddingHorizontal: scale(14),
+    marginTop: scale(14),
+  },
+  overrideStatusText: {
+    flex: 1,
+    fontSize: scale(10),
+    fontFamily: fonts.medium,
+  },
   featureCard: {
     padding: scale(16),
     marginBottom: scale(14),
@@ -484,36 +690,10 @@ const styles = StyleSheet.create({
     marginTop: scale(3),
     fontFamily: fonts.extrabold,
   },
-  switchDivider: {
-    height: 1,
-    backgroundColor: 'rgba(255,255,255,0.14)',
-    marginTop: scale(15),
-    marginBottom: scale(11),
-  },
-  switchBottom: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  switchStatus: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: scale(6),
-  },
   statusDot: {
     width: scale(7),
     height: scale(7),
     borderRadius: scale(4),
-  },
-  switchStatusText: {
-    fontSize: scale(9),
-    fontFamily: fonts.bold,
-  },
-  switchCopy: {
-    fontSize: scale(8.5),
-    lineHeight: scale(12),
-    marginTop: scale(8),
-    fontFamily: fonts.medium,
   },
   rowBetween: {
     flexDirection: 'row',
@@ -759,9 +939,9 @@ const styles = StyleSheet.create({
   thresholdTrack: { height: scale(5), borderRadius: 99, overflow: 'hidden', marginTop: scale(9) },
   thresholdFill: { width: '25%', height: '100%', borderRadius: 99 },
   schedulerCard: {
-    padding: scale(13),
+    padding: scale(12),
     borderRadius: scale(18),
-    marginBottom: scale(20),
+    marginBottom: scale(14),
   },
   schedulerHeader: { flexDirection: 'row', alignItems: 'center', gap: scale(9), marginBottom: scale(5) },
   schedulerHeaderIcon: { width: scale(34), height: scale(34), borderRadius: scale(11), alignItems: 'center', justifyContent: 'center' },
@@ -775,7 +955,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: scale(9),
-    paddingVertical: scale(10),
+    paddingVertical: scale(7),
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(255,255,255,0.12)',
   },
@@ -788,25 +968,70 @@ const styles = StyleSheet.create({
     textAlign: 'right',
     maxWidth: '43%',
   },
-  scheduleLink: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: scale(2),
-    paddingVertical: scale(10),
+  scheduleDetails: {
+    paddingTop: scale(8),
+    paddingBottom: scale(7),
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(255,255,255,0.12)',
   },
+  scheduleDetailsHeading: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: scale(2),
+  },
+  scheduleDetailsCopy: {
+    fontSize: scale(8.5),
+    lineHeight: scale(11),
+    marginTop: scale(7),
+    fontFamily: fonts.medium,
+  },
+  autoSyncRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: scale(8),
+    marginTop: scale(8),
+  },
+  autoSyncCopy: {
+    flex: 1,
+  },
+  autoSyncDate: {
+    fontSize: scale(8.5),
+    marginTop: scale(2),
+    fontFamily: fonts.medium,
+  },
+  autoSyncToggle: {
+    width: scale(50),
+    height: scale(30),
+    borderRadius: scale(16),
+    paddingHorizontal: scale(3),
+    justifyContent: 'center',
+  },
+  autoSyncKnob: {
+    width: scale(24),
+    height: scale(24),
+    borderRadius: scale(12),
+    alignSelf: 'flex-end',
+    backgroundColor: '#FFFFFF',
+  },
+  autoSyncKnobOff: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#94A3B8',
+  },
   actionButton: {
-    minHeight: scale(44),
+    minHeight: scale(48),
     borderRadius: scale(14),
     overflow: 'hidden',
     alignItems: 'center',
     justifyContent: 'center',
     marginTop: scale(16),
   },
+  actionButtonDisabled: {
+    opacity: 0.72,
+  },
   actionText: {
     color: '#FFFFFF',
-    fontSize: scale(10),
+    fontSize: scale(13),
     fontFamily: fonts.bold,
     paddingHorizontal: scale(16),
     textAlign: 'center',
@@ -867,6 +1092,44 @@ const styles = StyleSheet.create({
   poolValueUnit: {
     fontSize: scale(9),
     fontFamily: fonts.bold,
+  },
+  selectionLabel: {
+    fontSize: scale(13),
+    fontFamily: fonts.extrabold,
+    marginTop: scale(16),
+  },
+  selectionHint: {
+    fontSize: scale(9.5),
+    lineHeight: scale(13),
+    fontFamily: fonts.medium,
+    marginTop: scale(4),
+  },
+  batteryChoiceRow: {
+    flexDirection: 'row',
+    gap: scale(8),
+    marginTop: scale(10),
+  },
+  batteryChoice: {
+    flex: 1,
+    minHeight: scale(48),
+    borderRadius: scale(12),
+    borderWidth: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: scale(7),
+    paddingHorizontal: scale(10),
+  },
+  batteryChoiceCopy: {
+    flex: 1,
+  },
+  batteryChoiceName: {
+    fontSize: scale(11),
+    fontFamily: fonts.extrabold,
+  },
+  batteryChoiceDetail: {
+    fontSize: scale(9),
+    fontFamily: fonts.medium,
+    marginTop: scale(2),
   },
   progress: {
     height: scale(10),

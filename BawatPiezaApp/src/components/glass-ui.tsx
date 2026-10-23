@@ -212,12 +212,15 @@ export function SectionHead({
   link,
   onLink,
   mode,
+  accentColor,
 }: {
   title: string;
   link?: string;
   onLink?: () => void;
   mode: Mode;
+  accentColor?: string;
 }) {
+  const accent = accentColor ?? brandAccent(mode);
   return (
     <View
       style={{
@@ -230,7 +233,7 @@ export function SectionHead({
       }}
     >
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: scale(7) }}>
-        <View style={{ width: scale(3), height: scale(12), borderRadius: 2, backgroundColor: brandAccent(mode) }} />
+        <View style={{ width: scale(3), height: scale(12), borderRadius: 2, backgroundColor: accent }} />
         <Text
           style={{
             color: mode === 'dark' ? 'rgba(255,255,255,0.75)' : 'rgba(10,42,74,0.62)',
@@ -243,13 +246,15 @@ export function SectionHead({
         </Text>
       </View>
       {link && (
-        <Pressable onPress={onLink} hitSlop={6}>
-          <Text style={{ color: brandAccent(mode), fontSize: scale(10.5), fontFamily: fonts.bold }}>{link}</Text>
+        <Pressable
+          onPress={onLink}
+          hitSlop={6}
+          style={{ minHeight: scale(48), justifyContent: 'center' }}
+        >
+          <Text style={{ color: accent, fontSize: scale(13), fontFamily: fonts.bold }}>{link}</Text>
         </Pressable>
       )}
     </View>
   );
 }
-
-
 

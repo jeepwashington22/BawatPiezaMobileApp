@@ -1,28 +1,28 @@
-import { Modal, Pressable, StyleSheet, View } from 'react-native';
-import { AppText as Text } from './app-text';
+import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import React from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { fonts, useTheme } from '../theme';
-import { usePowerOverride } from '../hooks/use-power-override';
 import { scale } from './glass-ui';
+import { usePowerOverride } from '../hooks/use-power-override';
 
 type Props = { visible: boolean; onClose: () => void };
 
 /** Brand orange — every accent inside the sheet is built from these three stops. */
 const ORANGE = '#F97316';
 const ORANGE_STOPS: [string, string, string] = ['#FB923C', '#F97316', '#EA580C'];
+const GRID_GREEN = '#16A34A';
+const GRID_STOPS: [string, string, string] = ['#4ADE80', '#22C55E', '#16A34A'];
 
-/**
- * Global singleton — mounted once at root (_layout). Any card / button calls
- * openOverrides() and this one sheet pops. No per-screen copies, no stacking.
- */
 export function QuickOverridesModal({ visible, onClose }: Props) {
   const router = useRouter();
   const { colors: c } = useTheme();
   const insets = useSafeAreaInsets();
   const { override, setOverride } = usePowerOverride();
+  const gridActive = override === 'grid';
+  const powerStops = gridActive ? GRID_STOPS : ORANGE_STOPS;
 
   return (
     <Modal
@@ -50,7 +50,7 @@ export function QuickOverridesModal({ visible, onClose }: Props) {
 
           <View style={styles.header}>
             <LinearGradient
-              colors={ORANGE_STOPS}
+              colors={powerStops}
               start={{ x: 0, y: 0 }}
               end={{ x: 1, y: 1 }}
               style={styles.headerIcon}
@@ -73,19 +73,23 @@ export function QuickOverridesModal({ visible, onClose }: Props) {
           </View>
 
           <View style={styles.row}>
-            <OverrideButton icon="arrow-back" label="Force Grid" active={override === 'grid'} onPress={() => { setOverride('grid'); onClose(); }} />
-            <OverrideButton icon="flash" label="Force Battery" active={override === 'battery'} onPress={() => { setOverride('battery'); onClose(); }} />
-            <OverrideButton icon="power" label="Shutdown" active={override === 'shutdown'} onPress={() => { setOverride('shutdown'); onClose(); }} />
+            <OverrideButton icon="arrow-back" label="Force Grid" active={override === 'grid'} color={GRID_GREEN} onPress={() => { setOverride('grid'); onClose(); }} />
+            <OverrideButton icon="flash" label="Force Battery" active={override === 'battery'} color={ORANGE} onPress={() => { setOverride('battery'); onClose(); }} />
+            <OverrideButton icon="power" label="Shutdown" active={override === 'shutdown'} color="#DC2626" onPress={() => { setOverride('shutdown'); onClose(); }} />
           </View>
 
           <Pressable
             onPress={() => { onClose(); router.push('/pages/power-management'); }}
-            style={({ pressed }) => [styles.ctaWrap, pressed && { opacity: 0.92 }]}
+            style={({ pressed }) => [
+              styles.ctaWrap,
+              { shadowColor: gridActive ? GRID_GREEN : '#EA580C' },
+              pressed && { opacity: 0.92 },
+            ]}
             accessibilityRole="button"
             accessibilityLabel="Open full power management"
           >
             <LinearGradient
-              colors={ORANGE_STOPS}
+              colors={powerStops}
               start={{ x: 0, y: 0 }}
               end={{ x: 1, y: 0 }}
               style={styles.cta}
@@ -104,11 +108,13 @@ function OverrideButton({
   icon,
   label,
   active,
+  color,
   onPress,
 }: {
   icon: keyof typeof Ionicons.glyphMap;
   label: string;
   active: boolean;
+  color: string;
   onPress: () => void;
 }) {
   const { colors: c } = useTheme();
@@ -119,13 +125,19 @@ function OverrideButton({
       accessibilityLabel={label}
       style={({ pressed }) => [
         styles.overrideButton,
-        { backgroundColor: c.surfaceMuted, borderColor: active ? ORANGE : c.line },
-        active && styles.overrideButtonActive,
+        { backgroundColor: c.surfaceMuted, borderColor: active ? color : c.line },
+        active && {
+          shadowColor: color,
+          shadowOpacity: 0.35,
+          shadowRadius: scale(10),
+          shadowOffset: { width: 0, height: 4 },
+          elevation: 4,
+        },
         pressed && { opacity: 0.8 },
       ]}
     >
-      <View style={styles.icon}>
-        <Ionicons name={icon} size={scale(15)} color={ORANGE} />
+      <View style={[styles.icon, { backgroundColor: active && color === GRID_GREEN ? 'rgba(22,163,74,0.14)' : 'rgba(249,115,22,0.14)' }]}>
+        <Ionicons name={icon} size={scale(15)} color={color} />
       </View>
       <Text style={[styles.buttonText, { color: c.text }]}>{label}</Text>
     </Pressable>
@@ -164,17 +176,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: scale(4),
     paddingVertical: scale(10),
   },
-  overrideButtonActive: {
-    borderWidth: 1.5,
-    shadowColor: ORANGE,
-    shadowOpacity: 0.35,
-    shadowRadius: scale(10),
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 4,
-  },
   icon: { width: scale(34), height: scale(34), borderRadius: scale(11), backgroundColor: 'rgba(249, 115, 22, 0.14)', alignItems: 'center', justifyContent: 'center', marginBottom: scale(8) },
   buttonText: { fontSize: scale(9), fontFamily: fonts.extrabold, textAlign: 'center' },
-  ctaWrap: { borderRadius: scale(16), shadowColor: '#EA580C', shadowOpacity: 0.4, shadowRadius: scale(14), shadowOffset: { width: 0, height: 8 }, elevation: 8 },
+  ctaWrap: { borderRadius: scale(16), shadowOpacity: 0.4, shadowRadius: scale(14), shadowOffset: { width: 0, height: 8 }, elevation: 8 },
   cta: { minHeight: scale(54), borderRadius: scale(16), flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: scale(8) },
   ctaText: { color: '#FFFFFF', fontSize: scale(11.5), fontFamily: fonts.extrabold },
 });

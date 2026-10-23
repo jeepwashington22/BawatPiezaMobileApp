@@ -15,8 +15,10 @@ import { ThemeProvider } from "../theme";
 import { AuthProvider, useAuth } from "../hooks/use-auth";
 import { PowerOverrideProvider, usePowerOverride } from "../hooks/use-power-override";
 import { AuthGate } from "../hooks/use-auth-gate";
+import { AppTourProvider } from "../hooks/use-app-tour";
 import { NetworkBanner } from "../components/network-banner";
 import { QuickOverridesModal } from "../components/quick-overrides-modal";
+import { AppTourOverlay } from "../components/app-tour-overlay";
 
 // Keep the splash visible until fonts + root layout are ready,
 // then hide it so the app (login screen) is actually rendered.
@@ -41,9 +43,11 @@ export default function RootLayout() {
     <ThemeProvider>
       <AuthProvider>
         <PowerOverrideProvider>
-          <AuthGate>
-            <AuthedShell />
-          </AuthGate>
+          <AppTourProvider>
+            <AuthGate>
+              <AuthedShell />
+            </AuthGate>
+          </AppTourProvider>
         </PowerOverrideProvider>
       </AuthProvider>
     </ThemeProvider>
@@ -68,6 +72,7 @@ function AuthedShell() {
   // Same setup-screen exclusion as before: never mount the Network & MQTT
   // banner while configuring a hub.
   const currentRoute = segments.join("/").toLowerCase();
+  const isHomeScreen = currentRoute === "home";
   const isSetupScreen =
     currentRoute.includes("provisioning") ||
     currentRoute.includes("device") ||
@@ -108,6 +113,8 @@ function AuthedShell() {
       </Stack>
       {/* Single global Quick Overrides sheet — one modal for the whole app. */}
       <GlobalOverridesSheet />
+      {/* Quick tour overlay — welcome card + spotlight steps, app-wide. */}
+      {isLoggedIn && isHomeScreen && <AppTourOverlay />}
     </View>
   );
 }

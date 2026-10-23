@@ -383,7 +383,7 @@ const styles = StyleSheet.create({
   },
   otpBoxFilled: { borderColor: 'rgba(246, 196, 69, 0.55)', backgroundColor: 'rgba(246, 196, 69, 0.08)' },
   otpClearRow: { alignItems: 'flex-end', paddingVertical: 6, marginBottom: 6 },
-  primaryButton: { borderRadius: 14, overflow: 'hidden', backgroundColor: ORANGE_DARK, marginTop: 6, marginBottom: 12 },
+  primaryButton: { borderRadius: 14, overflow: 'hidden', backgroundColor: '#F5A220', marginTop: 6, marginBottom: 12 },
   primaryButtonInner: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 16 },
   primaryButtonText: { color: '#FFFFFF', fontSize: 15, fontWeight: '800', fontFamily: fonts.extrabold },
   secondaryButton: { alignItems: 'center', paddingVertical: 10 },

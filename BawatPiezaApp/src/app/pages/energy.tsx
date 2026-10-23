@@ -1,7 +1,8 @@
 import { fonts, useTheme, type ThemeColors } from '../../theme';
-import { ActivityIndicator, StyleSheet, View } from 'react-native';
-import { AppText as Text } from '../../components/app-text';
+import { useEffect, useState } from 'react';
+import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 import { ScreenShell } from '../../components/screen-shell';
+import { TileLoader } from '../../components/tile-loader';
 import { ContentCard } from '../../components/content-card';
 
 const PRUSSIAN_SOFT = '#3B5B7A';
@@ -33,8 +34,23 @@ export default function EnergyScreen() {
   const DANGER = c.danger;
   const OK = c.ok;
   const BAD = c.danger;
+  const [loading, setLoading] = useState(true);
 
-  // Static content — no fetch gate so navigation renders instantly.
+  // Same simulated fetch as the web dashboard (900ms), swap for real queries later
+  useEffect(() => {
+    const t = setTimeout(() => setLoading(false), 900);
+    return () => clearTimeout(t);
+  }, []);
+
+  if (loading) {
+    return (
+      <ScreenShell title="Energy" showBack>
+        <View style={styles.loaderWrap}>
+          <TileLoader label="Loading energy data" size="lg" />
+        </View>
+      </ScreenShell>
+    );
+  }
 
   return (
     <ScreenShell title="Energy" showBack>
@@ -96,6 +112,7 @@ const makeStyles = (c: ThemeColors) => {
   const BUTTER = c.butter;
   const DANGER = c.danger;
   return StyleSheet.create({
+  loaderWrap: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   statCard: {
     borderRadius: 22,
     padding: 20,

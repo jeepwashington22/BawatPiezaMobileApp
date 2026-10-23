@@ -1,10 +1,13 @@
 import { fonts, useTheme, type Mode } from "../../theme";
 import React, { useEffect, useState, useRef } from "react";
 import { View, StyleSheet, Pressable, Animated, ScrollView } from "react-native";
+import { LinearGradient } from "expo-linear-gradient";
 import { AppText as Text } from "../../components/app-text";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter, type Href } from "expo-router";
 import { ScreenShell } from "../../components/screen-shell";
+import { TourSpot } from "../../components/app-tour-overlay";
+import { useAppTour } from "../../hooks/use-app-tour";
 import { useAuth } from "../../hooks/use-auth";
 import { usePowerOverride } from "../../hooks/use-power-override";
 import { TopBar } from "../../components/top-bar";
@@ -15,16 +18,43 @@ import {
   Card,
   Glass,
   SectionHead,
-  LiveDot,
   brandAccent,
   scale,
   GOLD,
   NAVY,
 } from "../../components/glass-ui";
-import { LinearGradient } from "expo-linear-gradient";
 import Svg, { Defs, LinearGradient as SvgGradient, Line, Path, Stop } from "react-native-svg";
 
 const AnimatedPath = Animated.createAnimatedComponent(Path);
+
+/* ------------------------------- grid palette ------------------------------- */
+// When the grid is active the battery-percentage-connected palette
+// transitions from warm orange to green to indicate the home is running on
+// grid power. Colours are keyed on `usingGrid` so every battery / live /
+// charging element re-paints in green at the same time the "CURRENTLY USING
+// GRID" state appears. `gridGreen` is the exact colour passed to `grid` in
+// the theme below (M700) so dark mode stays on-brand.
+type GridPalette = {
+  gridActive: boolean;
+  gridGreen: string;
+  gridGreenDark: string;
+  batteryCardTrack: string;
+  batteryCardFill: string;
+};
+
+function useGridPalette(usingGrid: boolean): GridPalette {
+  const gridActive = usingGrid;
+  const gridGreen = "#16A34A";
+  const gridGreenDark = "#22C55E";
+  return {
+    gridActive,
+    gridGreen,
+    gridGreenDark,
+    batteryCardTrack: gridActive ? "rgba(22,163,74,0.22)" : "rgba(249,115,22,0.22)",
+    batteryCardFill: gridActive ? "rgba(22,163,74,1)" : "rgba(249,115,22,1)",
+  };
+}
+
 
 /* ------------------------------ demo data ------------------------------- */
 const HEAT_ROWS = 2;
@@ -72,15 +102,18 @@ const SOURCE_META: Record<
   Solar: { icon: "sunny", color: "#B45309", tint: "rgba(245,158,11,0.16)" },
 };
 
-/** Premium animated switch: orange track, white knob with a power glyph. */
+/** Premium animated switch: orange track, white knob with a power glyph.
+ *  When gridActive, the track glows green to indicate grid power. */
 function ZoneSwitch({
   on,
   mode,
   onToggle,
+  gridActive = false,
 }: {
   on: boolean;
   mode: Mode;
   onToggle: () => void;
+  gridActive?: boolean;
 }) {
   const anim = useRef(new Animated.Value(on ? 1 : 0)).current;
   useEffect(() => {
@@ -96,11 +129,16 @@ function ZoneSwitch({
   const K = scale(22);
   const PAD = (H - K) / 2;
 
+  const gridGreen = "#16A34A";
+  const gridGreenDark = "#22C55E";
+  const onColor = gridActive ? gridGreen : "rgba(249,115,22,1)";
+  const onColorDark = gridActive ? "rgba(34,197,94,1)" : "rgba(249,115,22,1)";
+
   const trackColor = anim.interpolate({
     inputRange: [0, 1],
     outputRange: [
       mode === "dark" ? "rgba(255,255,255,0.16)" : "rgba(10,42,74,0.14)",
-      "rgba(249,115,22,1)",
+      gridActive ? onColorDark : onColor,
     ],
   });
   const knobX = anim.interpolate({
@@ -122,7 +160,7 @@ function ZoneSwitch({
           borderRadius: H / 2,
           backgroundColor: trackColor,
           justifyContent: "center",
-          shadowColor: "#F97316",
+          shadowColor: gridActive ? gridGreen : "#F97316",
           shadowOpacity: on ? 0.45 : 0,
           shadowRadius: scale(8),
           shadowOffset: { width: 0, height: 3 },
@@ -175,10 +213,18 @@ export default function HomeScreen() {
   const { ready, isLoggedIn, user } = useAuth();
   const router = useRouter();
   const { usingGrid, openOverrides } = usePowerOverride();
+  const { checked, completed, welcomeSeen, openWelcome } = useAppTour();
   const accent = (alpha = 1) => brandAccent(mode, alpha);
+  // When grid is active, all battery/orange-connected palettes transition to
+  // green to indicate the home is powered by grid.
+  const { gridActive, gridGreen, gridGreenDark, batteryCardTrack, batteryCardFill } = useGridPalette(usingGrid);
   const [batteryPct] = useState(87.4);
-  const batteryCardInk = mode === "dark" ? "#FFFFFF" : "#0A2A4A";
-  const batteryCardMutedInk = mode === "dark" ? "rgba(255,255,255,0.82)" : "rgba(10,42,74,0.72)";
+  const batteryCardInk = gridActive
+    ? (mode === "dark" ? "#FFFFFF" : "#0A2A4A")
+    : (mode === "dark" ? "#FFFFFF" : "#0A2A4A");
+  const batteryCardMutedInk = mode === "dark"
+    ? "rgba(255,255,255,0.82)"
+    : "rgba(10,42,74,0.72)";
   const [livePower] = useState(315);
   const [displayVoltage] = useState("224.50");
   const [consumptionRange, setConsumptionRange] = useState<"today" | "7days" | "month">("today");
@@ -213,6 +259,17 @@ export default function HomeScreen() {
       }),
     ]).start();
   }, [graphProgress, statsPop]);
+
+  // First run: greet the user with the quick-tour welcome card. It only
+  // appears once — the flag is persisted in AsyncStorage, and the tour can
+  // always be replayed from the Profile screen.
+  useEffect(() => {
+    if (!ready || !isLoggedIn) return;
+    if (!checked) return;
+    if (completed || welcomeSeen) return;
+    const timer = setTimeout(() => openWelcome(), 700);
+    return () => clearTimeout(timer);
+  }, [ready, isLoggedIn, checked, completed, welcomeSeen, openWelcome]);
 
   const [zones, setZones] = useState([
     {
@@ -259,10 +316,10 @@ export default function HomeScreen() {
   const selectedConsumption = consumptionData[consumptionRange];
 
   return (
-    <ScreenShell>
+    <ScreenShell tourScroll>
       {/* ============ HERO: TOP BAR + BATTERY HEALTH ============ */}
       <View style={st.hero}>
-        <HeroGlow mode={mode} intensity={isActive ? 1 : mode === "dark" ? 0.4 : 0.85} bleedBottom={scale(76)} />
+        <HeroGlow mode={mode} gridActive={gridActive} intensity={isActive ? 1 : mode === "dark" ? 0.4 : 0.85} bleedBottom={scale(76)} />
 
         <View style={st.heroTopBar}>
           <TopBar gutter={0} title="Dashboard" />
@@ -281,13 +338,15 @@ export default function HomeScreen() {
           <View style={st.statsFilterWrap}>
             <Pressable
               onPress={() => setRangeMenuOpen((open) => !open)}
-              style={[st.statsFilterButton, { backgroundColor: c.surface, borderColor: c.line }]}
+              style={st.statsFilterTouch}
               accessibilityRole="button"
               accessibilityLabel={`Consumption date range: ${selectedConsumption.label}`}
             >
-              <Ionicons name="calendar-outline" size={scale(11)} color={c.orange} />
-              <Text style={[st.statsFilterButtonText, { color: c.text }]}>{selectedConsumption.label}</Text>
-              <Ionicons name={rangeMenuOpen ? "chevron-up" : "chevron-down"} size={scale(10)} color={c.muted} />
+              <View style={[st.statsFilterButton, { backgroundColor: c.surface, borderColor: c.line }]}>
+                <Ionicons name="calendar-outline" size={scale(13)} color={c.orange} />
+                <Text style={[st.statsFilterButtonText, { color: c.text }]}>{selectedConsumption.label}</Text>
+                <Ionicons name={rangeMenuOpen ? "chevron-up" : "chevron-down"} size={scale(12)} color={c.muted} />
+              </View>
             </Pressable>
             {rangeMenuOpen && (
               <View style={[st.statsFilterMenu, { backgroundColor: c.surface, borderColor: c.line }]}>
@@ -325,14 +384,9 @@ export default function HomeScreen() {
             },
           ]}
         >
+        <TourSpot id="live-stats">
         <LinearGradient
-          colors={
-            isActive
-              ? mode === "dark"
-                ? ["#9A3412", "#EA580C", "#F97316"]
-                : ["#F97316", "#EA580C", "#C2410C"]
-              : ["#475569", "#64748B", "#94A3B8"]
-          }
+          colors={["#F5A220", "#E6641F"]}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 1 }}
           style={st.scCard}
@@ -391,10 +445,12 @@ export default function HomeScreen() {
             })}
           </View>
         </LinearGradient>
+        </TourSpot>
         </Animated.View>
       </EnterView>
 
       <EnterView delay={120} style={st.dashboardCard}>
+        <TourSpot id="battery">
         <Pressable
           onPress={usingGrid ? undefined : openOverrides}
           disabled={usingGrid}
@@ -409,8 +465,8 @@ export default function HomeScreen() {
               st.batteryCard,
               { borderColor: c.orange },
               usingGrid && {
-                borderColor: "#16A34A",
-                shadowColor: "#16A34A",
+                borderColor: gridGreen,
+                shadowColor: gridGreen,
                 shadowOpacity: 0.18,
               },
             ]}
@@ -419,7 +475,7 @@ export default function HomeScreen() {
               pointerEvents="none"
               style={[
                 st.batteryCardAccent,
-                { backgroundColor: usingGrid ? "#22C55E" : c.orange },
+                { backgroundColor: usingGrid ? gridGreenDark : c.orange },
               ]}
             />
             <View style={st.batteryCardHeader}>
@@ -439,18 +495,18 @@ export default function HomeScreen() {
                   <Ionicons
                     name={usingGrid ? "flash" : "battery-charging"}
                     size={scale(21)}
-                    color={usingGrid ? "#16A34A" : batteryCardInk}
+                    color={usingGrid ? gridGreen : batteryCardInk}
                   />
                 </View>
                 <View>
-                  <Text style={[st.batteryCardEyebrow, { color: usingGrid ? "#16A34A" : batteryCardMutedInk }]}>
-                    {usingGrid ? "CURRENTLY USING GRID" : "BATTERY PERCENTAGE"}
+                  <Text style={[st.batteryCardEyebrow, { color: usingGrid ? gridGreen : batteryCardMutedInk }]}>
+                    {usingGrid ? "CURRENTLY USING GRID" : "CURRENTLY USING BATTERY"}
                   </Text>
                 </View>
               </View>
               {!usingGrid && (
                 <View style={st.batteryCardIndicator}>
-                  <Text style={[st.batteryCardLevelLabel, { color: c.orange }]}>
+                  <Text style={[st.batteryCardLevelLabel, { color: batteryCardMutedInk }]}>
                     CHARGE LEVEL
                   </Text>
                   <View style={st.batteryCardValueRow}>
@@ -461,13 +517,13 @@ export default function HomeScreen() {
                     )}
                     <Text style={[st.batteryCardUnit, { color: batteryCardInk }]}>%</Text>
                   </View>
-                  <View style={[st.batteryCardTrack, { backgroundColor: "rgba(249,115,22,0.22)" }]}>
+                  <View style={[st.batteryCardTrack, { backgroundColor: batteryCardTrack }]}>
                     <View
                       style={[
                         st.batteryCardFill,
                         {
                           width: `${isActive ? batteryPct : 0}%`,
-                          backgroundColor: c.orange,
+                          backgroundColor: batteryCardFill,
                         },
                       ]}
                     />
@@ -499,6 +555,7 @@ export default function HomeScreen() {
             )}
           </Glass>
         </Pressable>
+        </TourSpot>
       </EnterView>
 
       <EnterView delay={180} style={st.dashboardCard}>
@@ -603,6 +660,7 @@ export default function HomeScreen() {
         </ScrollView>
       </View>
       <EnterView delay={270} style={st.zonesSection}>
+        <TourSpot id="zones">
         <View
           pointerEvents={isActive ? "auto" : "none"}
           style={[!isActive && { opacity: 0.6 }]}
@@ -624,18 +682,22 @@ export default function HomeScreen() {
             </View>
             <Pressable
               onPress={() => router.push("/pages/schedule")}
-              style={[
-                st.manageButton,
-                {
-                  backgroundColor:
-                    mode === "dark"
-                      ? "rgba(255,255,255,0.08)"
-                      : "rgba(249,115,22,0.10)",
-                },
-              ]}
+              style={st.manageButtonTouch}
             >
-              <Text style={[st.manageText, { color: mode === "dark" ? c.orange : "#C2410C" }]}>Manage</Text>
-              <Ionicons name="arrow-forward" size={scale(13)} color={mode === "dark" ? c.orange : "#C2410C"} />
+              <View
+                style={[
+                  st.manageButton,
+                  {
+                    backgroundColor:
+                      mode === "dark"
+                        ? "rgba(255,255,255,0.08)"
+                        : "rgba(249,115,22,0.10)",
+                  },
+                ]}
+              >
+                <Text style={[st.manageText, { color: mode === "dark" ? c.orange : "#C2410C" }]}>Manage</Text>
+                <Ionicons name="arrow-forward" size={scale(13)} color={mode === "dark" ? c.orange : "#C2410C"} />
+              </View>
             </Pressable>
           </View>
           {zones.length === 0 && (
@@ -656,30 +718,15 @@ export default function HomeScreen() {
                 style={({ pressed }) => [
                   st.zoneRow,
                   {
-                    backgroundColor: live
-                      ? "rgba(249,115,22,0.12)"
-                      : mode === "dark"
-                        ? "rgba(255,255,255,0.04)"
-                        : "rgba(249,115,22,0.04)",
-                    borderColor: live ? "rgba(249,115,22,0.48)" : "rgba(249,115,22,0.18)",
+                    backgroundColor: "#FFFFFF",
+                    borderColor: live ? "#F97316" : "rgba(10,42,74,0.14)",
                   },
                   pressed && { opacity: 0.9 },
                 ]}
               >
-                  <LinearGradient
-                    colors={
-                      live
-                        ? ["rgba(249,115,22,0.14)", "rgba(249,115,22,0.02)"]
-                        : ["rgba(148,163,184,0.06)", "rgba(148,163,184,0)"]
-                    }
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 1 }}
-                    pointerEvents="none"
-                    style={st.zoneCardGlow}
-                  />
                   {live ? (
                     <LinearGradient
-                      colors={["#FB923C", "#EA580C"]}
+                      colors={gridActive ? ["#22C55E", "rgba(22,163,74,0.18)"] : ["#FB923C", "#EA580C"]}
                       start={{ x: 0, y: 0 }}
                       end={{ x: 1, y: 1 }}
                       style={st.zoneIconChip}
@@ -703,7 +750,7 @@ export default function HomeScreen() {
                   )}
 
                   <View style={st.zoneInfo}>
-                    <Text style={[st.zoneName, { color: c.text }]} numberOfLines={1}>
+                    <Text style={[st.zoneName, { color: "#0A2A4A" }]} numberOfLines={1}>
                       {z.name}
                     </Text>
                     <View style={st.zoneSubRow}>
@@ -711,7 +758,7 @@ export default function HomeScreen() {
                         <Ionicons name={src.icon} size={scale(9)} color={src.color} />
                         <Text style={[st.zoneSourceText, { color: src.color }]}>{z.source}</Text>
                       </View>
-                      <Text style={[st.zoneDetail, { color: c.muted }]} numberOfLines={1}>
+                      <Text style={[st.zoneDetail, { color: "rgba(10,42,74,0.62)" }]} numberOfLines={1}>
                         {z.detail}
                       </Text>
                       <View style={st.zoneState}>
@@ -734,6 +781,7 @@ export default function HomeScreen() {
                           ),
                         )
                       }
+                      gridActive={gridActive}
                     />
                   </View>
               </Pressable>
@@ -741,6 +789,7 @@ export default function HomeScreen() {
           })}
           </View>
         </View>
+        </TourSpot>
       </EnterView>
 
       <EnterView delay={450}>
@@ -816,52 +865,7 @@ export default function HomeScreen() {
             </View>
           </View>
 
-          <View
-            style={[
-              st.kineticRow,
-              isActive
-                ? { borderColor: accent(0.35), backgroundColor: accent(0.1) }
-                : {
-                    borderColor: "rgba(150,150,150,0.25)",
-                    backgroundColor: "rgba(150,150,150,0.08)",
-                  },
-            ]}
-          >
-            <Ionicons
-              name="footsteps"
-              size={scale(14)}
-              color={
-                isActive ? (mode === "dark" ? "#FFFFFF" : "#B4771B") : c.muted
-              }
-            />
-            <Text
-              style={[
-                st.kineticText,
-                {
-                  color:
-                    mode === "dark"
-                      ? "rgba(255,255,255,0.75)"
-                      : "rgba(10,42,74,0.7)",
-                },
-              ]}
-            >
-              Footsteps converted today
-            </Text>
-            <Text
-              style={{
-                color: isActive
-                  ? mode === "dark"
-                    ? "#FFFFFF"
-                    : "#4CA83E"
-                  : c.muted,
-                fontSize: scale(11),
-                fontFamily: fonts.extrabold,
-              }}
-            >
-              {isActive ? "+0.34 kWh" : "-- kWh"}
-            </Text>
-          </View>
-
+          <TourSpot id="heatmap">
           <View
             style={[
               st.heatGrid,
@@ -932,6 +936,7 @@ export default function HomeScreen() {
               </View>
             ))}
           </View>
+          </TourSpot>
 
           <View
             style={{
@@ -1052,7 +1057,7 @@ const st = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     gap: scale(6),
-    backgroundColor: "#F97316",
+    backgroundColor: "#F5A220",
     paddingVertical: scale(9),
     borderRadius: scale(8),
   },
@@ -1265,7 +1270,7 @@ const st = StyleSheet.create({
   },
   // ---- stats (solid orange gradient) ----
   scCard: {
-    borderRadius: scale(22),
+    borderRadius: scale(12),
     padding: scale(8),
     overflow: "visible",
     shadowColor: "#EA580C",
@@ -1277,7 +1282,12 @@ const st = StyleSheet.create({
   scTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   scTopData: { paddingLeft: scale(6) },
   statsFilterWrap: { position: "relative", zIndex: 9 },
+  statsFilterTouch: {
+    minHeight: scale(48),
+    justifyContent: "center",
+  },
   statsFilterButton: {
+    height: scale(36),
     flexDirection: "row",
     alignItems: "center",
     gap: scale(4),
@@ -1288,7 +1298,7 @@ const st = StyleSheet.create({
     paddingHorizontal: scale(8),
     paddingVertical: scale(4),
   },
-  statsFilterButtonText: { color: "#FFFFFF", fontSize: scale(7.5), fontFamily: fonts.bold },
+  statsFilterButtonText: { color: "#FFFFFF", fontSize: scale(10), fontFamily: fonts.bold },
   statsFilterMenu: {
     position: "absolute",
     top: scale(26),
@@ -1304,7 +1314,7 @@ const st = StyleSheet.create({
     elevation: 8,
   },
   rangeOption: { paddingHorizontal: scale(8), paddingVertical: scale(7) },
-  rangeOptionText: { color: "#5B6A94", fontSize: scale(8), fontFamily: fonts.semibold },
+  rangeOptionText: { color: "#5B6A94", fontSize: scale(10), fontFamily: fonts.semibold },
   rangeOptionSelected: { color: "#EA580C", fontFamily: fonts.extrabold },
   scEyebrow: { color: "rgba(255,255,255,0.92)", fontSize: scale(9), letterSpacing: 0.2, fontFamily: fonts.bold },
   scKwhRow: { flexDirection: "row", alignItems: "baseline", gap: scale(3), marginTop: scale(1) },
@@ -1319,9 +1329,9 @@ const st = StyleSheet.create({
     paddingHorizontal: scale(8),
     paddingVertical: scale(2),
     borderRadius: scale(8),
-    backgroundColor: "rgba(21,128,61,0.28)",
+    backgroundColor: "#FFFFFF",
   },
-  scSavingsText: { color: "#FFFFFF", fontSize: scale(8), fontFamily: fonts.semibold },
+  scSavingsText: { color: "#f48d06", fontSize: scale(8), fontFamily: fonts.semibold },
   scDelta: {
     flexDirection: "row",
     alignItems: "center",
@@ -1389,9 +1399,14 @@ const st = StyleSheet.create({
   },
   zonesTitle: { fontSize: scale(16), fontFamily: fonts.extrabold, letterSpacing: -0.2 },
   zonesSubRow: { flexDirection: "row", alignItems: "center", gap: scale(5), marginTop: scale(2) },
-  zonesLiveDot: { width: scale(5), height: scale(5), borderRadius: scale(3), backgroundColor: "#22C55E" },
+  zonesLiveDot: { width: scale(5), height: scale(5), borderRadius: scale(3), backgroundColor: "#ffffff",borderColor: "#F97316", borderWidth: 1 },
   zonesSubText: { fontSize: scale(8.5), fontFamily: fonts.medium },
+  manageButtonTouch: {
+    minHeight: scale(48),
+    justifyContent: "center",
+  },
   manageButton: {
+    height: scale(36),
     flexDirection: "row",
     alignItems: "center",
     gap: scale(4),
@@ -1399,7 +1414,7 @@ const st = StyleSheet.create({
     paddingVertical: scale(6),
     borderRadius: 99,
   },
-  manageText: { fontSize: scale(9.5), fontFamily: fonts.bold },
+  manageText: { fontSize: scale(13), fontFamily: fonts.bold },
   devicesList: { gap: scale(10) },
   zoneEmpty: { fontSize: scale(10), fontFamily: fonts.medium, textAlign: "center", paddingVertical: scale(16) },
   zoneRow: {
@@ -1412,16 +1427,14 @@ const st = StyleSheet.create({
     paddingHorizontal: scale(15),
     borderRadius: scale(18),
     borderWidth: 1,
+    backgroundColor: "#FFFFFF",
+    borderColor: "#F97316",
     overflow: "hidden",
     shadowColor: "#EA580C",
     shadowOpacity: 0.08,
     shadowRadius: scale(10),
     shadowOffset: { width: 0, height: 4 },
     elevation: 3,
-  },
-  zoneCardGlow: {
-    ...StyleSheet.absoluteFill,
-    borderRadius: scale(18),
   },
   zoneIconChip: {
     width: scale(40),
@@ -1555,7 +1568,7 @@ const st = StyleSheet.create({
     justifyContent: "center",
     marginBottom: scale(4),
   },
-  quickActionLabel: { fontSize: scale(8), fontFamily: fonts.bold, textAlign: "center" },
+  quickActionLabel: { fontSize: scale(13), fontFamily: fonts.bold, textAlign: "center" },
   balanceChartCard: {
     borderRadius: scale(17),
     padding: scale(13),
@@ -1568,7 +1581,7 @@ const st = StyleSheet.create({
   balanceChartEyebrow: { fontSize: scale(7), letterSpacing: 1, fontFamily: fonts.bold },
   balanceChartValueRow: { flexDirection: "row", alignItems: "baseline", marginTop: scale(2) },
   balanceChartValue: { fontSize: scale(20), letterSpacing: -0.4, fontFamily: fonts.extrabold },
-  balanceChartPeriod: { fontSize: scale(7.5), marginTop: scale(2), fontFamily: fonts.medium },
+  balanceChartPeriod: { fontSize: scale(10), marginTop: scale(2), fontFamily: fonts.medium },
   balanceChartChange: {
     flexDirection: "row",
     alignItems: "center",
@@ -1813,20 +1826,6 @@ const st = StyleSheet.create({
     paddingVertical: scale(5),
   },
   stepsPillText: { fontSize: scale(9.5), fontFamily: fonts.extrabold },
-  kineticRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: scale(6),
-    borderRadius: scale(11),
-    borderWidth: 1,
-    borderColor: "rgba(246,196,69,0.35)",
-    backgroundColor: "rgba(246,196,69,0.10)",
-    paddingHorizontal: scale(10),
-    paddingVertical: scale(8),
-    marginTop: scale(10),
-    marginBottom: scale(10),
-  },
-  kineticText: { flex: 1, fontSize: scale(9.5), fontFamily: fonts.semibold },
   heatGrid: {
     gap: scale(6),
     paddingHorizontal: scale(10),

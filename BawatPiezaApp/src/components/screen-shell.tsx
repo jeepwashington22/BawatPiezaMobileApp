@@ -5,6 +5,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { BottomNav } from './bottom-nav';
 import { TopBar } from './top-bar';
 import { useTheme } from '../theme';
+import { useAppTour } from '../hooks/use-app-tour';
 
 /**
  * ScreenShell — shared authenticated screen wrapper for the mobile dashboard.
@@ -18,15 +19,25 @@ import { useTheme } from '../theme';
 export type ScreenShellProps = {
   children: ReactNode;
   scroll?: boolean;
+  tourScroll?: boolean;
   title?: string;
   showBack?: boolean;
 };
 
-export function ScreenShell({ children, scroll = true, title, showBack = false }: ScreenShellProps) {
+export function ScreenShell({ children, scroll = true, tourScroll = false, title, showBack = false }: ScreenShellProps) {
   const { colors: c } = useTheme();
+  const { scrollContainerRef, setScrollOffsetY } = useAppTour();
 
   const content = scroll ? (
-    <ScrollView contentContainerStyle={[styles.scrollContent, { paddingBottom: 150 }]} showsVerticalScrollIndicator={false}>
+    <ScrollView
+      ref={(node) => {
+        if (tourScroll) scrollContainerRef.current = node;
+      }}
+      onScroll={tourScroll ? (event) => setScrollOffsetY(event.nativeEvent.contentOffset.y) : undefined}
+      scrollEventThrottle={16}
+      contentContainerStyle={[styles.scrollContent, { paddingBottom: 150 }]}
+      showsVerticalScrollIndicator={false}
+    >
       {title || showBack ? <TopBar gutter={0} title={title} showBack={showBack} /> : null}
       {children}
     </ScrollView>

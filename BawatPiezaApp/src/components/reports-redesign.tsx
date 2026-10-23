@@ -269,9 +269,9 @@ const styles = StyleSheet.create({
 
   heroPeriodRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: scale(12), marginBottom: scale(2), zIndex: 1 },
   heroPeriodLabel: { fontSize: scale(10), letterSpacing: 1.1, fontFamily: fonts.extrabold },
-  rangeTabs: { flexDirection: 'row', gap: scale(4) },
-  rangeChip: { borderWidth: 1, borderColor: 'transparent', borderRadius: scale(8), paddingHorizontal: scale(8), paddingVertical: scale(5) },
-  rangeText: { fontSize: scale(9), fontFamily: fonts.bold },
+  rangeTabs: { flexDirection: 'row', gap: scale(6) },
+  rangeChip: { borderWidth: 1, borderColor: 'transparent', borderRadius: scale(6), paddingHorizontal: scale(8), paddingVertical: scale(5) },
+  rangeText: { fontSize: scale(12), fontFamily: fonts.bold },
 
   forecastCard: { padding: scale(14), borderRadius: scale(18), marginBottom: scale(10) },
   titleRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },

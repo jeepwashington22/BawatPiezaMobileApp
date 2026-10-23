@@ -1,10 +1,10 @@
-import { Pressable, StyleSheet, View } from 'react-native';
-import { AppText as Text } from './app-text';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import React from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { usePathname, useRouter, type Href } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../theme';
+import { QuickOverridesModal } from './quick-overrides-modal';
 import { usePowerOverride } from '../hooks/use-power-override';
 
 /**
@@ -35,37 +35,39 @@ const CENTER = { label: 'Quick overrides' };
 /** Brand orange — drives the active tab and the raised Quick Overrides action. */
 const ORANGE = '#F97316';
 const ORANGE_DEEP = '#EA580C';
+const GRID_GREEN = '#16A34A';
+const GRID_GREEN_DARK = '#15803D';
 
 export function BottomNav() {
   const router = useRouter();
   const pathname = usePathname();
   const { colors: c, fonts: f } = useTheme();
+  const { usingGrid } = usePowerOverride();
   const insets = useSafeAreaInsets();
-  // Single global sheet lives at root — center button just opens it.
-  const { openOverrides } = usePowerOverride();
+  const [showOverrides, setShowOverrides] = React.useState(false);
 
   const isActive = (href: string) =>
     href === '/home'
       ? pathname === '/home'
       : pathname === href || pathname.startsWith(`${href}/`);
+  const activeColor = usingGrid ? GRID_GREEN : ORANGE;
+  const centerShadow = usingGrid ? GRID_GREEN_DARK : ORANGE_DEEP;
 
   const renderItem = ({ label, href, icon, activeIcon }: NavItem) => {
     const active = isActive(href);
     return (
       <Pressable
         key={href}
-        onPress={() => {
-          if (!active) router.replace(href as Href);
-        }}
+        onPress={() => router.push(href as Href)}
         style={styles.item}
         accessibilityRole="button"
         accessibilityState={{ selected: active }}
         accessibilityLabel={label}
       >
-        <Ionicons name={active ? activeIcon : icon} size={22} color={active ? ORANGE : c.muted} />
+        <Ionicons name={active ? activeIcon : icon} size={22} color={active ? activeColor : c.muted} />
         <Text
           numberOfLines={2}
-          style={[styles.label, { color: active ? ORANGE : c.muted, fontFamily: active ? f.bold : f.medium }]}
+          style={[styles.label, { color: active ? activeColor : c.muted, fontFamily: active ? f.bold : f.medium }]}
         >
           {label}
         </Text>
@@ -90,13 +92,13 @@ export function BottomNav() {
 
       {/* Raised center Quick Overrides button — no active navigation tab */}
       <Pressable
-        onPress={openOverrides}
+        onPress={() => setShowOverrides(true)}
         style={({ pressed }) => [
           styles.centerBtn,
           {
             borderColor: c.tabBar,
-            backgroundColor: ORANGE,
-            shadowColor: ORANGE_DEEP,
+            backgroundColor: activeColor,
+            shadowColor: centerShadow,
           },
           pressed && styles.centerBtnPressed,
         ]}
@@ -107,6 +109,7 @@ export function BottomNav() {
       </Pressable>
 
       {RIGHT.map(renderItem)}
+      <QuickOverridesModal visible={showOverrides} onClose={() => setShowOverrides(false)} />
     </View>
   );
 }

@@ -11,6 +11,7 @@ it makes, and its current data status.
 | Feature | Route | Doc | Data |
 | --- | --- | --- | --- |
 | Onboarding walkthrough | `/` (first launch) | [onboarding.md](onboarding.md) | static slides |
+| App quick tour | `/home` (first login) | [tour.md](tour.md) | client-side walkthrough |
 | Sign up (email + password) | `/signup` | [signup.md](signup.md) | 🟢 live (Supabase) |
 | Login with two-factor OTP | `/login` | [login-two-factor.md](login-two-factor.md) | 🟢 live |
 | Google Sign-In | `/login`, `/signup` | [google-sign-in.md](google-sign-in.md) | 🟢 live |

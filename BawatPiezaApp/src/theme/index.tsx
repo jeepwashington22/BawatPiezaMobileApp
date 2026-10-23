@@ -35,6 +35,8 @@ export type ThemeColors = {
   onAccentSoft: string; // text on accentSoft
   butter: string;
   orange: string;
+  gridGreen: string;
+  gridGreenDark: string;
   danger: string;
   onDanger: string;
   ok: string;
@@ -55,6 +57,8 @@ export const LightTheme: ThemeColors = {
   onAccentSoft: '#0A2A4A',
   butter: '#F6C445',
   orange: '#F97316',
+  gridGreen: '#16A34A',
+  gridGreenDark: '#22C55E',
   danger: '#DC2626',
   onDanger: '#FFFFFF',
   ok: '#15803D',
@@ -84,6 +88,8 @@ export const DarkTheme: ThemeColors = {
   onAccentSoft: '#FFFFFF',
   butter: '#F97316',
   orange: '#F97316',
+  gridGreen: '#16A34A',
+  gridGreenDark: '#22C55E',
   danger: '#EF4444',
   onDanger: '#FFFFFF',
   ok: '#22C55E',

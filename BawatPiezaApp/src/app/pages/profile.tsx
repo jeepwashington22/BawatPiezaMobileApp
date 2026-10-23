@@ -1,14 +1,15 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, Image, Pressable, StyleSheet, Switch, View, Modal } from 'react-native';
 import { AppText as Text } from '../../components/app-text';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
-import { useRouter, type Href } from 'expo-router';
+import { useRouter, usePathname, type Href } from 'expo-router';
 import { ScreenShell } from '../../components/screen-shell';
 import { TileLoader } from '../../components/tile-loader';
 import { supabase, signOut } from '../../lib/supabase';
 import { apiFetch } from '../../lib/api';
 import { useTheme, fonts, type ThemeColors } from '../../theme';
+import { useAppTour } from '../../hooks/use-app-tour';
 
 const MUTED = 'rgba(10, 42, 74, 0.62)';
 const LINE = 'rgba(10, 42, 74, 0.1)';
@@ -86,6 +87,25 @@ export default function ProfileScreen() {
   const [twoFactorEnabled, setTwoFactorEnabled] = useState(false);
   const [updatingTwoFactor, setUpdatingTwoFactor] = useState(false);
   const [accessSummary, setAccessSummary] = useState<AccessSummary | null>(null);
+  const { restartTour } = useAppTour();
+  const pathname = usePathname();
+  // Guards the replay action while we hop back to the dashboard, so a double
+  // tap cannot start the tour twice.
+  const replaying = useRef(false);
+
+  /**
+   * Replay the quick tour. The tour highlights home-screen elements, so we
+   * navigate back to the dashboard first and start the walkthrough once the
+   * home screen has had a chance to mount its targets.
+   */
+  const handleReplayTour = () => {
+    if (replaying.current) return;
+    replaying.current = true;
+    if (pathname === '/home') {
+      restartTour();
+    }
+    replaying.current = false;
+  };
 
   useEffect(() => {
     (async () => {
@@ -325,6 +345,28 @@ export default function ProfileScreen() {
           ))}
         </View>
       ))}
+
+      {/* Quick tour replay — the same five-step walkthrough shown on first run. */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>HELP</Text>
+        <Pressable
+          onPress={handleReplayTour}
+          style={({ pressed }) => [styles.hubBtn, pressed && { opacity: 0.7 }]}
+          accessibilityRole="button"
+          accessibilityLabel="Replay the quick tour"
+          accessibilityHint="Shows a five step walkthrough of the dashboard"
+        >
+          <View style={styles.hubIcon}>
+            <Ionicons name="sparkles-outline" size={18} color={c.text} />
+          </View>
+          <View style={styles.hubText}>
+            <Text style={styles.hubLabel}>Replay quick tour</Text>
+            <Text style={styles.hubSub}>Take the 5-step dashboard walkthrough again</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={17} color={MUTED} />
+        </Pressable>
+      </View>
+
       <Text style={styles.sectionTitle}>SECURITY</Text>
       <View style={styles.securityCard}>
         <View style={styles.hubIcon}>

@@ -89,16 +89,6 @@ export default function ThresholdsScreen() {
         </View>
       </View>
 
-      <View style={styles.statusCard}>
-        <View style={styles.statusIcon}>
-          <Ionicons name="pulse-outline" size={scale(18)} color={c.ok} />
-        </View>
-        <View style={styles.statusCopy}>
-          <Text style={styles.statusTitle}>Rules are active</Text>
-          <Text style={styles.statusText}>Applied across every monitored tile</Text>
-        </View>
-        <View style={styles.activeDot} />
-      </View>
 
       <Text style={styles.sectionLabel}>MONITORING RULES</Text>
       <View style={styles.rulesCard}>

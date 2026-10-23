@@ -374,7 +374,7 @@ const styles = StyleSheet.create({
   twoFactorOtpRow: { flexDirection: 'row', justifyContent: 'center', gap: 8, marginBottom: 10 },
   twoFactorInput: { width: 42, height: 50, borderRadius: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.18)', backgroundColor: 'rgba(255,255,255,0.08)', color: '#FFFFFF', fontSize: 24, fontFamily: fonts.extrabold, paddingVertical: 0 },
   twoFactorError: { color: '#FDBA74', fontSize: 11, textAlign: 'center', marginBottom: 10 },
-  twoFactorButton: { width: '100%', borderRadius: 9, backgroundColor: ORANGE, alignItems: 'center', paddingVertical: 14, marginBottom: 12 },
+  twoFactorButton: { width: '100%', borderRadius: 9, backgroundColor: '#F5A220', alignItems: 'center', paddingVertical: 14, marginBottom: 12 },
   twoFactorButtonText: { color: '#FFFFFF', fontSize: 13, fontFamily: fonts.extrabold },
   twoFactorCancel: { color: '#FDBA74', fontSize: 12, fontFamily: fonts.semibold, padding: 6 },
   safeArea: {
