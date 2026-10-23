@@ -28,6 +28,10 @@ import { scale } from "./glass-ui";
 import { fonts, useTheme, type Mode, type ThemeColors } from "../theme";
 import type { IoniconName } from "../lib/network";
 
+// ADDED IMPORTS FOR DB PAIRING
+import { useAuth } from "../hooks/use-auth";
+import { supabase } from "../lib/supabase";
+
 /* ---------------------------------- model --------------------------------- */
 
 type Step = {
@@ -88,6 +92,8 @@ export function ProvisioningScreen() {
   const { width, height } = useWindowDimensions();
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
 
+  const { user } = useAuth();
+
   const [ssid, setSsid] = useState("");
   const [wifiPassword, setWifiPassword] = useState("");
   const [showWifiPassword, setShowWifiPassword] = useState(false);
@@ -107,7 +113,7 @@ export function ProvisioningScreen() {
     visible: boolean;
     title: string;
     message: string;
-    type: "error" | "success" | "info";
+    type: "error" | "success" | "info" | "warning"; // Added warning type
     onConfirm?: () => void;
   }>({
     visible: false,
@@ -123,10 +129,8 @@ export function ProvisioningScreen() {
   const gutter = wide ? 24 : compact ? 14 : 20;
   const scanFrame = Math.round(Math.min(width - 76, height * 0.38, 272));
 
-  // Initialize Tour Guide Safely with a new storage key
   useEffect(() => {
     let isMounted = true;
-    // We use a fresh key here so it ignores the old cached value from your testing
     AsyncStorage.getItem("bawatpieza_tour_seen_modal").then((seen) => {
       if (isMounted && !seen) {
         setTourVisible(true);
@@ -153,7 +157,7 @@ export function ProvisioningScreen() {
   const showModal = (
     title: string,
     message: string,
-    type: "error" | "success" | "info",
+    type: "error" | "success" | "info" | "warning",
     onConfirm?: () => void,
   ) => {
     setModalConfig({ visible: true, title, message, type, onConfirm });
@@ -189,19 +193,17 @@ export function ProvisioningScreen() {
 
     setIsConnecting(true);
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 8000); // 8-second timeout to prevent app hanging
+    const timeout = setTimeout(() => controller.abort(), 8000);
 
     try {
-      const formData = new URLSearchParams();
-      formData.append("ssid", ssid);
-      formData.append("pass", wifiPassword);
+      const requestBody = `ssid=${encodeURIComponent(ssid)}&pass=${encodeURIComponent(wifiPassword)}`;
 
       const response = await fetch("http://192.168.4.1/connect-hub", {
         method: "POST",
         headers: {
           "Content-Type": "application/x-www-form-urlencoded",
         },
-        body: formData.toString(),
+        body: requestBody,
         signal: controller.signal,
       });
 
@@ -213,12 +215,16 @@ export function ProvisioningScreen() {
           const hubId = data.hub_id;
           await AsyncStorage.setItem("bawatpieza_hub_id", hubId);
 
+          // ---> SUPABASE OFFLINE CRASH FIX <---
+          // Removed the cloud upsert logic from here entirely.
+          // It now triggers silently when the Home Screen mounts with an active internet connection.
+
           setIsConnecting(false);
-          // Explicitly warn them to reconnect internet before continuing to avoid MQTT crash on Home Screen
+          // Show the warning modal to ensure they reconnect to internet
           showModal(
             "Hub Configured!",
-            "The hub is successfully joining your network.\n\nIMPORTANT: Reconnect your phone to your normal Wi-Fi (with internet) before tapping Continue.",
-            "success",
+            "The hub is successfully restarting to join your network.\n\nIMPORTANT: You must open your phone's Wi-Fi settings and reconnect to a network with internet BEFORE you tap Continue.",
+            "warning", // Use the new warning style
             () => {
               router.replace({
                 pathname: "/home",
@@ -453,7 +459,6 @@ export function ProvisioningScreen() {
                 Use the same Wi-Fi network your hub will use.
               </Text>
 
-              {/* Disclaimer to soothe users worried about the OS "No Internet" prompt */}
               <View
                 style={[
                   styles.disclaimerBox,
@@ -637,7 +642,6 @@ export function ProvisioningScreen() {
         </ScrollView>
       </KeyboardAvoidingView>
 
-      {/* TOUR GUIDE MODAL */}
       <Modal
         visible={tourVisible}
         transparent
@@ -680,7 +684,6 @@ export function ProvisioningScreen() {
         </View>
       </Modal>
 
-      {/* CUSTOM FEEDBACK MODAL REPLACING NATIVE ALERTS */}
       <Modal
         visible={modalConfig.visible}
         transparent
@@ -697,9 +700,11 @@ export function ProvisioningScreen() {
                     backgroundColor:
                       modalConfig.type === "error"
                         ? "rgba(239, 68, 68, 0.1)"
-                        : modalConfig.type === "success"
-                          ? "rgba(34, 197, 94, 0.1)"
-                          : "rgba(59, 130, 246, 0.1)",
+                        : modalConfig.type === "warning"
+                          ? "rgba(234, 179, 8, 0.15)" // Yellow background for warning
+                          : modalConfig.type === "success"
+                            ? "rgba(34, 197, 94, 0.1)"
+                            : "rgba(59, 130, 246, 0.1)",
                   },
                 ]}
               >
@@ -707,17 +712,21 @@ export function ProvisioningScreen() {
                   name={
                     modalConfig.type === "error"
                       ? "close-circle"
-                      : modalConfig.type === "success"
-                        ? "checkmark-circle"
-                        : "information-circle"
+                      : modalConfig.type === "warning"
+                        ? "warning"
+                        : modalConfig.type === "success"
+                          ? "checkmark-circle"
+                          : "information-circle"
                   }
                   size={26}
                   color={
                     modalConfig.type === "error"
                       ? "#EF4444"
-                      : modalConfig.type === "success"
-                        ? "#22C55E"
-                        : "#3B82F6"
+                      : modalConfig.type === "warning"
+                        ? "#EAB308" // Yellow icon for warning
+                        : modalConfig.type === "success"
+                          ? "#22C55E"
+                          : "#3B82F6"
                   }
                 />
               </View>
@@ -725,9 +734,49 @@ export function ProvisioningScreen() {
                 {modalConfig.title}
               </Text>
             </View>
-            <Text style={[styles.modalMessage, { color: c.muted }]}>
+            <Text
+              style={[
+                styles.modalMessage,
+                { color: c.muted },
+                // Make warning text slightly more bold/red for emphasis
+                modalConfig.type === "warning" && {
+                  fontFamily: fonts.bold,
+                  color: mode === "dark" ? "#FCA5A5" : "#B91C1C",
+                },
+              ]}
+            >
               {modalConfig.message}
             </Text>
+
+            {/* Added a shortcut button directly to Wi-Fi settings in the warning modal */}
+            {modalConfig.type === "warning" && (
+              <Pressable
+                style={({ pressed }) => [
+                  styles.outlineButton,
+                  {
+                    borderColor: c.line,
+                    backgroundColor: c.bg,
+                    marginTop: 0,
+                    marginBottom: 16,
+                    width: "100%",
+                  },
+                  pressed && styles.pressed,
+                ]}
+                onPress={openWifiSettings}
+              >
+                <Ionicons name="settings" size={fs(14)} color={c.text} />
+                <Text
+                  style={{
+                    color: c.text,
+                    fontFamily: fonts.bold,
+                    fontSize: fs(11),
+                  }}
+                >
+                  Open Wi-Fi Settings
+                </Text>
+              </Pressable>
+            )}
+
             <Pressable
               style={({ pressed }) => [
                 styles.modalButton,
@@ -737,14 +786,16 @@ export function ProvisioningScreen() {
               onPress={closeModal}
             >
               <Text style={[styles.modalButtonText, { color: c.onAccent }]}>
-                {modalConfig.type === "success" ? "Continue" : "Got it"}
+                {modalConfig.type === "warning" ||
+                modalConfig.type === "success"
+                  ? "Continue to Dashboard"
+                  : "Got it"}
               </Text>
             </Pressable>
           </View>
         </View>
       </Modal>
 
-      {/* QR SCANNER MODAL */}
       <Modal
         visible={scannerVisible}
         animationType="fade"
@@ -760,7 +811,6 @@ export function ProvisioningScreen() {
             onBarcodeScanned={scanLocked ? undefined : handleBarcodeScanned}
           />
 
-          {/* Dimmed bands leave a clear window so the camera stays bright where the code sits. */}
           <View style={styles.scannerBands} pointerEvents="none">
             <View style={styles.scannerBand} />
             <View style={styles.scannerMiddleRow}>
@@ -840,7 +890,6 @@ export function ProvisioningScreen() {
 
 /* -------------------------------- utilities ------------------------------- */
 
-/** Parses standard WIFI share codes, or falls back to raw text extraction */
 function parseWifiQr(
   data: string,
 ): { ssid: string; password: string; isRaw?: boolean } | null {
