@@ -72,8 +72,16 @@ type NotificationSnapshot = {
 };
 
 const NOTIFICATION_CACHE_TTL_MS = 30_000;
+const PROFILE_CACHE_TTL_MS = 300_000;
 const notificationSnapshots = new Map<string, NotificationSnapshot>();
 const notificationAttempts = new Map<string, number>();
+let profileSnapshot: {
+  userId: string;
+  name: string | null;
+  email: string | null;
+  avatarUrl: string | null;
+  fetchedAt: number;
+} | null = null;
 
 export type TopBarProps = {
   gutter?: number;
@@ -214,6 +222,23 @@ export function TopBar({ gutter = 18, title, subtitle, showBack = false, showTit
   };
 
   useEffect(() => {
+    const cached = profileSnapshot;
+    if (cached) {
+      setName(cached.name);
+      setEmail(cached.email);
+      setAvatarUrl(cached.avatarUrl);
+    }
+    const cachedNotifications =
+      cached && notificationSnapshots.get(cached.userId);
+    if (
+      cachedNotifications &&
+      Date.now() - cachedNotifications.fetchedAt < NOTIFICATION_CACHE_TTL_MS
+    ) {
+      setFeed(cachedNotifications.feed);
+      setUnread(cachedNotifications.unread);
+      setFeedLoading(false);
+      return;
+    }
     void loadNotifications();
   }, []);
 
@@ -245,14 +270,27 @@ export function TopBar({ gutter = 18, title, subtitle, showBack = false, showTit
   useEffect(() => {
     (async () => {
       try {
+        if (
+          profileSnapshot &&
+          Date.now() - profileSnapshot.fetchedAt < PROFILE_CACHE_TTL_MS
+        ) {
+          setName(profileSnapshot.name);
+          setEmail(profileSnapshot.email);
+          setAvatarUrl(profileSnapshot.avatarUrl);
+          return;
+        }
         const { data: userData } = await supabase.auth.getUser();
         const user = userData.user;
-        setEmail(user?.email ?? null);
+
+        let resolvedName: string | null = null;
+        const resolvedEmail = user?.email ?? null;
         const meta = user?.user_metadata as Record<string, unknown> | undefined;
+        const resolvedAvatarUrl = (meta?.avatar_url as string) ?? null;
+
         if (user?.email && !meta?.full_name && !meta?.firstname) {
-          setName(user.email.split('@')[0]);
+          resolvedName = user.email.split('@')[0];
         }
-        setAvatarUrl((meta?.avatar_url as string) ?? null);
+
         if (user) {
           const { data: row } = await supabase
             .from('user_accounts')
@@ -260,10 +298,22 @@ export function TopBar({ gutter = 18, title, subtitle, showBack = false, showTit
             .eq('id', user.id)
             .maybeSingle();
           if (row) {
-            setName(
-              [row.firstname, row.lastname].filter(Boolean).join(' ') || null,
-            );
+            resolvedName =
+              [row.firstname, row.lastname].filter(Boolean).join(' ') || null;
           }
+        }
+
+        setEmail(user?.email ?? null);
+        setName(resolvedName);
+        setAvatarUrl(resolvedAvatarUrl);
+        if (user) {
+          profileSnapshot = {
+            userId: user.id,
+            name: resolvedName,
+            email: resolvedEmail,
+            avatarUrl: resolvedAvatarUrl,
+            fetchedAt: Date.now(),
+          };
         }
       } catch {
         // non-fatal — greeting falls back to a generic label

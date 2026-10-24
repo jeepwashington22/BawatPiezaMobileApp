@@ -66,7 +66,11 @@ export function BottomNav() {
     return (
       <Pressable
         key={href}
-        onPress={() => router.push(href as Href)}
+        onPress={() => {
+          if (!isActive(href)) {
+            router.replace(href as Href);
+          }
+        }}
         style={styles.item}
         accessibilityRole="button"
         accessibilityState={{ selected: active }}

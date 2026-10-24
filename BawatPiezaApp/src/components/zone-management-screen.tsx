@@ -1,794 +1,232 @@
-import { useState } from "react";
-import {
-  Pressable,
-  StyleSheet,
-  View,
-  ScrollView,
-  Modal,
-  TextInput,
-  KeyboardAvoidingView,
-  Platform,
-  TouchableWithoutFeedback,
-  Keyboard,
-} from "react-native";
-import { AppText as Text } from "./app-text";
+import { useEffect, useMemo, useState } from "react";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { Modal, Pressable, StyleSheet, TextInput, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { LinearGradient } from "expo-linear-gradient";
-
+import { useRouter } from "expo-router";
+import { AppText as Text } from "./app-text";
 import { ScreenShell } from "./screen-shell";
-import { Card, scale } from "./glass-ui";
-import { fonts, useTheme, type Mode, type ThemeColors } from "../theme";
-
-type Device = {
-  id: string;
-  name: string;
-  type: "bulb" | "outlet" | "fan" | "custom";
-  watts: number;
-  channel: number;
-};
+import { scale } from "./glass-ui";
+import { fonts, useTheme } from "../theme";
 
 type Zone = {
   id: string;
   name: string;
-  priority: "high" | "standard";
-  wantedHours: number;
-  devices: Device[];
+  priority: "High" | "Standard";
+  watts: number;
 };
+
+const FILTERS = ["All", "1F", "2F", "3F", "4F"] as const;
+export const ZONES_STORAGE_KEY = "bawatpieza_manage_zones";
 
 export function ZoneManagementScreen() {
   const { colors: c, mode } = useTheme();
-
+  const router = useRouter();
+  const [filter, setFilter] = useState<(typeof FILTERS)[number]>("All");
+  const [addOpen, setAddOpen] = useState(false);
+  const [zoneName, setZoneName] = useState("");
   const [zones, setZones] = useState<Zone[]>([
-    {
-      id: "1f",
-      name: "1f room 109 - right wing",
-      priority: "high",
-      wantedHours: 12,
-      devices: [
-        {
-          id: "d1",
-          name: "main overhead lighting",
-          type: "bulb",
-          watts: 15,
-          channel: 1,
-        },
-      ],
-    },
+    { id: "1", name: "1F ROOM 109 - RIGHT WING", priority: "High", watts: 60 },
+    { id: "2", name: "CR - RIGHT WING", priority: "High", watts: 60 },
   ]);
 
-  // available relay channels on ur single esp32
-  const espChannels = [1, 2, 3, 4, 5, 6, 7, 8];
+  useEffect(() => {
+    AsyncStorage.getItem(ZONES_STORAGE_KEY)
+      .then((stored) => {
+        if (stored) setZones(JSON.parse(stored) as Zone[]);
+      })
+      .catch((error) => console.error("failed to load managed zones", error));
+  }, []);
 
-  const [deviceModalVisible, setDeviceModalVisible] = useState(false);
-  const [zoneModalVisible, setZoneModalVisible] = useState(false);
-  const [activeZoneId, setActiveZoneId] = useState<string | null>(null);
+  const visibleZones = useMemo(
+    () =>
+      filter === "All"
+        ? zones
+        : zones.filter((zone) => zone.name.startsWith(filter)),
+    [filter, zones],
+  );
 
-  // form state for new device mapping
-  const [selectedChannel, setSelectedChannel] = useState<number | null>(null);
-  const [newDevName, setNewDevName] = useState("");
-  const [newDevWatts, setNewDevWatts] = useState("");
-  const [newDevType, setNewDevType] = useState<Device["type"]>("bulb");
-
-  // form state for new zone
-  const [newZoneName, setNewZoneName] = useState("");
-  const [newZoneHours, setNewZoneHours] = useState("");
-  const [newZonePriority, setNewZonePriority] =
-    useState<Zone["priority"]>("standard");
-
-  const openAddDevice = (zoneId: string) => {
-    setActiveZoneId(zoneId);
-    setSelectedChannel(null);
-    setNewDevName("");
-    setNewDevWatts("");
-    setNewDevType("bulb");
-    setDeviceModalVisible(true);
-  };
-
-  const saveDevice = () => {
-    if (!activeZoneId || !selectedChannel || !newDevName || !newDevWatts)
-      return;
-
-    setZones((prev) =>
-      prev.map((z) => {
-        if (z.id === activeZoneId) {
-          return {
-            ...z,
-            devices: [
-              ...z.devices,
-              {
-                id: Math.random().toString(),
-                name: newDevName,
-                type: newDevType,
-                watts: Number(newDevWatts),
-                channel: selectedChannel,
-              },
-            ],
-          };
-        }
-        return z;
-      }),
-    );
-    setDeviceModalVisible(false);
-  };
-
-  const removeDevice = (zoneId: string, deviceId: string) => {
-    setZones((prev) =>
-      prev.map((z) => {
-        if (z.id === zoneId) {
-          return { ...z, devices: z.devices.filter((d) => d.id !== deviceId) };
-        }
-        return z;
-      }),
-    );
-  };
-
-  const saveZone = () => {
-    if (!newZoneName || !newZoneHours) return;
-
-    setZones((prev) => [
-      ...prev,
+  const addZone = () => {
+    const trimmedName = zoneName.trim();
+    if (!trimmedName) return;
+    setZones((current) => [
+      ...current,
       {
-        id: Math.random().toString(),
-        name: newZoneName,
-        priority: newZonePriority,
-        wantedHours: Number(newZoneHours),
-        devices: [],
+        id: `${Date.now()}`,
+        name: trimmedName.toUpperCase(),
+        priority: "Standard",
+        watts: 0,
       },
     ]);
-
-    setZoneModalVisible(false);
-    setNewZoneName("");
-    setNewZoneHours("");
-    setNewZonePriority("standard");
+    setZoneName("");
+    setAddOpen(false);
   };
-
-  const removeZone = (zoneId: string) => {
-    setZones((prev) => prev.filter((z) => z.id !== zoneId));
-  };
-
-  const totalCampusWatts = zones.reduce((acc, zone) => {
-    return acc + zone.devices.reduce((dAcc, dev) => dAcc + dev.watts, 0);
-  }, 0);
 
   return (
-    <ScreenShell scroll title="zone manager">
-      <View
-        style={[
-          styles.headerCard,
-          { backgroundColor: c.surface, borderColor: c.line },
-        ]}
-      >
-        <View style={styles.headerRow}>
-          <View
-            style={[
-              styles.iconBox,
-              { backgroundColor: "rgba(249, 115, 22, 0.15)" },
-            ]}
-          >
-            <Ionicons
-              name="hardware-chip-outline"
-              size={scale(22)}
-              color="#F97316"
-            />
+    <ScreenShell scroll title="Manage Zone" showBack>
+      <View style={styles.content}>
+        <Text style={[styles.eyebrow, { color: c.muted }]}>ZONE</Text>
+        <Text style={[styles.heading, { color: c.text }]}>Manage Zone</Text>
+
+        <Text style={[styles.sectionLabel, { color: c.muted }]}>ALL ZONES</Text>
+        <View style={styles.filterRow}>
+          {FILTERS.map((item) => {
+            const active = filter === item;
+            return (
+              <Pressable
+                key={item}
+                onPress={() => setFilter(item)}
+                style={[
+                  styles.filter,
+                  {
+                    backgroundColor: active ? "#0E4BA5" : c.surface,
+                    borderColor: active ? "#0E4BA5" : "transparent",
+                  },
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.filterText,
+                    { color: active ? "#FFFFFF" : c.muted },
+                  ]}
+                >
+                  {item}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+
+        <Pressable
+          onPress={() => router.push("/pages/add-zone")}
+          style={[styles.addCard, { backgroundColor: c.surface }]}
+        >
+          <View style={styles.addIcon}>
+            <Ionicons name="add" size={scale(20)} color="#0E4BA5" />
           </View>
-          <View style={{ flex: 1 }}>
-            <Text style={[styles.headerTitle, { color: c.text }]}>
-              central esp32 mapping
+          <View style={styles.addCopy}>
+            <Text style={[styles.addTitle, { color: c.text }]}>
+              Add New Zone
             </Text>
-            <Text style={[styles.headerSubtitle, { color: c.muted }]}>
-              {zones.length} active zones configured
-            </Text>
-          </View>
-          <View style={{ alignItems: "flex-end" }}>
-            <Text style={[styles.totalWatts, { color: c.text }]}>
-              {totalCampusWatts}w
-            </Text>
-            <Text style={[styles.headerSubtitle, { color: c.orange }]}>
-              total draw
+            <Text style={[styles.addSubtitle, { color: c.muted }]}>
+              Connect a zone to the BawatPieza!
             </Text>
           </View>
+          <Ionicons name="chevron-forward" size={scale(16)} color={c.muted} />
+        </Pressable>
+
+        <View style={[styles.tip, { backgroundColor: c.surface }]}>
+          <Text style={[styles.tipText, { color: c.muted }]}>
+            Do you want to smartly allocate the harvested energy?
+          </Text>
+          <Pressable onPress={() => router.push("/pages/power-management")}>
+            <Text style={styles.tipLink}>Click here to be redirected to Allocation Tab.</Text>
+          </Pressable>
+        </View>
+
+        <View style={styles.zoneList}>
+          {visibleZones.map((zone) => (
+            <Pressable
+              key={zone.id}
+              onPress={() => router.push(`/pages/zones/${zone.id}`)}
+              style={[
+                styles.zoneCard,
+                {
+                  backgroundColor: c.surface,
+                  shadowColor: mode === "dark" ? "#000000" : "#9AAAC4",
+                },
+              ]}
+            >
+              <View style={styles.zoneCardTop}>
+                <View style={styles.zoneTitleRow}>
+                  <Text style={[styles.zoneName, { color: c.text }]}>
+                    {zone.name}
+                  </Text>
+                  <Text style={styles.priority}>{zone.priority} priority</Text>
+                </View>
+                <Pressable
+                  onPress={() => router.push(`/pages/zones/${zone.id}`)}
+                  hitSlop={8}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Remove ${zone.name}`}
+                >
+                  <Ionicons name="create-outline" size={scale(23)} color="#0C3782" />
+                </Pressable>
+              </View>
+              <View style={styles.deviceIcons}>
+                {[1, 2, 3, 4].map((item) => (
+                  <View key={item} style={styles.deviceIcon}>
+                    <Ionicons name="bulb" size={scale(14)} color="#FFFFFF" />
+                  </View>
+                ))}
+              </View>
+              <Text style={[styles.total, { color: c.muted }]}>
+                Total of: <Text style={styles.totalValue}>{zone.watts}w</Text>
+              </Text>
+            </Pressable>
+          ))}
         </View>
       </View>
 
-      {zones.map((zone) => {
-        const zoneWatts = zone.devices.reduce((acc, dev) => acc + dev.watts, 0);
-
-        return (
-          <Card key={zone.id} mode={mode} style={styles.zoneCard}>
-            <View style={styles.zoneHeader}>
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.zoneTitle, { color: c.text }]}>
-                  {zone.name}
-                </Text>
-                <View style={styles.chips}>
-                  <Text
-                    style={[
-                      styles.priority,
-                      { color: c.orange, backgroundColor: c.accentSoft },
-                    ]}
-                  >
-                    {zone.priority} priority
-                  </Text>
-                  <Text
-                    style={[
-                      styles.batteryChip,
-                      { color: c.accent, backgroundColor: c.surfaceMuted },
-                    ]}
-                  >
-                    {zone.wantedHours}h target
-                  </Text>
-                  <Text
-                    style={[
-                      styles.batteryChip,
-                      { color: c.text, backgroundColor: c.surfaceMuted },
-                    ]}
-                  >
-                    {zoneWatts}w max
-                  </Text>
-                </View>
-              </View>
-              <Pressable
-                onPress={() => removeZone(zone.id)}
-                style={styles.editBtn}
-              >
-                <Ionicons
-                  name="trash-outline"
-                  size={scale(18)}
-                  color="#EF4444"
-                />
+      <Modal visible={addOpen} transparent animationType="fade" onRequestClose={() => setAddOpen(false)}>
+        <View style={styles.modalBackdrop}>
+          <View style={[styles.modalCard, { backgroundColor: c.surface }]}>
+            <Text style={[styles.modalTitle, { color: c.text }]}>Add New Zone</Text>
+            <TextInput
+              value={zoneName}
+              onChangeText={setZoneName}
+              placeholder="Zone name"
+              placeholderTextColor={c.muted}
+              autoFocus
+              style={[styles.input, { color: c.text, borderColor: c.line }]}
+            />
+            <View style={styles.modalActions}>
+              <Pressable onPress={() => setAddOpen(false)} style={styles.modalButton}>
+                <Text style={[styles.modalButtonText, { color: c.muted }]}>Cancel</Text>
+              </Pressable>
+              <Pressable onPress={addZone} style={[styles.modalButton, styles.modalPrimary]}>
+                <Text style={styles.modalPrimaryText}>Add Zone</Text>
               </Pressable>
             </View>
-
-            <View
-              style={[
-                styles.deviceList,
-                {
-                  borderTopColor:
-                    mode === "dark"
-                      ? "rgba(255,255,255,0.08)"
-                      : "rgba(0,0,0,0.06)",
-                },
-              ]}
-            >
-              {zone.devices.map((dev) => (
-                <View key={dev.id} style={styles.deviceRow}>
-                  <View
-                    style={[
-                      styles.devIcon,
-                      { backgroundColor: c.surfaceMuted },
-                    ]}
-                  >
-                    <Ionicons
-                      name={
-                        dev.type === "bulb"
-                          ? "bulb-outline"
-                          : dev.type === "fan"
-                            ? "snow-outline"
-                            : "power-outline"
-                      }
-                      size={scale(14)}
-                      color={c.orange}
-                    />
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={[styles.devName, { color: c.text }]}>
-                      {dev.name}
-                    </Text>
-                    <Text style={[styles.devSub, { color: c.muted }]}>
-                      esp32 relay channel {dev.channel}
-                    </Text>
-                  </View>
-                  <Text style={[styles.devWatts, { color: c.text }]}>
-                    {dev.watts}w
-                  </Text>
-                  <Pressable
-                    onPress={() => removeDevice(zone.id, dev.id)}
-                    style={styles.delBtn}
-                  >
-                    <Ionicons
-                      name="close-circle-outline"
-                      size={scale(16)}
-                      color={c.muted}
-                    />
-                  </Pressable>
-                </View>
-              ))}
-
-              <Pressable
-                onPress={() => openAddDevice(zone.id)}
-                style={[
-                  styles.addDevBtn,
-                  { borderColor: c.line, backgroundColor: c.surfaceMuted },
-                ]}
-              >
-                <Ionicons name="add" size={scale(14)} color={c.orange} />
-                <Text style={[styles.addDevText, { color: c.orange }]}>
-                  assign hardware channel
-                </Text>
-              </Pressable>
-            </View>
-          </Card>
-        );
-      })}
-
-      <Pressable
-        style={styles.actionButton}
-        onPress={() => setZoneModalVisible(true)}
-      >
-        <LinearGradient
-          colors={["#F8A742", "#F05A16"]}
-          style={StyleSheet.absoluteFill}
-        />
-        <Text style={styles.actionText}>create new zone</Text>
-      </Pressable>
-
-      {/* --- ADD HARDWARE CHANNEL MODAL --- */}
-      <Modal visible={deviceModalVisible} transparent animationType="slide">
-        <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-          <KeyboardAvoidingView
-            behavior={Platform.OS === "ios" ? "padding" : "height"}
-            style={styles.modalOverlay}
-          >
-            <View
-              style={[
-                styles.modalCard,
-                {
-                  backgroundColor: c.surface,
-                  borderColor: c.line,
-                  maxHeight: "90%",
-                },
-              ]}
-            >
-              <View style={styles.modalHeader}>
-                <Text style={[styles.modalTitle, { color: c.text }]}>
-                  assign relay channel
-                </Text>
-                <Pressable
-                  onPress={() => setDeviceModalVisible(false)}
-                  hitSlop={10}
-                >
-                  <Ionicons name="close" size={scale(20)} color={c.muted} />
-                </Pressable>
-              </View>
-
-              <ScrollView
-                showsVerticalScrollIndicator={false}
-                keyboardShouldPersistTaps="handled"
-              >
-                <Text
-                  style={[styles.inputLabel, { color: c.muted, marginTop: 0 }]}
-                >
-                  esp32 relay pin
-                </Text>
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  style={{ marginBottom: scale(14) }}
-                >
-                  {espChannels.map((ch) => (
-                    <Pressable
-                      key={ch}
-                      onPress={() => setSelectedChannel(ch)}
-                      style={[
-                        styles.nodeCard,
-                        {
-                          backgroundColor:
-                            selectedChannel === ch
-                              ? "rgba(249,115,22,0.1)"
-                              : c.surfaceMuted,
-                          borderColor:
-                            selectedChannel === ch ? c.orange : c.line,
-                        },
-                      ]}
-                    >
-                      <Text
-                        style={[
-                          styles.nodeId,
-                          { color: selectedChannel === ch ? c.orange : c.text },
-                        ]}
-                      >
-                        ch {ch}
-                      </Text>
-                    </Pressable>
-                  ))}
-                </ScrollView>
-
-                {selectedChannel !== null && (
-                  <>
-                    <Text style={[styles.inputLabel, { color: c.muted }]}>
-                      friendly device name
-                    </Text>
-                    <TextInput
-                      style={[
-                        styles.input,
-                        {
-                          color: c.text,
-                          borderColor: c.line,
-                          backgroundColor:
-                            mode === "dark" ? "#1A1D24" : "#F8FAFC",
-                        },
-                      ]}
-                      placeholder="e.g. overhead bulb 1"
-                      placeholderTextColor={c.muted}
-                      value={newDevName}
-                      onChangeText={setNewDevName}
-                    />
-
-                    <Text style={[styles.inputLabel, { color: c.muted }]}>
-                      max power draw (watts)
-                    </Text>
-                    <TextInput
-                      style={[
-                        styles.input,
-                        {
-                          color: c.text,
-                          borderColor: c.line,
-                          backgroundColor:
-                            mode === "dark" ? "#1A1D24" : "#F8FAFC",
-                        },
-                      ]}
-                      placeholder="e.g. 15"
-                      placeholderTextColor={c.muted}
-                      keyboardType="numeric"
-                      value={newDevWatts}
-                      onChangeText={setNewDevWatts}
-                    />
-
-                    <Text style={[styles.inputLabel, { color: c.muted }]}>
-                      device type
-                    </Text>
-                    <View style={styles.typeRow}>
-                      {(["bulb", "outlet", "fan"] as const).map((t) => (
-                        <Pressable
-                          key={t}
-                          onPress={() => setNewDevType(t)}
-                          style={[
-                            styles.typePill,
-                            {
-                              backgroundColor:
-                                newDevType === t ? c.orange : c.surfaceMuted,
-                              borderColor: newDevType === t ? c.orange : c.line,
-                            },
-                          ]}
-                        >
-                          <Text
-                            style={[
-                              styles.typeText,
-                              { color: newDevType === t ? "#FFF" : c.muted },
-                            ]}
-                          >
-                            {t}
-                          </Text>
-                        </Pressable>
-                      ))}
-                    </View>
-
-                    <Pressable style={styles.saveBtn} onPress={saveDevice}>
-                      <LinearGradient
-                        colors={["#F8A742", "#F05A16"]}
-                        style={StyleSheet.absoluteFill}
-                      />
-                      <Text style={styles.actionText}>
-                        link channel to zone
-                      </Text>
-                    </Pressable>
-                  </>
-                )}
-              </ScrollView>
-            </View>
-          </KeyboardAvoidingView>
-        </TouchableWithoutFeedback>
-      </Modal>
-
-      {/* --- CREATE ZONE MODAL --- */}
-      <Modal visible={zoneModalVisible} transparent animationType="slide">
-        <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-          <KeyboardAvoidingView
-            behavior={Platform.OS === "ios" ? "padding" : "height"}
-            style={styles.modalOverlay}
-          >
-            <View
-              style={[
-                styles.modalCard,
-                { backgroundColor: c.surface, borderColor: c.line },
-              ]}
-            >
-              <View style={styles.modalHeader}>
-                <Text style={[styles.modalTitle, { color: c.text }]}>
-                  create new zone
-                </Text>
-                <Pressable
-                  onPress={() => setZoneModalVisible(false)}
-                  hitSlop={10}
-                >
-                  <Ionicons name="close" size={scale(20)} color={c.muted} />
-                </Pressable>
-              </View>
-
-              <Text style={[styles.inputLabel, { color: c.muted }]}>
-                zone name
-              </Text>
-              <TextInput
-                style={[
-                  styles.input,
-                  {
-                    color: c.text,
-                    borderColor: c.line,
-                    backgroundColor: mode === "dark" ? "#1A1D24" : "#F8FAFC",
-                  },
-                ]}
-                placeholder="e.g. 3f library"
-                placeholderTextColor={c.muted}
-                value={newZoneName}
-                onChangeText={setNewZoneName}
-              />
-
-              <Text style={[styles.inputLabel, { color: c.muted }]}>
-                target runtime (hours/day)
-              </Text>
-              <TextInput
-                style={[
-                  styles.input,
-                  {
-                    color: c.text,
-                    borderColor: c.line,
-                    backgroundColor: mode === "dark" ? "#1A1D24" : "#F8FAFC",
-                  },
-                ]}
-                placeholder="e.g. 8"
-                placeholderTextColor={c.muted}
-                keyboardType="numeric"
-                value={newZoneHours}
-                onChangeText={setNewZoneHours}
-              />
-
-              <Text style={[styles.inputLabel, { color: c.muted }]}>
-                power priority
-              </Text>
-              <View style={styles.typeRow}>
-                {(["high", "standard"] as const).map((p) => (
-                  <Pressable
-                    key={p}
-                    onPress={() => setNewZonePriority(p)}
-                    style={[
-                      styles.typePill,
-                      {
-                        backgroundColor:
-                          newZonePriority === p ? c.orange : c.surfaceMuted,
-                        borderColor: newZonePriority === p ? c.orange : c.line,
-                      },
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        styles.typeText,
-                        { color: newZonePriority === p ? "#FFF" : c.muted },
-                      ]}
-                    >
-                      {p}
-                    </Text>
-                  </Pressable>
-                ))}
-              </View>
-
-              <Pressable style={styles.saveBtn} onPress={saveZone}>
-                <LinearGradient
-                  colors={["#F8A742", "#F05A16"]}
-                  style={StyleSheet.absoluteFill}
-                />
-                <Text style={styles.actionText}>save zone</Text>
-              </Pressable>
-            </View>
-          </KeyboardAvoidingView>
-        </TouchableWithoutFeedback>
+          </View>
+        </View>
       </Modal>
     </ScreenShell>
   );
 }
 
 const styles = StyleSheet.create({
-  headerCard: {
-    borderRadius: scale(18),
-    padding: scale(16),
-    borderWidth: 1,
-    marginBottom: scale(16),
-  },
-  headerRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: scale(12),
-  },
-  iconBox: {
-    width: scale(40),
-    height: scale(40),
-    borderRadius: scale(14),
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  headerTitle: {
-    fontSize: scale(13),
-    fontFamily: fonts.extrabold,
-  },
-  headerSubtitle: {
-    fontSize: scale(9),
-    fontFamily: fonts.medium,
-    marginTop: scale(2),
-  },
-  totalWatts: {
-    fontSize: scale(16),
-    fontFamily: fonts.extrabold,
-  },
-  zoneCard: {
-    padding: scale(14),
-    borderRadius: scale(18),
-    marginBottom: scale(14),
-  },
-  zoneHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "flex-start",
-  },
-  zoneTitle: {
-    fontSize: scale(12),
-    fontFamily: fonts.bold,
-  },
-  editBtn: {
-    padding: scale(4),
-  },
-  chips: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: scale(6),
-    marginTop: scale(8),
-  },
-  priority: {
-    paddingHorizontal: scale(7),
-    paddingVertical: scale(3),
-    borderRadius: scale(8),
-    fontSize: scale(8),
-    fontFamily: fonts.bold,
-  },
-  batteryChip: {
-    paddingHorizontal: scale(7),
-    paddingVertical: scale(3),
-    borderRadius: scale(8),
-    fontSize: scale(8),
-    fontFamily: fonts.bold,
-  },
-  deviceList: {
-    marginTop: scale(12),
-    paddingTop: scale(12),
-    borderTopWidth: 1,
-  },
-  deviceRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: scale(10),
-    marginBottom: scale(10),
-  },
-  devIcon: {
-    width: scale(28),
-    height: scale(28),
-    borderRadius: scale(8),
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  devName: {
-    fontSize: scale(10),
-    fontFamily: fonts.bold,
-  },
-  devSub: {
-    fontSize: scale(8),
-    fontFamily: fonts.medium,
-    marginTop: scale(2),
-  },
-  devWatts: {
-    fontSize: scale(11),
-    fontFamily: fonts.extrabold,
-  },
-  delBtn: {
-    padding: scale(4),
-    marginLeft: scale(4),
-  },
-  addDevBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: scale(6),
-    paddingVertical: scale(10),
-    borderRadius: scale(10),
-    borderWidth: 1,
-    borderStyle: "dashed",
-    marginTop: scale(4),
-  },
-  addDevText: {
-    fontSize: scale(9.5),
-    fontFamily: fonts.bold,
-  },
-  actionButton: {
-    minHeight: scale(44),
-    borderRadius: scale(14),
-    overflow: "hidden",
-    alignItems: "center",
-    justifyContent: "center",
-    marginTop: scale(6),
-    marginBottom: scale(30),
-  },
-  actionText: {
-    color: "#FFFFFF",
-    fontSize: scale(10),
-    fontFamily: fonts.bold,
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.6)",
-    justifyContent: "flex-end",
-  },
-  modalCard: {
-    borderTopLeftRadius: scale(24),
-    borderTopRightRadius: scale(24),
-    padding: scale(20),
-    paddingBottom: scale(40),
-    borderTopWidth: 1,
-  },
-  modalHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: scale(10),
-  },
-  modalTitle: {
-    fontSize: scale(14),
-    fontFamily: fonts.extrabold,
-  },
-  inputLabel: {
-    fontSize: scale(9),
-    fontFamily: fonts.bold,
-    marginBottom: scale(6),
-    marginTop: scale(12),
-  },
-  input: {
-    borderWidth: 1,
-    borderRadius: scale(10),
-    paddingHorizontal: scale(12),
-    height: scale(40),
-    fontSize: scale(11),
-    fontFamily: fonts.medium,
-  },
-  typeRow: {
-    flexDirection: "row",
-    gap: scale(8),
-  },
-  typePill: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    height: scale(36),
-    borderRadius: scale(10),
-    borderWidth: 1,
-  },
-  typeText: {
-    fontSize: scale(10),
-    fontFamily: fonts.bold,
-  },
-  saveBtn: {
-    minHeight: scale(44),
-    borderRadius: scale(14),
-    overflow: "hidden",
-    alignItems: "center",
-    justifyContent: "center",
-    marginTop: scale(24),
-  },
-  nodeCard: {
-    padding: scale(10),
-    borderRadius: scale(10),
-    borderWidth: 1,
-    marginRight: scale(8),
-    alignItems: "center",
-    width: scale(60),
-  },
-  nodeId: {
-    fontSize: scale(10),
-    fontFamily: fonts.bold,
-  },
+  content: { paddingTop: scale(2), paddingBottom: scale(30) },
+  eyebrow: { fontSize: scale(9), letterSpacing: 1.3, fontFamily: fonts.extrabold },
+  heading: { fontSize: scale(22), lineHeight: scale(28), fontFamily: fonts.extrabold, marginTop: scale(1) },
+  sectionLabel: { fontSize: scale(9), letterSpacing: 1.2, fontFamily: fonts.extrabold, marginTop: scale(20), marginBottom: scale(8) },
+  filterRow: { flexDirection: "row", gap: scale(8), marginBottom: scale(16) },
+  filter: { width: scale(42), height: scale(38), borderRadius: scale(20), alignItems: "center", justifyContent: "center", borderWidth: 1 },
+  filterText: { fontSize: scale(10), fontFamily: fonts.extrabold },
+  addCard: { minHeight: scale(56), borderRadius: scale(18), flexDirection: "row", alignItems: "center", paddingHorizontal: scale(14), shadowColor: "#9AAAC4", shadowOpacity: 0.12, shadowRadius: 10, shadowOffset: { width: 0, height: 5 }, elevation: 3 },
+  addIcon: { width: scale(30), height: scale(30), borderRadius: scale(9), backgroundColor: "#EAF2FF", alignItems: "center", justifyContent: "center" },
+  addCopy: { flex: 1, marginLeft: scale(10) },
+  addTitle: { fontSize: scale(10), fontFamily: fonts.extrabold },
+  addSubtitle: { fontSize: scale(8), fontFamily: fonts.medium, marginTop: scale(2) },
+  tip: { borderRadius: scale(16), paddingHorizontal: scale(13), paddingVertical: scale(8), marginTop: scale(12), marginBottom: scale(12) },
+  tipText: { fontSize: scale(8), fontFamily: fonts.medium },
+  tipLink: { color: "#49608C", fontSize: scale(8), fontFamily: fonts.bold, fontStyle: "italic", textDecorationLine: "underline", marginTop: scale(1) },
+  zoneList: { gap: scale(9) },
+  zoneCard: { minHeight: scale(84), borderRadius: scale(17), padding: scale(13), shadowOpacity: 0.16, shadowRadius: 12, shadowOffset: { width: 0, height: 6 }, elevation: 4 },
+  zoneCardTop: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between" },
+  zoneTitleRow: { flex: 1, flexDirection: "row", alignItems: "center", gap: scale(7), paddingRight: scale(8) },
+  zoneName: { fontSize: scale(10), fontFamily: fonts.extrabold, flexShrink: 1 },
+  priority: { color: "#E86A24", backgroundColor: "#FFF0E8", borderRadius: scale(7), paddingHorizontal: scale(6), paddingVertical: scale(2), fontSize: scale(6.5), fontFamily: fonts.extrabold },
+  deviceIcons: { flexDirection: "row", gap: scale(8), marginTop: scale(8) },
+  deviceIcon: { width: scale(19), height: scale(19), borderRadius: scale(10), backgroundColor: "#F6A01A", alignItems: "center", justifyContent: "center" },
+  total: { fontSize: scale(8), fontFamily: fonts.medium, marginTop: scale(5) },
+  totalValue: { color: "#586B92", fontFamily: fonts.extrabold },
+  modalBackdrop: { flex: 1, backgroundColor: "rgba(8,25,55,0.42)", justifyContent: "center", padding: scale(24) },
+  modalCard: { borderRadius: scale(22), padding: scale(18) },
+  modalTitle: { fontSize: scale(16), fontFamily: fonts.extrabold, marginBottom: scale(12) },
+  input: { minHeight: scale(44), borderWidth: 1, borderRadius: scale(12), paddingHorizontal: scale(12), fontSize: scale(12), fontFamily: fonts.medium },
+  modalActions: { flexDirection: "row", justifyContent: "flex-end", gap: scale(8), marginTop: scale(14) },
+  modalButton: { paddingHorizontal: scale(13), paddingVertical: scale(9), borderRadius: scale(10) },
+  modalPrimary: { backgroundColor: "#0E4BA5" },
+  modalButtonText: { fontSize: scale(10), fontFamily: fonts.bold },
+  modalPrimaryText: { color: "#FFFFFF", fontSize: scale(10), fontFamily: fonts.bold },
 });
