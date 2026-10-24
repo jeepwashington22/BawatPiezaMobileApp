@@ -6,14 +6,14 @@ import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import Paho from "paho-mqtt";
-import { useRouter, type Href } from 'expo-router';
+import { useRouter, type Href } from "expo-router";
 
 import { ScreenShell } from "./screen-shell";
 import { Card, Glass, scale } from "./glass-ui";
 import { fonts, useTheme, type Mode, type ThemeColors } from "../theme";
 import { usePowerOverride } from "../hooks/use-power-override";
 
-type Tab = "monitor" | "configure" | "allocation" | 'override';
+type Tab = "monitor" | "configure" | "allocation" | "override";
 
 export function PowerManagementScreen() {
   const { colors: c, mode } = useTheme();
@@ -68,39 +68,44 @@ export function PowerManagementScreen() {
   return (
     <ScreenShell scroll title="Power Management">
       <View style={[styles.tabs, { backgroundColor: c.surface }]}>
-        {(["monitor", "configure", "allocation", 'override'] as Tab[]).map((item) => {
-          const active = tab === item;
+        {(["monitor", "configure", "allocation", "override"] as Tab[]).map(
+          (item) => {
+            const active = tab === item;
 
-          return (
-            <Pressable
-              key={item}
-              onPress={() => setTab(item)}
-              style={[
-                styles.tab,
-                { backgroundColor: active ? 'transparent' : c.surfaceMuted, borderColor: c.line },
-                active && styles.activeTab,
-              ]}
-              accessibilityRole="tab"
-              accessibilityState={{ selected: active }}
-            >
-              {active && (
-                <LinearGradient
-                  colors={["#F9A84E", "#F59E0B"]}
-                  style={StyleSheet.absoluteFill}
-                />
-              )}
-              <Text
+            return (
+              <Pressable
+                key={item}
+                onPress={() => setTab(item)}
                 style={[
-                  styles.tabText,
-                  { color: active ? "#FFFFFF" : c.muted },
+                  styles.tab,
+                  {
+                    backgroundColor: active ? "transparent" : c.surfaceMuted,
+                    borderColor: c.line,
+                  },
+                  active && styles.activeTab,
                 ]}
+                accessibilityRole="tab"
+                accessibilityState={{ selected: active }}
               >
-                {item[0].toUpperCase()}
-                {item.slice(1)}
-              </Text>
-            </Pressable>
-          );
-        })}
+                {active && (
+                  <LinearGradient
+                    colors={["#F9A84E", "#F59E0B"]}
+                    style={StyleSheet.absoluteFill}
+                  />
+                )}
+                <Text
+                  style={[
+                    styles.tabText,
+                    { color: active ? "#FFFFFF" : c.muted },
+                  ]}
+                >
+                  {item[0].toUpperCase()}
+                  {item.slice(1)}
+                </Text>
+              </Pressable>
+            );
+          },
+        )}
       </View>
 
       {tab === "monitor" && (
@@ -115,7 +120,7 @@ export function PowerManagementScreen() {
       {tab === "allocation" && (
         <Allocation c={c} mode={mode} batteryPct={batteryPct} />
       )}
-      {tab === 'override' && <Override c={c} />}
+      {tab === "override" && <Override c={c} />}
     </ScreenShell>
   );
 }
@@ -123,19 +128,47 @@ export function PowerManagementScreen() {
 function Override({ c }: { c: ThemeColors }) {
   const { override, setOverride } = usePowerOverride();
   const options = [
-    { value: 'grid' as const, label: 'Force Grid', icon: 'flash-outline' as const, color: c.gridGreen },
-    { value: 'battery' as const, label: 'Force Battery', icon: 'battery-charging-outline' as const, color: c.orange },
-    { value: 'shutdown' as const, label: 'Shutdown', icon: 'power-outline' as const, color: c.danger },
+    {
+      value: "grid" as const,
+      label: "Force Grid",
+      icon: "flash-outline" as const,
+      color: c.gridGreen,
+    },
+    {
+      value: "battery" as const,
+      label: "Force Battery",
+      icon: "battery-charging-outline" as const,
+      color: c.orange,
+    },
+    {
+      value: "shutdown" as const,
+      label: "Shutdown",
+      icon: "power-outline" as const,
+      color: c.danger,
+    },
   ];
 
   return (
     <>
-      <View style={[styles.overrideIntro, { backgroundColor: c.surface, borderColor: c.line }]}>
-        <View style={[styles.overrideIntroIcon, { backgroundColor: c.accentSoft }]}>
-          <Ionicons name="flash-outline" size={scale(20)} color={override === 'grid' ? c.gridGreen : c.orange} />
+      <View
+        style={[
+          styles.overrideIntro,
+          { backgroundColor: c.surface, borderColor: c.line },
+        ]}
+      >
+        <View
+          style={[styles.overrideIntroIcon, { backgroundColor: c.accentSoft }]}
+        >
+          <Ionicons
+            name="flash-outline"
+            size={scale(20)}
+            color={override === "grid" ? c.gridGreen : c.orange}
+          />
         </View>
         <View style={styles.overrideIntroCopy}>
-          <Text style={[styles.overrideTitle, { color: c.text }]}>Power override</Text>
+          <Text style={[styles.overrideTitle, { color: c.text }]}>
+            Power override
+          </Text>
           <Text style={[styles.overrideCopy, { color: c.muted }]}>
             Choose which source should supply all zones right now.
           </Text>
@@ -161,10 +194,16 @@ function Override({ c }: { c: ThemeColors }) {
               accessibilityState={{ selected: active }}
               accessibilityLabel={option.label}
             >
-              <Ionicons name={option.icon} size={scale(21)} color={option.color} />
-              <Text style={[styles.overrideOptionText, { color: c.text }]}>{option.label}</Text>
               <Ionicons
-                name={active ? 'radio-button-on' : 'radio-button-off'}
+                name={option.icon}
+                size={scale(21)}
+                color={option.color}
+              />
+              <Text style={[styles.overrideOptionText, { color: c.text }]}>
+                {option.label}
+              </Text>
+              <Ionicons
+                name={active ? "radio-button-on" : "radio-button-off"}
                 size={scale(18)}
                 color={active ? option.color : c.muted}
               />
@@ -173,16 +212,33 @@ function Override({ c }: { c: ThemeColors }) {
         })}
       </View>
 
-      <View style={[styles.overrideStatus, { backgroundColor: c.surfaceMuted, borderColor: c.line }]}>
-        <View style={[styles.statusDot, { backgroundColor: override === 'grid' ? c.gridGreen : override ? c.orange : c.muted }]} />
+      <View
+        style={[
+          styles.overrideStatus,
+          { backgroundColor: c.surfaceMuted, borderColor: c.line },
+        ]}
+      >
+        <View
+          style={[
+            styles.statusDot,
+            {
+              backgroundColor:
+                override === "grid"
+                  ? c.gridGreen
+                  : override
+                    ? c.orange
+                    : c.muted,
+            },
+          ]}
+        />
         <Text style={[styles.overrideStatusText, { color: c.muted }]}>
-          {override === 'grid'
-            ? 'Grid is supplying all zones.'
-            : override === 'battery'
-              ? 'Battery is supplying all zones.'
-              : override === 'shutdown'
-                ? 'Power is shut down for all zones.'
-                : 'Automatic power selection is active.'}
+          {override === "grid"
+            ? "Grid is supplying all zones."
+            : override === "battery"
+              ? "Battery is supplying all zones."
+              : override === "shutdown"
+                ? "Power is shut down for all zones."
+                : "Automatic power selection is active."}
         </Text>
       </View>
     </>
@@ -483,8 +539,6 @@ function Configure({ c, mode }: { c: ThemeColors; mode: Mode }) {
 
   return (
     <>
-  
-
       <SectionLabel
         label="BATTERY PROTECTION"
         action="1 Array Configured"
@@ -550,32 +604,49 @@ function Configure({ c, mode }: { c: ThemeColors; mode: Mode }) {
         >
           <View style={styles.scheduleDetailsHeading}>
             <Text style={[styles.smallBold, { color: c.text }]}>
-            How This Schedule Is Set?{" "}
-         </Text>
+              How This Schedule Is Set?{" "}
+            </Text>
           </View>
           <Text style={[styles.scheduleDetailsCopy, { color: c.muted }]}>
-            Peak and off-peak windows follow Meralco&apos;s commercial Time-of-Use tariff schedule for the UCC — Congressional Campus account. Windows sync automatically once a day; manual edits here pause auto-sync until it&apos;s turned back on.
+            Peak and off-peak windows follow Meralco&apos;s commercial
+            Time-of-Use tariff schedule for the UCC — Congressional Campus
+            account. Windows sync automatically once a day; manual edits here
+            pause auto-sync until it&apos;s turned back on.
           </Text>
           <View style={styles.autoSyncRow}>
             <View style={styles.autoSyncCopy}>
-              <Text style={[styles.smallBold, { color: c.text }]}>Auto-sync from Meralco</Text>
-              <Text style={[styles.autoSyncDate, { color: c.muted }]}>Last synced Aug 30, 2026 · 6:02 AM</Text>
+              <Text style={[styles.smallBold, { color: c.text }]}>
+                Auto-sync from Meralco
+              </Text>
+              <Text style={[styles.autoSyncDate, { color: c.muted }]}>
+                Last synced Aug 30, 2026 · 6:02 AM
+              </Text>
             </View>
             <Pressable
               onPress={() => setAutoSync((current) => !current)}
-              style={[styles.autoSyncToggle, { backgroundColor: autoSync ? '#0755A5' : c.surfaceMuted }]}
+              style={[
+                styles.autoSyncToggle,
+                { backgroundColor: autoSync ? "#0755A5" : c.surfaceMuted },
+              ]}
               accessibilityRole="switch"
               accessibilityState={{ checked: autoSync }}
               accessibilityLabel="Auto-sync from Meralco"
             >
-              <View style={[styles.autoSyncKnob, !autoSync && styles.autoSyncKnobOff]} />
+              <View
+                style={[
+                  styles.autoSyncKnob,
+                  !autoSync && styles.autoSyncKnobOff,
+                ]}
+              />
             </Pressable>
           </View>
         </View>
 
         <ActionButton
           label="Check a Zone's Runtime Need Against This Window →"
-          onPress={() => router.push('/pages/zones/1/runtime-calculator' as Href)}
+          onPress={() =>
+            router.push("/pages/zones/1/runtime-calculator" as Href)
+          }
         />
       </Card>
     </>
@@ -625,7 +696,9 @@ function Allocation({
   const setAssignedHours = (val: number) => {
     setAllocs((prev) => ({ ...prev, [activeZone]: val }));
   };
-  const [selectedBattery, setSelectedBattery] = useState<'A' | 'B' | null>(null);
+  const [selectedBattery, setSelectedBattery] = useState<"A" | "B" | null>(
+    null,
+  );
   const [systemAllocated, setSystemAllocated] = useState(false);
 
   return (
@@ -693,14 +766,16 @@ function Allocation({
           </Text>
         </View>
 
-        <Text style={[styles.selectionLabel, { color: c.text }]}>Choose a Battery First</Text>
+        <Text style={[styles.selectionLabel, { color: c.text }]}>
+          Choose a Battery First
+        </Text>
         <Text style={[styles.selectionHint, { color: c.muted }]}>
           The system will only allocate power from the battery you select.
         </Text>
         <View style={styles.batteryChoiceRow}>
           {[
-            { id: 'A' as const, name: 'BANK A', detail: '100% full' },
-            { id: 'B' as const, name: 'BANK B', detail: '62% full' },
+            { id: "A" as const, name: "BANK A", detail: "100% full" },
+            { id: "B" as const, name: "BANK B", detail: "62% full" },
           ].map((battery) => {
             const selected = selectedBattery === battery.id;
             return (
@@ -712,7 +787,10 @@ function Allocation({
                 }}
                 style={[
                   styles.batteryChoice,
-                  { backgroundColor: c.surfaceMuted, borderColor: selected ? c.orange : c.line },
+                  {
+                    backgroundColor: c.surfaceMuted,
+                    borderColor: selected ? c.orange : c.line,
+                  },
                   selected && { backgroundColor: c.accentSoft },
                 ]}
                 accessibilityRole="radio"
@@ -720,13 +798,19 @@ function Allocation({
                 accessibilityLabel={`Select ${battery.name}, ${battery.detail}`}
               >
                 <Ionicons
-                  name={selected ? 'radio-button-on' : 'radio-button-off'}
+                  name={selected ? "radio-button-on" : "radio-button-off"}
                   size={scale(18)}
                   color={selected ? c.orange : c.muted}
                 />
                 <View style={styles.batteryChoiceCopy}>
-                  <Text style={[styles.batteryChoiceName, { color: c.text }]}>{battery.name}</Text>
-                  <Text style={[styles.batteryChoiceDetail, { color: c.muted }]}>{battery.detail}</Text>
+                  <Text style={[styles.batteryChoiceName, { color: c.text }]}>
+                    {battery.name}
+                  </Text>
+                  <Text
+                    style={[styles.batteryChoiceDetail, { color: c.muted }]}
+                  >
+                    {battery.detail}
+                  </Text>
                 </View>
               </Pressable>
             );
@@ -734,15 +818,21 @@ function Allocation({
         </View>
 
         <ActionButton
-          label={selectedBattery ? `Let System Allocate from Bank ${selectedBattery}` : 'Choose a Battery to Continue'}
+          label={
+            selectedBattery
+              ? `Let System Allocate from Bank ${selectedBattery}`
+              : "Choose a Battery to Continue"
+          }
           disabled={!selectedBattery}
           onPress={() => setSystemAllocated(true)}
         />
 
-        <Text style={[styles.cardCopy, { color: c.muted, marginTop: scale(12) }]}>
+        <Text
+          style={[styles.cardCopy, { color: c.muted, marginTop: scale(12) }]}
+        >
           {systemAllocated
             ? `System allocation is using Bank ${selectedBattery}.`
-            : 'Gives the most important rooms their full hours first, then splits what&apos;s left after you choose a battery.'}
+            : "Gives the most important rooms their full hours first, then splits what&apos;s left after you choose a battery."}
         </Text>
       </View>
 
@@ -956,11 +1046,20 @@ function ActionButton({
     <Pressable
       onPress={onPress}
       disabled={disabled}
-      style={({ pressed }) => [styles.actionButton, disabled && styles.actionButtonDisabled, pressed && { opacity: 0.82 }]}
+      style={({ pressed }) => [
+        styles.actionButton,
+        disabled && styles.actionButtonDisabled,
+        pressed && { opacity: 0.82 },
+      ]}
       accessibilityRole="button"
       accessibilityState={{ disabled }}
     >
-      <View style={[StyleSheet.absoluteFill, { backgroundColor: disabled ? '#AAB1C2' : '#F5A220' }]} />
+      <View
+        style={[
+          StyleSheet.absoluteFill,
+          { backgroundColor: disabled ? "#AAB1C2" : "#F5A220" },
+        ]}
+      />
       <Text style={styles.actionText}>{label}</Text>
     </Pressable>
   );
@@ -1133,8 +1232,8 @@ const styles = StyleSheet.create({
     fontFamily: fonts.bold,
   },
   overrideIntro: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: scale(10),
     padding: scale(14),
     borderRadius: scale(16),
@@ -1145,8 +1244,8 @@ const styles = StyleSheet.create({
     width: scale(42),
     height: scale(42),
     borderRadius: scale(13),
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
   },
   overrideIntroCopy: {
     flex: 1,
@@ -1168,8 +1267,8 @@ const styles = StyleSheet.create({
     minHeight: scale(52),
     borderRadius: scale(14),
     borderWidth: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: scale(10),
     paddingHorizontal: scale(14),
   },
@@ -1182,8 +1281,8 @@ const styles = StyleSheet.create({
     minHeight: scale(48),
     borderRadius: scale(14),
     borderWidth: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: scale(8),
     paddingHorizontal: scale(14),
     marginTop: scale(14),
@@ -1528,7 +1627,7 @@ const styles = StyleSheet.create({
     paddingTop: scale(8),
     paddingBottom: scale(7),
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.12)',
+    borderBottomColor: "rgba(255,255,255,0.12)",
   },
   scheduleDetailsHeading: {
     flexDirection: "row",
@@ -1542,9 +1641,9 @@ const styles = StyleSheet.create({
     fontFamily: fonts.medium,
   },
   autoSyncRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
     gap: scale(8),
     marginTop: scale(8),
   },
@@ -1561,18 +1660,18 @@ const styles = StyleSheet.create({
     height: scale(30),
     borderRadius: scale(16),
     paddingHorizontal: scale(3),
-    justifyContent: 'center',
+    justifyContent: "center",
   },
   autoSyncKnob: {
     width: scale(24),
     height: scale(24),
     borderRadius: scale(12),
-    alignSelf: 'flex-end',
-    backgroundColor: '#FFFFFF',
+    alignSelf: "flex-end",
+    backgroundColor: "#FFFFFF",
   },
   autoSyncKnobOff: {
-    alignSelf: 'flex-start',
-    backgroundColor: '#94A3B8',
+    alignSelf: "flex-start",
+    backgroundColor: "#94A3B8",
   },
   actionButton: {
     minHeight: scale(48),
@@ -1586,7 +1685,7 @@ const styles = StyleSheet.create({
     opacity: 0.72,
   },
   actionText: {
-    color: '#FFFFFF',
+    color: "#FFFFFF",
     fontSize: scale(13),
     fontFamily: fonts.bold,
     paddingHorizontal: scale(16),
@@ -1661,7 +1760,7 @@ const styles = StyleSheet.create({
     marginTop: scale(4),
   },
   batteryChoiceRow: {
-    flexDirection: 'row',
+    flexDirection: "row",
     gap: scale(8),
     marginTop: scale(10),
   },
@@ -1670,8 +1769,8 @@ const styles = StyleSheet.create({
     minHeight: scale(48),
     borderRadius: scale(12),
     borderWidth: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: scale(7),
     paddingHorizontal: scale(10),
   },

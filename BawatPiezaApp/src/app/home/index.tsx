@@ -21,8 +21,8 @@ import { TopBar } from "../../components/top-bar";
 import { HeroGlow } from "../../components/hero-glow";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import Paho from "paho-mqtt";
-import "text-encoding"; // Required Polyfill for MQTT
-import { supabase } from "../../lib/supabase"; // <--- ADDED SUPABASE IMPORT
+import "text-encoding";
+import { supabase } from "../../lib/supabase";
 import { CountUpText } from "../../components/count-up-text";
 
 import {
@@ -47,7 +47,6 @@ const AnimatedPath = Animated.createAnimatedComponent(Path);
 const BRAND_ORANGE = "#F5A220";
 const BRAND_ORANGE_DARK = "#E6641F";
 
-// Helper function to get today's date key formatted as YYYY-MM-DD
 const getTodayDateKey = () => {
   const d = new Date();
   const year = d.getFullYear();
@@ -56,22 +55,16 @@ const getTodayDateKey = () => {
   return `bawatpieza_steps_${year}-${month}-${day}`;
 };
 
-/* ------------------------------- grid palette ------------------------------- */
-// When the grid is active the battery-percentage-connected palette
-// transitions from warm orange to green to indicate the home is running on
-// grid power. Colours are keyed on `usingGrid` so every battery / live /
-// charging element re-paints in green at the same time the "CURRENTLY USING
-// GRID" state appears. `gridGreen` is the exact colour passed to `grid` in
-// the theme below (M700) so dark mode stays on-brand.
 type GridPalette = {
   gridActive: boolean;
   gridGreen: string;
   gridGreenDark: string;
   batteryCardTrack: string;
   batteryCardFill: string;
+  batteryCardInk: string;
 };
 
-function useGridPalette(usingGrid: boolean): GridPalette {
+function useGridPalette(usingGrid: boolean, mode: Mode): GridPalette {
   const gridActive = usingGrid;
   const gridGreen = "#16A34A";
   const gridGreenDark = "#22C55E";
@@ -79,13 +72,14 @@ function useGridPalette(usingGrid: boolean): GridPalette {
     gridActive,
     gridGreen,
     gridGreenDark,
-    batteryCardTrack: gridActive ? "rgba(22,163,74,0.22)" : "rgba(245,162,32,0.22)",
+    batteryCardTrack: gridActive
+      ? "rgba(22,163,74,0.22)"
+      : "rgba(245,162,32,0.22)",
     batteryCardFill: gridActive ? "rgba(22,163,74,1)" : BRAND_ORANGE_DARK,
+    batteryCardInk: mode === "dark" ? "#FFFFFF" : "#0A2A4A",
   };
 }
 
-
-/* ------------------------------ demo data ------------------------------- */
 const HEAT_ROWS = 2;
 const HEAT_COLS = 3;
 const heatTiles: number[] = Array.from(
@@ -103,9 +97,16 @@ const HEAT_STOPS: Record<Mode, string[]> = {
   light: ["#8C3B12", "#B94E14", "#D85B1C", BRAND_ORANGE_DARK, BRAND_ORANGE],
   dark: ["#5C250D", "#8C3B12", "#B94E14", "#D85B1C", BRAND_ORANGE_DARK],
 };
+const HEAT_STOPS_GREEN = [
+  "#064E3B",
+  "#065F46",
+  "#047857",
+  "#059669",
+  "#10B981",
+];
 
-const heatColor = (v: number, mode: Mode) => {
-  const stops = HEAT_STOPS[mode];
+const heatColor = (v: number, mode: Mode, usingGrid: boolean) => {
+  const stops = usingGrid ? HEAT_STOPS_GREEN : HEAT_STOPS[mode];
   const idx = Math.min(stops.length - 1, Math.floor(v * stops.length));
   return stops[idx];
 };
@@ -135,8 +136,6 @@ const SOURCE_META: Record<
   Solar: { icon: "sunny", color: "#B45309", tint: "rgba(245,158,11,0.16)" },
 };
 
-/** Premium animated switch: orange track, white knob with a power glyph.
- *  When gridActive, the track glows green to indicate grid power. */
 function ZoneSwitch({
   on,
   mode,
@@ -163,7 +162,6 @@ function ZoneSwitch({
   const PAD = (H - K) / 2;
 
   const gridGreen = "#16A34A";
-  const gridGreenDark = "#22C55E";
   const onColor = gridActive ? gridGreen : BRAND_ORANGE_DARK;
   const onColorDark = gridActive ? "rgba(34,197,94,1)" : BRAND_ORANGE;
 
@@ -182,7 +180,7 @@ function ZoneSwitch({
   return (
     <Pressable
       onPress={(e) => {
-        e.stopPropagation(); // <-- This prevents the row from stealing the tap
+        e.stopPropagation();
         onToggle();
       }}
       hitSlop={8}
@@ -217,7 +215,7 @@ function ZoneSwitch({
             fontFamily: fonts.extrabold,
           }}
         >
-          {on ? "ON" : "OFF"}
+          {on ? "on" : "off"}
         </Text>
         <Animated.View
           style={{
@@ -238,7 +236,9 @@ function ZoneSwitch({
           <Ionicons
             name="power"
             size={scale(11)}
-            color={on ? BRAND_ORANGE_DARK : "#9AA3B2"}
+            color={
+              on ? (gridActive ? gridGreen : BRAND_ORANGE_DARK) : "#9AA3B2"
+            }
           />
         </Animated.View>
       </Animated.View>
@@ -246,13 +246,19 @@ function ZoneSwitch({
   );
 }
 
-/* ------------------------------- screen --------------------------------- */
-
 export default function HomeScreen() {
   const { colors: c, mode } = useTheme();
   const { ready, isLoggedIn, user } = useAuth();
   const router = useRouter();
-  const { usingGrid, openOverrides } = usePowerOverride();
+
+  const { override, openOverrides } = usePowerOverride();
+  const usingGrid = override !== "battery";
+
+  const activeOrange = usingGrid ? "#16A34A" : BRAND_ORANGE;
+  const activeOrangeDark = usingGrid ? "#15803D" : BRAND_ORANGE_DARK;
+  const activeAccent = usingGrid ? "#16A34A" : c.orange;
+  const activeAccentSoft = usingGrid ? "rgba(22,163,74,0.12)" : c.accentSoft;
+
   const {
     checked,
     completed,
@@ -262,11 +268,11 @@ export default function HomeScreen() {
     setScrollOffsetY,
   } = useAppTour();
   const accent = (alpha = 1) => brandAccent(mode, alpha);
-  // When grid is active, all battery/orange-connected palettes transition to
-  // green to indicate the home is powered by grid.
-  const { gridActive, gridGreen, gridGreenDark, batteryCardTrack, batteryCardFill } = useGridPalette(usingGrid);
+  const { gridActive, batteryCardInk, batteryCardFill } = useGridPalette(
+    usingGrid,
+    mode,
+  );
 
-  // Dynamic Telemetry States
   const [batteryPct, setBatteryPct] = useState<number | null>(null);
   const [livePower, setLivePower] = useState<number | null>(null);
   const [displayVoltage, setDisplayVoltage] = useState<string>("--");
@@ -277,13 +283,8 @@ export default function HomeScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const mqttClientRef = useRef<Paho.Client | null>(null);
 
-  const batteryCardInk = gridActive
-    ? (mode === "dark" ? "#FFFFFF" : "#0A2A4A")
-    : (mode === "dark" ? "#FFFFFF" : "#0A2A4A");
   const batteryCardMutedInk =
-    mode === "dark"
-    ? "rgba(255,255,255,0.82)"
-    : "rgba(10,42,74,0.72)";
+    mode === "dark" ? "rgba(255,255,255,0.82)" : "rgba(10,42,74,0.72)";
   const [consumptionRange, setConsumptionRange] = useState<
     "today" | "7days" | "month"
   >("today");
@@ -293,10 +294,10 @@ export default function HomeScreen() {
   const currentHour = new Date().getHours();
   const greeting =
     currentHour < 12
-      ? "Good morning"
+      ? "good morning"
       : currentHour < 18
-        ? "Good afternoon"
-        : "Good evening";
+        ? "good afternoon"
+        : "good evening";
   const metadataName =
     typeof user?.user_metadata?.firstname === "string"
       ? user.user_metadata.firstname
@@ -306,7 +307,6 @@ export default function HomeScreen() {
           ? user.user_metadata.full_name.split(" ")[0]
           : "";
 
-  // === LOAD TODAY'S FOOTSTEPS FROM ASYNCSTORAGE ON MOUNT ===
   useEffect(() => {
     const loadTodaySteps = async () => {
       try {
@@ -320,13 +320,12 @@ export default function HomeScreen() {
           await AsyncStorage.setItem(todayKey, "0");
         }
       } catch (error) {
-        console.error("Failed to load today's footstep count", error);
+        console.error("failed to load today's footstep count", error);
       }
     };
     loadTodaySteps();
   }, []);
 
-  // === LIVE MQTT HARDWARE DETECTOR (WITH AUTO-RECONNECT) ===
   const connectMQTT = useCallback(async () => {
     setMqttStatus("Connecting...");
     let client: Paho.Client | null = null;
@@ -339,8 +338,6 @@ export default function HomeScreen() {
         return;
       }
 
-      // ---> NEW: CLOUD PAIRING REGISTRATION <---
-      // Because we are on the Home Screen, we know we have internet!
       if (user?.id) {
         try {
           await supabase.from("device_pairings").upsert({
@@ -348,22 +345,18 @@ export default function HomeScreen() {
             user_id: user.id,
             last_connected: new Date().toISOString(),
           });
-          console.log("Hub pairing successfully registered to cloud");
         } catch (dbErr) {
-          console.log("Could not save pairing to cloud:", dbErr);
+          console.log("could not save pairing to cloud:", dbErr);
         }
       }
-      // ---> END CLOUD PAIRING <---
 
       const clientId = `app-home-${Math.random().toString(16).substring(2, 8)}`;
       client = new Paho.Client("broker.hivemq.com", 8884, clientId);
       mqttClientRef.current = client;
 
-      // Handle accidental disconnects and auto-reconnect
       client.onConnectionLost = (responseObject: { errorCode?: number }) => {
         setMqttStatus("Offline");
         if (responseObject.errorCode !== 0) {
-          // Wait 4 seconds, then silently attempt to reconnect
           setTimeout(() => {
             connectMQTT();
           }, 4000);
@@ -385,6 +378,14 @@ export default function HomeScreen() {
           else if (data.bat_w !== undefined)
             setLivePower(Math.round(Number(data.bat_w)));
 
+          // DIRECT 1:1 STATE SYNC (charger_on = true means Appliance ON)
+          if (data.charger_on !== undefined) {
+            const isApplianceOn = Boolean(data.charger_on);
+            setZones((zs) =>
+              zs.map((z) => (z.id === "1" ? { ...z, on: isApplianceOn } : z)),
+            );
+          }
+
           if (data.event === "footstep") {
             const todayKey = getTodayDateKey();
             setFootsteps((prev) => {
@@ -395,9 +396,7 @@ export default function HomeScreen() {
               return nextCount;
             });
           }
-        } catch (error) {
-          // Ignore non-JSON messages
-        }
+        } catch (error) {}
       };
 
       client.connect({
@@ -409,13 +408,12 @@ export default function HomeScreen() {
         onFailure: () => {
           setMqttStatus("Offline");
           setRefreshing(false);
-          // Auto-retry if the initial connection fails
           setTimeout(() => {
             connectMQTT();
           }, 4000);
         },
         useSSL: true,
-        keepAliveInterval: 20, // Sends heartbeat to prevent public broker from kicking you
+        keepAliveInterval: 20,
         timeout: 10,
       });
     } catch (error) {
@@ -461,9 +459,6 @@ export default function HomeScreen() {
     ]).start();
   }, [graphProgress, statsPop]);
 
-  // First run: greet the user with the quick-tour welcome card. It only
-  // appears once — the flag is persisted in AsyncStorage, and the tour can
-  // always be replayed from the Profile screen.
   useEffect(() => {
     if (!ready || !isLoggedIn) return;
     if (!checked) return;
@@ -475,10 +470,10 @@ export default function HomeScreen() {
   const [zones, setZones] = useState([
     {
       id: "1",
-      name: "Test Appliance",
-      source: "Battery",
-      detail: "Connected to Relay 1",
-      on: false,
+      name: "test appliance",
+      source: "battery",
+      detail: "connected to relay 1",
+      on: true, // Match default boot state
     },
   ]);
   const [activeTile, setActiveTile] = useState<number | null>(null);
@@ -486,14 +481,14 @@ export default function HomeScreen() {
   const isActive = true;
 
   const stats = [
-    { label: "VOLTAGE", value: Number(displayVoltage), decimals: 2, unit: "V" },
+    { label: "voltage", value: Number(displayVoltage), decimals: 2, unit: "V" },
     {
-      label: "POWER",
+      label: "power",
       value: livePower ?? 0,
       unit: "W",
     },
     {
-      label: "FOOTSTEPS",
+      label: "footsteps",
       value: footsteps.toLocaleString(),
       unit: "steps",
     },
@@ -501,27 +496,27 @@ export default function HomeScreen() {
 
   const consumptionData = {
     today: {
-      label: "Today",
+      label: "today",
       kwh: 4.82,
-      comparison: "5.36 kWh yesterday",
+      comparison: "5.36 kwh yesterday",
       delta: "-10.1%",
-      savings: "≈ ₱86 saved off Meralco billing",
+      savings: "≈ ₱86 saved off meralco billing",
       deltaLabel: "vs yesterday",
     },
     "7days": {
-      label: "Last 7 days",
+      label: "last 7 days",
       kwh: 31.64,
-      comparison: "34.20 kWh previous 7 days",
+      comparison: "34.20 kwh previous 7 days",
       delta: "-7.5%",
-      savings: "≈ ₱566 saved off Meralco billing",
+      savings: "≈ ₱566 saved off meralco billing",
       deltaLabel: "vs previous 7 days",
     },
     month: {
-      label: "This month",
+      label: "this month",
       kwh: 128.45,
-      comparison: "141.80 kWh previous month",
+      comparison: "141.80 kwh previous month",
       delta: "-9.4%",
-      savings: "≈ ₱2,298 saved off Meralco billing",
+      savings: "≈ ₱2,298 saved off meralco billing",
       deltaLabel: "vs previous month",
     },
   } as const;
@@ -539,7 +534,9 @@ export default function HomeScreen() {
         ref={(node) => {
           scrollContainerRef.current = node;
         }}
-        onScroll={(event) => setScrollOffsetY(event.nativeEvent.contentOffset.y)}
+        onScroll={(event) =>
+          setScrollOffsetY(event.nativeEvent.contentOffset.y)
+        }
         scrollEventThrottle={16}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingBottom: scale(88) }}
@@ -547,21 +544,21 @@ export default function HomeScreen() {
           <RefreshControl
             refreshing={refreshing}
             onRefresh={onRefresh}
-            tintColor={BRAND_ORANGE_DARK}
-            colors={[BRAND_ORANGE_DARK]}
+            tintColor={activeOrangeDark}
+            colors={[activeOrangeDark]}
           />
         }
       >
-        {/* ============ HERO: TOP BAR ============ */}
         <View style={st.hero}>
           <HeroGlow
             mode={mode}
-            gridActive={gridActive} intensity={isActive ? 1 : mode === "dark" ? 0.4 : 0.85}
+            gridActive={gridActive}
+            intensity={isActive ? 1 : mode === "dark" ? 0.4 : 0.85}
             bleedBottom={scale(76)}
           />
 
           <View style={st.heroTopBar}>
-            <TopBar gutter={0} title="Dashboard" />
+            <TopBar gutter={0} title="dashboard" />
           </View>
         </View>
 
@@ -569,7 +566,7 @@ export default function HomeScreen() {
           <View style={st.greetingRow}>
             <View style={st.greeting}>
               <Text style={[st.greetingEyebrow, { color: c.muted }]}>
-                WELCOME BACK
+                welcome back
               </Text>
               <Text style={[st.greetingTitle, { color: c.text }]}>
                 {greeting}, {metadataName || "there"}
@@ -583,12 +580,12 @@ export default function HomeScreen() {
                   { backgroundColor: c.surface, borderColor: c.line },
                 ]}
                 accessibilityRole="button"
-                accessibilityLabel={`Consumption date range: ${selectedConsumption.label}`}
+                accessibilityLabel={`consumption date range: ${selectedConsumption.label}`}
               >
                 <Ionicons
                   name="calendar-outline"
                   size={scale(11)}
-                  color={c.orange}
+                  color={activeAccent}
                 />
                 <Text style={[st.statsFilterButtonText, { color: c.text }]}>
                   {selectedConsumption.label}
@@ -624,7 +621,9 @@ export default function HomeScreen() {
                           st.rangeOptionText,
                           {
                             color:
-                              range === consumptionRange ? c.orange : c.muted,
+                              range === consumptionRange
+                                ? activeAccent
+                                : c.muted,
                           },
                         ]}
                       >
@@ -637,299 +636,310 @@ export default function HomeScreen() {
             </View>
           </View>
           <TourSpot id="live-stats">
-          <Animated.View
-            style={[
-              st.statsPop,
-              {
-                opacity: statsPop,
-                transform: [
-                  {
-                    scale: statsPop.interpolate({
-                      inputRange: [0, 1],
-                      outputRange: [0.94, 1],
-                    }),
-                  },
-                ],
-              },
-            ]}
-          >
-            <LinearGradient
-              colors={
-                isActive
-                  ? ["#F5A220", "#E6641F"]
-                  : ["#475569", "#64748B", "#94A3B8"]
-              }
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={st.scCard}
-            >
-              <View style={st.scTop}>
-                <View style={st.scTopData}>
-                  <Text style={st.scEyebrow}>
-                    {selectedConsumption.label}&apos;s consumption
-                  </Text>
-                  <View style={st.scKwhRow}>
-                    <Text style={st.scKwh}>
-                      {isActive ? selectedConsumption.kwh.toFixed(2) : "--"}
-                    </Text>
-                    <Text style={st.scKwhUnit}>kWh</Text>
-                  </View>
-                  <View style={[st.scSavings, !isActive && { opacity: 0.5 }]}>
-                    <Ionicons
-                      name="trending-down"
-                      size={scale(11)}
-                      color="#FFFFFF"
-                    />
-                    <Text style={st.scSavingsText}>
-                      {isActive ? selectedConsumption.savings : "-- savings"}
-                    </Text>
-                  </View>
-                </View>
-                <View style={[st.scDelta, !isActive && { opacity: 0.5 }]}>
-                  <Ionicons
-                    name={usingGrid ? "battery-charging" : "trending-down"}
-                    size={scale(14)}
-                    color="#FFFFFF"
-                  />
-                  <View>
-                    <Text style={st.scDeltaValue}>
-                      {usingGrid
-                        ? batteryPct !== null
-                          ? `${Math.floor(batteryPct)}%`
-                          : "--%"
-                        : selectedConsumption.delta}
-                    </Text>
-                    <Text style={st.scDeltaLabel}>
-                      {usingGrid
-                        ? "battery health"
-                        : selectedConsumption.deltaLabel}
-                    </Text>
-                  </View>
-                </View>
-              </View>
-              <View style={st.scTiles}>
-                {stats.map((s, i) => {
-                  const icon = (
-                    {
-                      VOLTAGE: "flash",
-                      POWER: "speedometer",
-                      FOOTSTEPS: "footsteps",
-                    } as const
-                  )[s.label as "VOLTAGE" | "POWER" | "FOOTSTEPS"];
-                  return (
-                    <View
-                      key={s.label}
-                      style={[st.scTile, i > 0 && st.scTileDivider]}
-                    >
-                      <View style={st.scTileIcon}>
-                        <Ionicons
-                          name={icon}
-                          size={scale(17)}
-                          color={BRAND_ORANGE_DARK}
-                        />
-                      </View>
-                      <View style={st.scTileValueRow}>
-                        <Text style={st.scTileValue} numberOfLines={1}>
-                          {s.value}
-                        </Text>
-                        <Text style={st.scTileUnit}>{s.unit}</Text>
-                      </View>
-                      <Text style={st.scTileLabel}>{s.label}</Text>
-                    </View>
-                  );
-                })}
-              </View>
-            </LinearGradient>
-          </Animated.View>
-          </TourSpot>
-        </EnterView>
-
-        {/* ============ BATTERY DETECTOR CARD ============ */}
-        <TourSpot id="battery">
-        <EnterView delay={120} style={st.dashboardCard}>
-          <Pressable
-            onPress={usingGrid ? undefined : openOverrides}
-            disabled={usingGrid}
-            accessibilityRole={usingGrid ? undefined : "button"}
-            accessibilityLabel={
-              usingGrid
-                ? undefined
-                : "Battery percentage — open quick overrides"
-            }
-            accessibilityHint={
-              usingGrid
-                ? undefined
-                : "Opens Quick Overrides to force grid or battery"
-            }
-            style={({ pressed }) => [
-              pressed && { opacity: 0.96, transform: [{ scale: 0.995 }] },
-            ]}
-          >
-            <Glass
-              mode={mode}
+            <Animated.View
               style={[
-                st.batteryCard,
-                { borderColor: c.orange },
-                usingGrid && {
-                  borderColor: "#16A34A",
-                  shadowColor: "#16A34A",
-                  shadowOpacity: 0.18,
+                st.statsPop,
+                {
+                  opacity: statsPop,
+                  transform: [
+                    {
+                      scale: statsPop.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [0.94, 1],
+                      }),
+                    },
+                  ],
                 },
               ]}
             >
-              <View
-                pointerEvents="none"
-                style={[
-                  st.batteryCardAccent,
-                  { backgroundColor: usingGrid ? "#22C55E" : c.orange },
-                ]}
-              />
-              <View style={st.batteryCardHeader}>
-                <View style={st.batteryCardIdentity}>
-                  <View
-                    style={[
-                      st.batteryCardIcon,
-                      {
-                        backgroundColor: usingGrid
-                          ? "rgba(22,163,74,0.14)"
-                          : mode === "dark"
-                            ? "rgba(245,162,32,0.18)"
-                            : "rgba(245,162,32,0.12)",
-                      },
-                    ]}
-                  >
-                    <Ionicons
-                      name={usingGrid ? "flash" : "battery-charging"}
-                      size={scale(21)}
-                      color={usingGrid ? "#16A34A" : batteryCardInk}
-                    />
-                  </View>
-                  <View>
-                    <Text
-                      style={[
-                        st.batteryCardEyebrow,
-                        { color: usingGrid ? "#16A34A" : batteryCardMutedInk },
-                      ]}
-                    >
-                      {usingGrid
-                        ? "CURRENTLY USING GRID"
-                        : "CURRENTLY USING BATTERY"}
+              <LinearGradient
+                colors={
+                  isActive
+                    ? usingGrid
+                      ? ["#22C55E", "#15803D"]
+                      : ["#F5A220", "#E6641F"]
+                    : ["#475569", "#64748B", "#94A3B8"]
+                }
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={st.scCard}
+              >
+                <View style={st.scTop}>
+                  <View style={st.scTopData}>
+                    <Text style={st.scEyebrow}>
+                      {selectedConsumption.label}&apos;s consumption
                     </Text>
-                    <View
-                      style={{
-                        flexDirection: "row",
-                        alignItems: "center",
-                        gap: scale(4),
-                        marginTop: scale(2),
-                      }}
-                    >
-                      <LiveDot
-                        color={mqttStatus === "Live" ? "#22C55E" : BRAND_ORANGE_DARK}
+                    <View style={st.scKwhRow}>
+                      <Text style={st.scKwh}>
+                        {isActive ? selectedConsumption.kwh.toFixed(2) : "--"}
+                      </Text>
+                      <Text style={st.scKwhUnit}>kWh</Text>
+                    </View>
+                    <View style={[st.scSavings, !isActive && { opacity: 0.5 }]}>
+                      <Ionicons
+                        name="trending-down"
+                        size={scale(11)}
+                        color="#FFFFFF"
                       />
                       <Text
-                        style={{
-                          fontSize: scale(8),
-                          fontFamily: fonts.medium,
-                          color: c.muted,
-                        }}
-                      >
-                        {mqttStatus === "Live"
-                          ? "Hardware Online"
-                          : `Status: ${mqttStatus}`}
-                      </Text>
-                    </View>
-                  </View>
-                </View>
-                {!usingGrid && (
-                  <View style={st.batteryCardIndicator}>
-                    <Text
-                      style={[st.batteryCardLevelLabel, { color: c.orange }]}
-                    >
-                      CHARGE LEVEL
-                    </Text>
-                    <View style={st.batteryCardValueRow}>
-                      <Text
-                        style={[st.batteryCardValue, { color: batteryCardInk }]}
-                      >
-                        {batteryPct !== null ? Math.floor(batteryPct) : "--"}
-                      </Text>
-                      <Text
-                        style={[st.batteryCardUnit, { color: batteryCardInk }]}
-                      >
-                        %
-                      </Text>
-                    </View>
-                    <View
-                      style={[
-                        st.batteryCardTrack,
-                        { backgroundColor: "rgba(245,162,32,0.22)" },
-                      ]}
-                    >
-                      <View
                         style={[
-                          st.batteryCardFill,
-                          {
-                            width: `${batteryPct !== null ? Math.min(100, Math.max(0, batteryPct)) : 0}%`,
-                            backgroundColor: c.orange,
-                          },
+                          st.scSavingsText,
+                          usingGrid && { color: "#15803D" },
                         ]}
-                      />
+                      >
+                        {isActive ? selectedConsumption.savings : "-- savings"}
+                      </Text>
                     </View>
                   </View>
-                )}
-              </View>
-              {usingGrid && (
-                <View style={st.batteryGridBanner}>
-                  <Ionicons name="flash" size={scale(12)} color="#FFFFFF" />
-                  <Text style={st.batteryGridBannerText}>
-                    Using Grid — battery on standby
-                  </Text>
-                  <Ionicons
-                    name="chevron-forward"
-                    size={scale(12)}
-                    color="#FFFFFF"
-                  />
+                  <View style={[st.scDelta, !isActive && { opacity: 0.5 }]}>
+                    <Ionicons
+                      name={usingGrid ? "battery-charging" : "trending-down"}
+                      size={scale(14)}
+                      color="#FFFFFF"
+                    />
+                    <View>
+                      <Text style={st.scDeltaValue}>
+                        {usingGrid
+                          ? batteryPct !== null
+                            ? `${Math.floor(batteryPct)}%`
+                            : "--%"
+                          : selectedConsumption.delta}
+                      </Text>
+                      <Text style={st.scDeltaLabel}>
+                        {usingGrid
+                          ? "battery health"
+                          : selectedConsumption.deltaLabel}
+                      </Text>
+                    </View>
+                  </View>
                 </View>
-              )}
-              <Text
+                <View style={st.scTiles}>
+                  {stats.map((s, i) => {
+                    const icon = (
+                      {
+                        voltage: "flash",
+                        power: "speedometer",
+                        footsteps: "footsteps",
+                      } as const
+                    )[s.label as "voltage" | "power" | "footsteps"];
+                    return (
+                      <View
+                        key={s.label}
+                        style={[st.scTile, i > 0 && st.scTileDivider]}
+                      >
+                        <View style={st.scTileIcon}>
+                          <Ionicons
+                            name={icon}
+                            size={scale(17)}
+                            color={activeOrangeDark}
+                          />
+                        </View>
+                        <View style={st.scTileValueRow}>
+                          <Text style={st.scTileValue} numberOfLines={1}>
+                            {s.value}
+                          </Text>
+                          <Text style={st.scTileUnit}>{s.unit}</Text>
+                        </View>
+                        <Text style={st.scTileLabel}>{s.label}</Text>
+                      </View>
+                    );
+                  })}
+                </View>
+              </LinearGradient>
+            </Animated.View>
+          </TourSpot>
+        </EnterView>
+
+        <TourSpot id="battery">
+          <EnterView delay={120} style={st.dashboardCard}>
+            <Pressable
+              onPress={openOverrides}
+              accessibilityRole="button"
+              accessibilityLabel="battery percentage — open quick overrides"
+              style={({ pressed }) => [
+                pressed && { opacity: 0.96, transform: [{ scale: 0.995 }] },
+              ]}
+            >
+              <Glass
+                mode={mode}
                 style={[
-                  st.batteryCardDescription,
-                  { color: usingGrid ? c.muted : batteryCardMutedInk },
+                  st.batteryCard,
+                  { borderColor: c.orange },
+                  usingGrid && {
+                    borderColor: "#16A34A",
+                    shadowColor: "#16A34A",
+                    shadowOpacity: 0.18,
+                  },
                 ]}
               >
-                {usingGrid
-                  ? "Force Grid is on — home is powered by grid. Tap to change."
-                  : batteryPct !== null
-                    ? `Live telemetry: 2S LiFePO4 bank detected at ${batteryPct.toFixed(1)}% (${displayVoltage}V)`
-                    : "Awaiting hardware telemetry to detect battery..."}
-              </Text>
-              {!usingGrid && (
-                <View style={st.batteryCardTapHint}>
-                  <Text
-                    style={[
-                      st.batteryCardTapText,
-                      { color: batteryCardMutedInk },
-                    ]}
-                  >
-                    Tap to open Quick Overrides
-                  </Text>
-                  <Ionicons
-                    name="chevron-forward"
-                    size={scale(11)}
-                    color={batteryCardMutedInk}
-                  />
+                <View
+                  pointerEvents="none"
+                  style={[
+                    st.batteryCardAccent,
+                    { backgroundColor: usingGrid ? "#22C55E" : c.orange },
+                  ]}
+                />
+                <View style={st.batteryCardHeader}>
+                  <View style={st.batteryCardIdentity}>
+                    <View
+                      style={[
+                        st.batteryCardIcon,
+                        {
+                          backgroundColor: usingGrid
+                            ? "rgba(22,163,74,0.14)"
+                            : mode === "dark"
+                              ? "rgba(245,162,32,0.18)"
+                              : "rgba(245,162,32,0.12)",
+                        },
+                      ]}
+                    >
+                      <Ionicons
+                        name={usingGrid ? "flash" : "battery-charging"}
+                        size={scale(21)}
+                        color={usingGrid ? "#16A34A" : batteryCardInk}
+                      />
+                    </View>
+                    <View>
+                      <Text
+                        style={[
+                          st.batteryCardEyebrow,
+                          {
+                            color: usingGrid ? "#16A34A" : batteryCardMutedInk,
+                          },
+                        ]}
+                      >
+                        {usingGrid
+                          ? "currently using grid"
+                          : "currently using battery"}
+                      </Text>
+                      <View
+                        style={{
+                          flexDirection: "row",
+                          alignItems: "center",
+                          gap: scale(4),
+                          marginTop: scale(2),
+                        }}
+                      >
+                        <LiveDot
+                          color={
+                            mqttStatus === "Live"
+                              ? "#22C55E"
+                              : BRAND_ORANGE_DARK
+                          }
+                        />
+                        <Text
+                          style={{
+                            fontSize: scale(8),
+                            fontFamily: fonts.medium,
+                            color: c.muted,
+                          }}
+                        >
+                          {mqttStatus === "Live"
+                            ? "hardware online"
+                            : `status: ${mqttStatus}`}
+                        </Text>
+                      </View>
+                    </View>
+                  </View>
+                  {!usingGrid && (
+                    <View style={st.batteryCardIndicator}>
+                      <Text
+                        style={[
+                          st.batteryCardLevelLabel,
+                          { color: activeAccent },
+                        ]}
+                      >
+                        charge level
+                      </Text>
+                      <View style={st.batteryCardValueRow}>
+                        <Text
+                          style={[
+                            st.batteryCardValue,
+                            { color: batteryCardInk },
+                          ]}
+                        >
+                          {batteryPct !== null ? Math.floor(batteryPct) : "--"}
+                        </Text>
+                        <Text
+                          style={[
+                            st.batteryCardUnit,
+                            { color: batteryCardInk },
+                          ]}
+                        >
+                          %
+                        </Text>
+                      </View>
+                      <View
+                        style={[
+                          st.batteryCardTrack,
+                          { backgroundColor: "rgba(245,162,32,0.22)" },
+                        ]}
+                      >
+                        <View
+                          style={[
+                            st.batteryCardFill,
+                            {
+                              width: `${batteryPct !== null ? Math.min(100, Math.max(0, batteryPct)) : 0}%`,
+                              backgroundColor: activeAccent,
+                            },
+                          ]}
+                        />
+                      </View>
+                    </View>
+                  )}
                 </View>
-              )}
-            </Glass>
-          </Pressable>
-        </EnterView>
+                {usingGrid && (
+                  <View style={st.batteryGridBanner}>
+                    <Ionicons name="flash" size={scale(12)} color="#FFFFFF" />
+                    <Text style={st.batteryGridBannerText}>
+                      using grid — battery on standby
+                    </Text>
+                    <Ionicons
+                      name="chevron-forward"
+                      size={scale(12)}
+                      color="#FFFFFF"
+                    />
+                  </View>
+                )}
+                <Text
+                  style={[
+                    st.batteryCardDescription,
+                    { color: usingGrid ? c.muted : batteryCardMutedInk },
+                  ]}
+                >
+                  {usingGrid
+                    ? "normally open logic: grid is active by default. tap to change."
+                    : batteryPct !== null
+                      ? `live telemetry: 4s lifepo4 bank detected at ${batteryPct.toFixed(1)}% (${displayVoltage}v)`
+                      : "awaiting hardware telemetry to detect battery..."}
+                </Text>
+                {!usingGrid && (
+                  <View style={st.batteryCardTapHint}>
+                    <Text
+                      style={[
+                        st.batteryCardTapText,
+                        { color: batteryCardMutedInk },
+                      ]}
+                    >
+                      tap to open quick overrides
+                    </Text>
+                    <Ionicons
+                      name="chevron-forward"
+                      size={scale(11)}
+                      color={batteryCardMutedInk}
+                    />
+                  </View>
+                )}
+              </Glass>
+            </Pressable>
+          </EnterView>
         </TourSpot>
 
         <EnterView delay={180} style={st.dashboardCard}>
           <View style={st.sectionTitleRow}>
-            <Ionicons name="analytics" size={scale(15)} color={c.orange} />
+            <Ionicons name="analytics" size={scale(15)} color={activeAccent} />
             <Text style={[st.sectionTitle, { color: c.text }]}>
-              Energy consumption
+              energy consumption
             </Text>
           </View>
           <Card
@@ -939,37 +949,47 @@ export default function HomeScreen() {
               {
                 backgroundColor: mode === "dark" ? "#101010" : c.surface,
                 borderColor: c.line,
-                shadowColor: c.orange,
+                shadowColor: activeAccent,
               },
             ]}
           >
             <View style={st.balanceChartHeader}>
               <View>
                 <Text style={[st.balanceChartEyebrow, { color: c.muted }]}>
-                  ENERGY BALANCE
+                  energy balance
                 </Text>
                 <View style={st.balanceChartValueRow}>
-                <CountUpText value={4.82} decimals={2} style={[st.balanceChartValue, { color: c.text }]} />
-                <Text style={[st.balanceChartValue, { color: c.text }]}>
-                   kWh
-                </Text>
+                  <CountUpText
+                    value={4.82}
+                    decimals={2}
+                    style={[st.balanceChartValue, { color: c.text }]}
+                  />
+                  <Text style={[st.balanceChartValue, { color: c.text }]}>
+                    kWh
+                  </Text>
                 </View>
-              <Text style={[st.balanceChartPeriod, { color: c.muted }]}>
-                  Today&apos;s consumption
+                <Text style={[st.balanceChartPeriod, { color: c.muted }]}>
+                  today&apos;s consumption
                 </Text>
               </View>
               <View
                 style={[
                   st.balanceChartChange,
-                  { backgroundColor: c.accentSoft },
+                  {
+                    backgroundColor: usingGrid
+                      ? "rgba(22,163,74,0.12)"
+                      : c.accentSoft,
+                  },
                 ]}
               >
                 <Ionicons
                   name="trending-down"
                   size={scale(11)}
-                  color={c.orange}
+                  color={activeAccent}
                 />
-                <Text style={[st.balanceChartChangeText, { color: c.orange }]}>
+                <Text
+                  style={[st.balanceChartChangeText, { color: activeAccent }]}
+                >
                   10.1%
                 </Text>
               </View>
@@ -978,8 +998,12 @@ export default function HomeScreen() {
               <Svg viewBox="0 0 320 88" width="100%" height="100%">
                 <Defs>
                   <SvgGradient id="balanceArea" x1="0" y1="0" x2="0" y2="1">
-                    <Stop offset="0" stopColor={c.orange} stopOpacity="0.38" />
-                    <Stop offset="1" stopColor={c.orange} stopOpacity="0" />
+                    <Stop
+                      offset="0"
+                      stopColor={activeAccent}
+                      stopOpacity="0.38"
+                    />
+                    <Stop offset="1" stopColor={activeAccent} stopOpacity="0" />
                   </SvgGradient>
                 </Defs>
                 <Line
@@ -997,7 +1021,7 @@ export default function HomeScreen() {
                 <AnimatedPath
                   d="M0 58 C25 51 38 50 57 46 S83 43 98 34 S118 55 137 42 S159 38 177 29 S197 35 213 25 S235 29 249 16 S270 20 286 6 S305 11 320 2"
                   fill="none"
-                  stroke={c.orange}
+                  stroke={activeAccent}
                   strokeWidth="2.5"
                   strokeLinecap="round"
                   strokeDasharray="430"
@@ -1012,25 +1036,25 @@ export default function HomeScreen() {
                   style={[
                     st.balanceChartLabel,
                     st.balanceChartLabelStart,
-                    { color: c.orange },
+                    { color: activeAccent },
                   ]}
                 >
-                  6 AM
+                  6 am
                 </Text>
-                <Text style={[st.balanceChartLabel, { color: c.orange }]}>
-                  12 PM
+                <Text style={[st.balanceChartLabel, { color: activeAccent }]}>
+                  12 pm
                 </Text>
-                <Text style={[st.balanceChartLabel, { color: c.orange }]}>
-                  6 PM
+                <Text style={[st.balanceChartLabel, { color: activeAccent }]}>
+                  6 pm
                 </Text>
                 <Text
                   style={[
                     st.balanceChartLabel,
                     st.balanceChartLabelEnd,
-                    { color: c.orange },
+                    { color: activeAccent },
                   ]}
                 >
-                  NOW
+                  now
                 </Text>
               </View>
             </View>
@@ -1039,7 +1063,7 @@ export default function HomeScreen() {
 
         <View style={st.quickActionsSection}>
           <Text style={[st.quickActionsTitle, { color: c.text }]}>
-            Quick actions
+            quick actions
           </Text>
           <ScrollView
             horizontal
@@ -1048,27 +1072,27 @@ export default function HomeScreen() {
           >
             {[
               {
-                label: "Heatmap",
+                label: "heatmap",
                 icon: "map-outline" as const,
                 href: "/pages/heatmap",
               },
               {
-                label: "My Zones",
+                label: "my zones",
                 icon: "layers-outline" as const,
                 href: "/pages/zones/1",
               },
               {
-                label: "Shared",
+                label: "shared",
                 icon: "people-outline" as const,
                 href: "/pages/accounts",
               },
               {
-                label: "Device",
+                label: "device",
                 icon: "hardware-chip-outline" as const,
                 href: "/pages/device",
               },
               {
-                label: "Thresholds",
+                label: "thresholds",
                 icon: "options-outline" as const,
                 href: "/pages/thresholds",
               },
@@ -1085,6 +1109,9 @@ export default function HomeScreen() {
                       mode === "dark"
                         ? "rgba(255,255,255,0.06)"
                         : "rgba(255,255,255,0.72)",
+                    borderColor: usingGrid
+                      ? "rgba(22,163,74,0.16)"
+                      : "rgba(230,100,31,0.16)",
                   },
                   pressed && st.quickActionPressed,
                 ]}
@@ -1095,15 +1122,19 @@ export default function HomeScreen() {
                     {
                       backgroundColor:
                         mode === "dark"
-                          ? "rgba(245,162,32,0.18)"
-                          : "rgba(245,162,32,0.12)",
+                          ? usingGrid
+                            ? "rgba(22,163,74,0.18)"
+                            : "rgba(245,162,32,0.18)"
+                          : usingGrid
+                            ? "rgba(22,163,74,0.12)"
+                            : "rgba(245,162,32,0.12)",
                     },
                   ]}
                 >
                   <Ionicons
                     name={action.icon}
                     size={scale(16)}
-                    color={c.orange}
+                    color={activeAccent}
                   />
                 </View>
                 <Text
@@ -1119,491 +1150,573 @@ export default function HomeScreen() {
 
         <EnterView delay={270} style={st.zonesSection}>
           <TourSpot id="zones">
-          <View
-            pointerEvents={isActive ? "auto" : "none"}
-            style={[!isActive && { opacity: 0.6 }]}
-          >
-            <View style={st.zonesHeader}>
-              <View style={{ flex: 1 }}>
-                <Text style={[st.zonesTitle, { color: c.text }]}>My zones</Text>
-                <View style={st.zonesSubRow}>
-                  <View
-                    style={[
-                      st.zonesLiveDot,
-                      !isActive && { backgroundColor: c.muted },
-                    ]}
-                  />
-                  <Text style={[st.zonesSubText, { color: c.muted }]}>
-                    {isActive ? zones.filter((zone) => zone.on).length : 0} of{" "}
-                    {zones.length} active · {isActive ? "Online" : "Standby"}
+            <View
+              pointerEvents={isActive ? "auto" : "none"}
+              style={[!isActive && { opacity: 0.6 }]}
+            >
+              <View style={st.zonesHeader}>
+                <View style={{ flex: 1 }}>
+                  <Text style={[st.zonesTitle, { color: c.text }]}>
+                    my zones
                   </Text>
+                  <View style={st.zonesSubRow}>
+                    <View
+                      style={[
+                        st.zonesLiveDot,
+                        !isActive && { backgroundColor: c.muted },
+                      ]}
+                    />
+                    <Text style={[st.zonesSubText, { color: c.muted }]}>
+                      {isActive ? zones.filter((zone) => zone.on).length : 0} of{" "}
+                      {zones.length} active · {isActive ? "online" : "standby"}
+                    </Text>
+                  </View>
                 </View>
-              </View>
-              <Pressable
-                onPress={() => router.push("/pages/schedule")}
-                style={[
-                  st.manageButton,
-                  {
-                    backgroundColor:
-                      mode === "dark"
-                        ? "rgba(255,255,255,0.08)"
-                        : "rgba(245,162,32,0.12)",
-                  },
-                ]}
-              >
-                <Text
+                <Pressable
+                  onPress={() => router.push("/pages/schedule")}
                   style={[
-                    st.manageText,
-                    { color: mode === "dark" ? BRAND_ORANGE : BRAND_ORANGE_DARK },
+                    st.manageButton,
+                    {
+                      backgroundColor:
+                        mode === "dark"
+                          ? "rgba(255,255,255,0.08)"
+                          : usingGrid
+                            ? "rgba(22,163,74,0.12)"
+                            : "rgba(245,162,32,0.12)",
+                    },
                   ]}
                 >
-                  Manage
-                </Text>
-                <Ionicons
-                  name="arrow-forward"
-                  size={scale(13)}
-                  color={mode === "dark" ? BRAND_ORANGE : BRAND_ORANGE_DARK}
-                />
-              </Pressable>
-            </View>
-            {zones.length === 0 && (
-              <Text style={[st.zoneEmpty, { color: c.muted }]}>
-                No zones yet
-              </Text>
-            )}
-            <View style={st.devicesList}>
-              {zones.map((z) => {
-                const live = isActive && z.on;
-                const src = SOURCE_META[z.source] ?? SOURCE_META.Battery;
-                return (
-                  <View
-                    key={z.id}
+                  <Text
                     style={[
-                      st.zoneRow,
+                      st.manageText,
                       {
-                        backgroundColor: "#FFFFFF",
-                        borderColor: live
-                          ? "#E6641F"
-                          : "rgba(230,100,31,0.3)",
+                        color:
+                          mode === "dark" ? activeOrange : activeOrangeDark,
                       },
                     ]}
                   >
-                    <LinearGradient
-                      colors={
-                        live
-                          ? ["rgba(245,162,32,0.14)", "rgba(245,162,32,0.02)"]
-                          : ["rgba(148,163,184,0.06)", "rgba(148,163,184,0)"]
-                      }
-                      start={{ x: 0, y: 0 }}
-                      end={{ x: 1, y: 1 }}
-                      pointerEvents="none"
-                      style={st.zoneCardGlow}
-                    />
-
-                    {/* NEW: Navigation is now restricted to just the left side of the row */}
-                    <Pressable
-                      onPress={() =>
-                        router.push(
-                          `/pages/zones/${z.id}?name=${encodeURIComponent(z.name)}&source=${encodeURIComponent(z.source)}&detail=${encodeURIComponent(z.detail)}&on=${z.on}` as Href,
-                        )
-                      }
-                      style={({ pressed }) => [
+                    manage
+                  </Text>
+                  <Ionicons
+                    name="arrow-forward"
+                    size={scale(13)}
+                    color={mode === "dark" ? activeOrange : activeOrangeDark}
+                  />
+                </Pressable>
+              </View>
+              {zones.length === 0 && (
+                <Text style={[st.zoneEmpty, { color: c.muted }]}>
+                  no zones yet
+                </Text>
+              )}
+              <View style={st.devicesList}>
+                {zones.map((z) => {
+                  const live = isActive && z.on;
+                  const src = SOURCE_META[z.source] ?? SOURCE_META.Battery;
+                  return (
+                    <View
+                      key={z.id}
+                      style={[
+                        st.zoneRow,
                         {
-                          flex: 1,
-                          flexDirection: "row",
-                          alignItems: "center",
-                          gap: scale(10),
+                          backgroundColor: "#FFFFFF",
+                          borderColor: live
+                            ? activeOrangeDark
+                            : usingGrid
+                              ? "rgba(22,163,74,0.3)"
+                              : "rgba(230,100,31,0.3)",
                         },
-                        pressed && { opacity: 0.6 },
                       ]}
                     >
-                      {live ? (
-                        <LinearGradient
-                          colors={[BRAND_ORANGE, BRAND_ORANGE_DARK]}
-                          start={{ x: 0, y: 0 }}
-                          end={{ x: 1, y: 1 }}
-                          style={st.zoneIconChip}
-                        >
-                          <Ionicons
-                            name="bulb"
-                            size={scale(16)}
-                            color="#FFFFFF"
-                          />
-                        </LinearGradient>
-                      ) : (
-                        <View
-                          style={[
-                            st.zoneIconChip,
-                            {
-                              backgroundColor:
-                                mode === "dark"
-                                  ? "rgba(255,255,255,0.08)"
-                                  : "rgba(10,42,74,0.06)",
-                            },
-                          ]}
-                        >
-                          <Ionicons
-                            name="bulb-outline"
-                            size={scale(16)}
-                            color={c.muted}
+                      <LinearGradient
+                        colors={
+                          live
+                            ? usingGrid
+                              ? ["rgba(22,163,74,0.14)", "rgba(22,163,74,0.02)"]
+                              : [
+                                  "rgba(245,162,32,0.14)",
+                                  "rgba(245,162,32,0.02)",
+                                ]
+                            : ["rgba(148,163,184,0.06)", "rgba(148,163,184,0)"]
+                        }
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 1 }}
+                        pointerEvents="none"
+                        style={st.zoneCardGlow}
+                      />
+
+                      <Pressable
+                        onPress={() =>
+                          router.push(
+                            `/pages/zones/${z.id}?name=${encodeURIComponent(z.name)}&source=${encodeURIComponent(z.source)}&detail=${encodeURIComponent(z.detail)}&on=${z.on}` as Href,
+                          )
+                        }
+                        style={({ pressed }) => [
+                          {
+                            flex: 1,
+                            flexDirection: "row",
+                            alignItems: "center",
+                            gap: scale(10),
+                          },
+                          pressed && { opacity: 0.6 },
+                        ]}
+                      >
+                        {live ? (
+                          <LinearGradient
+                            colors={
+                              usingGrid
+                                ? ["#22C55E", "#15803D"]
+                                : [BRAND_ORANGE, BRAND_ORANGE_DARK]
+                            }
+                            start={{ x: 0, y: 0 }}
+                            end={{ x: 1, y: 1 }}
+                            style={st.zoneIconChip}
+                          >
+                            <Ionicons
+                              name="bulb"
+                              size={scale(16)}
+                              color="#FFFFFF"
+                            />
+                          </LinearGradient>
+                        ) : (
+                          <View
+                            style={[
+                              st.zoneIconChip,
+                              {
+                                backgroundColor:
+                                  mode === "dark"
+                                    ? "rgba(255,255,255,0.08)"
+                                    : "rgba(10,42,74,0.06)",
+                              },
+                            ]}
+                          >
+                            <Ionicons
+                              name="bulb-outline"
+                              size={scale(16)}
+                              color={c.muted}
+                            />
+                          </View>
+                        )}
+
+                        <View style={st.zoneInfo}>
+                          <Text
+                            style={[st.zoneName, { color: "#0A2A4A" }]}
+                            numberOfLines={1}
+                          >
+                            {z.name}
+                          </Text>
+                          <View style={st.zoneSubRow}>
+                            <View
+                              style={[
+                                st.zoneSourceChip,
+                                { backgroundColor: src.tint },
+                              ]}
+                            >
+                              <Ionicons
+                                name={src.icon}
+                                size={scale(9)}
+                                color={src.color}
+                              />
+                              <Text
+                                style={[
+                                  st.zoneSourceText,
+                                  { color: src.color },
+                                ]}
+                              >
+                                {z.source}
+                              </Text>
+                            </View>
+                            <Text
+                              style={[
+                                st.zoneDetail,
+                                { color: "rgba(10,42,74,0.62)" },
+                              ]}
+                              numberOfLines={1}
+                            >
+                              {z.detail}
+                            </Text>
+                            <View style={st.zoneState}>
+                              <View
+                                style={[
+                                  st.zoneStateDot,
+                                  {
+                                    backgroundColor: live
+                                      ? activeOrangeDark
+                                      : c.muted,
+                                  },
+                                ]}
+                              />
+                              <Text
+                                style={[
+                                  st.zoneStateText,
+                                  { color: live ? activeOrangeDark : c.muted },
+                                ]}
+                              >
+                                {live ? "live" : "standby"}
+                              </Text>
+                            </View>
+                          </View>
+                        </View>
+
+                        <View style={st.zoneTrailing}>
+                          <ZoneSwitch
+                            on={live}
+                            mode={mode}
+                            onToggle={async () => {
+                              const nextState = !z.on;
+                              setZones((zs) =>
+                                zs.map((x) =>
+                                  x.id === z.id ? { ...x, on: nextState } : x,
+                                ),
+                              );
+
+                              if (
+                                mqttClientRef.current &&
+                                mqttClientRef.current.isConnected()
+                              ) {
+                                const hubId =
+                                  await AsyncStorage.getItem(
+                                    "bawatpieza_hub_id",
+                                  );
+                                if (hubId) {
+                                  // DIRECT MAPPING: App ON -> sends 'charger_on' (Energizes Relay Coil -> Closes NO Contact)
+                                  const commandPayload = JSON.stringify({
+                                    command: nextState
+                                      ? "charger_on"
+                                      : "charger_off",
+                                  });
+                                  const message = new Paho.Message(
+                                    commandPayload,
+                                  );
+                                  message.destinationName = `bawatpieza/devices/${hubId}/commands`;
+                                  mqttClientRef.current.send(message);
+                                }
+                              }
+                            }}
+                            gridActive={gridActive}
                           />
                         </View>
-                      )}
-
-                  <View style={st.zoneInfo}>
-                    <Text style={[st.zoneName, { color: "#0A2A4A" }]} numberOfLines={1}>
-                      {z.name}
-                    </Text>
-                    <View style={st.zoneSubRow}>
-                      <View style={[st.zoneSourceChip, { backgroundColor: src.tint }]}>
-                        <Ionicons name={src.icon} size={scale(9)} color={src.color} />
-                        <Text style={[st.zoneSourceText, { color: src.color }]}>{z.source}</Text>
-                      </View>
-                      <Text style={[st.zoneDetail, { color: "rgba(10,42,74,0.62)" }]} numberOfLines={1}>
-                        {z.detail}
-                      </Text>
-                      <View style={st.zoneState}>
-                        <View style={[st.zoneStateDot, { backgroundColor: live ? BRAND_ORANGE_DARK : c.muted }]} />
-                        <Text style={[st.zoneStateText, { color: live ? BRAND_ORANGE_DARK : c.muted }]}>
-                          {live ? "Live" : "Standby"}
-                        </Text>
-                      </View>
+                      </Pressable>
                     </View>
-                  </View>
-
-                    {/* NEW: Switch is completely isolated outside the navigation pressable */}
-                    <View style={st.zoneTrailing}>
-                      <ZoneSwitch
-                        on={live}
-                        mode={mode}
-                        onToggle={async () => {
-                          const nextState = !z.on;
-                          setZones((zs) =>
-                            zs.map((x) =>
-                              x.id === z.id ? { ...x, on: nextState } : x,
-                            ),
-                          );
-
-                          if (
-                            mqttClientRef.current &&
-                            mqttClientRef.current.isConnected()
-                          ) {
-                            const hubId =
-                              await AsyncStorage.getItem("bawatpieza_hub_id");
-                            if (hubId) {
-                              const commandPayload = JSON.stringify({
-                                command: nextState
-                                  ? "charger_on"
-                                  : "charger_off",
-                              });
-                              const message = new Paho.Message(commandPayload);
-                              message.destinationName = `bawatpieza/devices/${hubId}/commands`;
-                              mqttClientRef.current.send(message);
-                            }
-                          }
-                        }}
-                        gridActive={gridActive}
-                    />
-                    </View>
-                    </Pressable>
-                  </View>
-                );
-              })}
+                  );
+                })}
+              </View>
             </View>
-          </View>
           </TourSpot>
-      </EnterView>
+        </EnterView>
 
         <TourSpot id="heatmap">
-        <EnterView delay={450}>
-          <SectionHead
-            title="MOST WALKED-ON TILES"
-            link="Full heatmap"
-            onLink={() => router.push("/pages/heatmap")}
-            mode={mode}
-            accentColor={BRAND_ORANGE_DARK}
-          />
-          <Card
-            mode={mode}
-            style={{ borderRadius: scale(18), padding: scale(14) }}
-          >
-            <View
-              style={{
-                flexDirection: "row",
-                alignItems: "center",
-                justifyContent: "space-between",
-              }}
+          <EnterView delay={450}>
+            <SectionHead
+              title="most walked-on tiles"
+              link="full heatmap"
+              onLink={() => router.push("/pages/heatmap")}
+              mode={mode}
+              accentColor={activeOrangeDark}
+            />
+            <Card
+              mode={mode}
+              style={{ borderRadius: scale(18), padding: scale(14) }}
             >
-              <View style={{ flex: 1 }}>
-                <Text
-                  style={{
-                    color: c.text,
-                    fontSize: scale(12.5),
-                    fontFamily: fonts.extrabold,
-                  }}
+              <View
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                }}
+              >
+                <View style={{ flex: 1 }}>
+                  <Text
+                    style={{
+                      color: c.text,
+                      fontSize: scale(12.5),
+                      fontFamily: fonts.extrabold,
+                    }}
+                  >
+                    gate pathway · live tile heat
+                  </Text>
+                  <Text
+                    style={{
+                      color:
+                        mode === "dark"
+                          ? "rgba(255,255,255,0.55)"
+                          : "rgba(10,42,74,0.5)",
+                      fontSize: scale(9.5),
+                      fontFamily: fonts.medium,
+                      marginTop: 1,
+                    }}
+                  >
+                    {mode === "dark"
+                      ? "brighter white = more foot traffic"
+                      : "brighter green = more foot traffic"}
+                  </Text>
+                </View>
+                <View
+                  style={[
+                    st.stepsPill,
+                    isActive
+                      ? {
+                          backgroundColor: activeAccentSoft,
+                          borderColor: usingGrid
+                            ? "rgba(22,163,74,0.4)"
+                            : accent(0.4),
+                        }
+                      : {
+                          backgroundColor: "rgba(150,150,150,0.12)",
+                          borderColor: "rgba(150,150,150,0.3)",
+                        },
+                  ]}
                 >
-                  Gate Pathway · Live Tile Heat
-                </Text>
-                <Text
-                  style={{
-                    color:
-                      mode === "dark"
-                        ? "rgba(255,255,255,0.55)"
-                        : "rgba(10,42,74,0.5)",
-                    fontSize: scale(9.5),
-                    fontFamily: fonts.medium,
-                    marginTop: 1,
-                  }}
-                >
-                  {mode === "dark"
-                    ? "Brighter white = more foot traffic"
-                    : "Brighter green = more foot traffic"}
-                </Text>
+                  <Ionicons
+                    name="footsteps"
+                    size={scale(13)}
+                    color={
+                      isActive ? (mode === "dark" ? "#FFFFFF" : NAVY) : c.muted
+                    }
+                  />
+                  <Text
+                    style={[
+                      st.stepsPillText,
+                      { color: isActive ? c.text : c.muted },
+                    ]}
+                  >
+                    {footsteps.toLocaleString()}
+                  </Text>
+                </View>
               </View>
+
               <View
                 style={[
-                  st.stepsPill,
+                  st.kineticRow,
                   isActive
                     ? {
-                        backgroundColor: accent(0.14),
-                        borderColor: accent(0.4),
+                        borderColor: usingGrid
+                          ? "rgba(22,163,74,0.35)"
+                          : accent(0.35),
+                        backgroundColor: usingGrid
+                          ? "rgba(22,163,74,0.1)"
+                          : accent(0.1),
                       }
                     : {
-                        backgroundColor: "rgba(150,150,150,0.12)",
-                        borderColor: "rgba(150,150,150,0.3)",
+                        borderColor: "rgba(150,150,150,0.25)",
+                        backgroundColor: "rgba(150,150,150,0.08)",
                       },
                 ]}
               >
                 <Ionicons
                   name="footsteps"
-                  size={scale(13)}
+                  size={scale(14)}
                   color={
-                    isActive ? (mode === "dark" ? "#FFFFFF" : NAVY) : c.muted
+                    isActive
+                      ? mode === "dark"
+                        ? "#FFFFFF"
+                        : usingGrid
+                          ? "#16A34A"
+                          : "#B4771B"
+                      : c.muted
                   }
                 />
                 <Text
                   style={[
-                    st.stepsPillText,
-                    { color: isActive ? c.text : c.muted },
+                    st.kineticText,
+                    {
+                      color:
+                        mode === "dark"
+                          ? "rgba(255,255,255,0.75)"
+                          : "rgba(10,42,74,0.7)",
+                    },
                   ]}
                 >
-                  {footsteps.toLocaleString()}
+                  footsteps converted today
+                </Text>
+                <Text
+                  style={{
+                    color: isActive
+                      ? mode === "dark"
+                        ? "#FFFFFF"
+                        : "#4CA83E"
+                      : c.muted,
+                    fontSize: scale(11),
+                    fontFamily: fonts.extrabold,
+                  }}
+                >
+                  {isActive ? `+${dynamicKwhHarvested} kWh` : "-- kWh"}
                 </Text>
               </View>
-            </View>
 
-            <View
-              style={[
-                st.kineticRow,
-                isActive
-                  ? { borderColor: accent(0.35), backgroundColor: accent(0.1) }
-                  : {
-                      borderColor: "rgba(150,150,150,0.25)",
-                      backgroundColor: "rgba(150,150,150,0.08)",
-                    },
-              ]}
-            >
-              <Ionicons
-                name="footsteps"
-                size={scale(14)}
-                color={
-                  isActive ? (mode === "dark" ? "#FFFFFF" : "#B4771B") : c.muted
-                }
-              />
-              <Text
+              <View
                 style={[
-                  st.kineticText,
+                  st.heatGrid,
                   {
-                    color:
-                      mode === "dark"
-                        ? "rgba(255,255,255,0.75)"
-                        : "rgba(10,42,74,0.7)",
+                    backgroundColor: usingGrid ? "#F0FDF4" : "#FFF8ED",
                   },
                 ]}
               >
-                Footsteps converted today
-              </Text>
-              <Text
-                style={{
-                  color: isActive
-                    ? mode === "dark"
-                      ? "#FFFFFF"
-                      : "#4CA83E"
-                    : c.muted,
-                  fontSize: scale(11),
-                  fontFamily: fonts.extrabold,
-                }}
-              >
-                {isActive ? `+${dynamicKwhHarvested} kWh` : "-- kWh"}
-              </Text>
-            </View>
-
-            <View
-              style={[
-                st.heatGrid,
-                {
-                  backgroundColor: "#FFF8ED",
-                },
-              ]}
-            >
-              {Array.from({ length: HEAT_ROWS }, (_, r) => (
-                <View key={r} style={st.heatRow}>
-                  {Array.from({ length: HEAT_COLS }, (_, col) => {
-                    const i = r * HEAT_COLS + col;
-                    const v = isActive ? heatTiles[i] : 0.05;
-                    const active = activeTile === i;
-                    return (
-                      <Pressable
-                        key={col}
-                        onPress={() => {
-                          if (isActive) setActiveTile(active ? null : i);
-                        }}
-                        style={[
-                          st.heatTile,
-                          {
-                            backgroundColor: heatColor(v, mode),
-                            shadowColor: BRAND_ORANGE_DARK,
-                            shadowOpacity: isActive ? v * 0.9 : 0,
-                            shadowRadius: scale(9),
-                            borderWidth: 1,
-                            borderColor:
-                              active && isActive
-                                ? BRAND_ORANGE
-                                : "rgba(230,100,31,0.3)",
-                          },
-                          active &&
-                            isActive && [
-                              st.heatTileActive,
-                              {
-                                borderColor: BRAND_ORANGE,
-                              },
-                            ],
-                        ]}
-                      >
-                        <View
-                          pointerEvents="none"
+                {Array.from({ length: HEAT_ROWS }, (_, r) => (
+                  <View key={r} style={st.heatRow}>
+                    {Array.from({ length: HEAT_COLS }, (_, col) => {
+                      const i = r * HEAT_COLS + col;
+                      const v = isActive ? heatTiles[i] : 0.05;
+                      const active = activeTile === i;
+                      return (
+                        <Pressable
+                          key={col}
+                          onPress={() => {
+                            if (isActive) setActiveTile(active ? null : i);
+                          }}
                           style={[
-                            st.heatTileDepth,
+                            st.heatTile,
                             {
-                              backgroundColor:
-                                v > 0.75 ? BRAND_ORANGE_DARK : "#8C3B12",
+                              backgroundColor: heatColor(v, mode, usingGrid),
+                              shadowColor: activeOrangeDark,
+                              shadowOpacity: isActive ? v * 0.9 : 0,
+                              shadowRadius: scale(9),
+                              borderWidth: 1,
+                              borderColor:
+                                active && isActive
+                                  ? activeOrange
+                                  : usingGrid
+                                    ? "rgba(22,163,74,0.3)"
+                                    : "rgba(230,100,31,0.3)",
                             },
+                            active &&
+                              isActive && [
+                                st.heatTileActive,
+                                {
+                                  borderColor: activeOrange,
+                                },
+                              ],
                           ]}
-                        />
-                        <LinearGradient
-                          pointerEvents="none"
-                          colors={[
-                            "rgba(255,255,255,0.34)",
-                            "rgba(255,255,255,0.08)",
-                            "rgba(122,54,12,0.24)",
-                          ]}
-                          locations={[0, 0.34, 1]}
-                          style={StyleSheet.absoluteFill}
-                        />
-                        <View
-                          pointerEvents="none"
-                          style={st.heatTileHighlight}
-                        />
-                        <View
-                          pointerEvents="none"
-                          style={st.heatTileDiagonal}
-                        />
-                        <View
-                          pointerEvents="none"
-                          style={st.heatTileBevelTop}
-                        />
-                        <View
-                          pointerEvents="none"
-                          style={st.heatTileBevelBottom}
-                        />
-                        {active && isActive && (
-                          <Ionicons
-                            name="footsteps"
-                            size={scale(11)}
-                            color="#FFFFFF"
+                        >
+                          <View
+                            pointerEvents="none"
+                            style={[
+                              st.heatTileDepth,
+                              {
+                                backgroundColor:
+                                  v > 0.75
+                                    ? activeOrangeDark
+                                    : usingGrid
+                                      ? "#064E3B"
+                                      : "#8C3B12",
+                              },
+                            ]}
                           />
-                        )}
-                      </Pressable>
-                    );
-                  })}
-                </View>
-              ))}
-            </View>
+                          <LinearGradient
+                            pointerEvents="none"
+                            colors={[
+                              "rgba(255,255,255,0.34)",
+                              "rgba(255,255,255,0.08)",
+                              usingGrid
+                                ? "rgba(6,78,59,0.24)"
+                                : "rgba(122,54,12,0.24)",
+                            ]}
+                            locations={[0, 0.34, 1]}
+                            style={StyleSheet.absoluteFill}
+                          />
+                          <View
+                            pointerEvents="none"
+                            style={st.heatTileHighlight}
+                          />
+                          <View
+                            pointerEvents="none"
+                            style={st.heatTileDiagonal}
+                          />
+                          <View
+                            pointerEvents="none"
+                            style={st.heatTileBevelTop}
+                          />
+                          <View
+                            pointerEvents="none"
+                            style={st.heatTileBevelBottom}
+                          />
+                          {active && isActive && (
+                            <Ionicons
+                              name="footsteps"
+                              size={scale(11)}
+                              color="#FFFFFF"
+                            />
+                          )}
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                ))}
+              </View>
 
-            <View
-              style={{
-                flexDirection: "row",
-                alignItems: "center",
-                justifyContent: "center",
-                gap: scale(6),
-                marginTop: scale(10),
-              }}
-            >
-              <Text
-                style={[
-                  st.legendText,
-                  {
-                    color:
-                      mode === "dark"
-                        ? "rgba(255,255,255,0.5)"
-                        : "rgba(10,42,74,0.5)",
-                  },
-                ]}
-              >
-                Less
-              </Text>
               <View
                 style={{
                   flexDirection: "row",
-                  gap: scale(3),
-                  opacity: isActive ? 1 : 0.4,
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: scale(6),
+                  marginTop: scale(10),
                 }}
               >
-                {[0.1, 0.35, 0.6, 0.82, 0.98].map((v, i) => (
-                  <View
-                    key={i}
-                    style={[
-                      st.legendSwatch,
-                      { backgroundColor: heatColor(v, mode) },
-                    ]}
-                  />
-                ))}
+                <Text
+                  style={[
+                    st.legendText,
+                    {
+                      color:
+                        mode === "dark"
+                          ? "rgba(255,255,255,0.5)"
+                          : "rgba(10,42,74,0.5)",
+                    },
+                  ]}
+                >
+                  less
+                </Text>
+                <View
+                  style={{
+                    flexDirection: "row",
+                    gap: scale(3),
+                    opacity: isActive ? 1 : 0.4,
+                  }}
+                >
+                  {[0.1, 0.35, 0.6, 0.82, 0.98].map((v, i) => (
+                    <View
+                      key={i}
+                      style={[
+                        st.legendSwatch,
+                        { backgroundColor: heatColor(v, mode, usingGrid) },
+                      ]}
+                    />
+                  ))}
+                </View>
+                <Text
+                  style={[
+                    st.legendText,
+                    {
+                      color:
+                        mode === "dark"
+                          ? "rgba(255,255,255,0.5)"
+                          : "rgba(10,42,74,0.5)",
+                    },
+                  ]}
+                >
+                  more
+                </Text>
               </View>
-              <Text
-                style={[
-                  st.legendText,
-                  {
-                    color:
-                      mode === "dark"
-                        ? "rgba(255,255,255,0.5)"
-                        : "rgba(10,42,74,0.5)",
-                  },
-                ]}
-              >
-                More
-              </Text>
-            </View>
 
-            {activeTile !== null && isActive && (
-              <Text
-                style={[
-                  st.tileInfo,
-                  {
-                    color:
-                      mode === "dark"
-                        ? "rgba(255,255,255,0.7)"
-                        : "rgba(10,42,74,0.65)",
-                  },
-                ]}
-              >
-                Tile #{activeTile + 1} —{" "}
-                {Math.round(heatTiles[activeTile] * 480)} crossings today
-              </Text>
-            )}
-          </Card>
-        </EnterView>
+              {activeTile !== null && isActive && (
+                <Text
+                  style={[
+                    st.tileInfo,
+                    {
+                      color:
+                        mode === "dark"
+                          ? "rgba(255,255,255,0.7)"
+                          : "rgba(10,42,74,0.65)",
+                    },
+                  ]}
+                >
+                  tile #{activeTile + 1} —{" "}
+                  {Math.round(heatTiles[activeTile] * 480)} crossings today
+                </Text>
+              )}
+            </Card>
+          </EnterView>
         </TourSpot>
-
       </ScrollView>
     </ScreenShell>
   );
@@ -1629,13 +1742,16 @@ const st = StyleSheet.create({
     zIndex: 10,
   },
   greeting: { flex: 1, marginRight: scale(8) },
-  greetingEyebrow: { fontSize: scale(7), letterSpacing: 1.2, fontFamily: fonts.extrabold },
+  greetingEyebrow: {
+    fontSize: scale(7),
+    letterSpacing: 1.2,
+    fontFamily: fonts.extrabold,
+  },
   demoBtnText: {
     color: "#FFFFFF",
     fontSize: scale(10.5),
     fontFamily: fonts.bold,
   },
-
   energyCard: {
     position: "relative",
     overflow: "hidden",
@@ -1737,7 +1853,6 @@ const st = StyleSheet.create({
     backgroundColor: "rgba(230,100,31,0.16)",
     marginVertical: scale(11),
   },
-  // ---- stats (solid orange gradient) ----
   scCard: {
     borderRadius: scale(12),
     padding: scale(8),
@@ -1748,7 +1863,11 @@ const st = StyleSheet.create({
     shadowOffset: { width: 0, height: 8 },
     elevation: 7,
   },
-  scTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  scTop: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
   scTopData: { paddingLeft: scale(6) },
   statsFilterWrap: { position: "relative", zIndex: 9 },
   statsFilterTouch: {
@@ -1767,7 +1886,11 @@ const st = StyleSheet.create({
     paddingHorizontal: scale(8),
     paddingVertical: scale(4),
   },
-  statsFilterButtonText: { color: "#FFFFFF", fontSize: scale(10), fontFamily: fonts.bold },
+  statsFilterButtonText: {
+    color: "#FFFFFF",
+    fontSize: scale(10),
+    fontFamily: fonts.bold,
+  },
   statsFilterMenu: {
     position: "absolute",
     top: scale(26),
@@ -1783,12 +1906,39 @@ const st = StyleSheet.create({
     elevation: 8,
   },
   rangeOption: { paddingHorizontal: scale(8), paddingVertical: scale(7) },
-  rangeOptionText: { color: "#5B6A94", fontSize: scale(10), fontFamily: fonts.semibold },
-  rangeOptionSelected: { color: BRAND_ORANGE_DARK, fontFamily: fonts.extrabold },
-  scEyebrow: { color: "rgba(255,255,255,0.92)", fontSize: scale(9), letterSpacing: 0.2, fontFamily: fonts.bold },
-  scKwhRow: { flexDirection: "row", alignItems: "baseline", gap: scale(3), marginTop: scale(1) },
-  scKwh: { color: "#FFFFFF", fontSize: scale(23), lineHeight: scale(27), letterSpacing: -0.7, fontFamily: fonts.extrabold },
-  scKwhUnit: { color: "rgba(255,255,255,0.95)", fontSize: scale(10), fontFamily: fonts.extrabold },
+  rangeOptionText: {
+    color: "#5B6A94",
+    fontSize: scale(10),
+    fontFamily: fonts.semibold,
+  },
+  rangeOptionSelected: {
+    color: BRAND_ORANGE_DARK,
+    fontFamily: fonts.extrabold,
+  },
+  scEyebrow: {
+    color: "rgba(255,255,255,0.92)",
+    fontSize: scale(9),
+    letterSpacing: 0.2,
+    fontFamily: fonts.bold,
+  },
+  scKwhRow: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    gap: scale(3),
+    marginTop: scale(1),
+  },
+  scKwh: {
+    color: "#FFFFFF",
+    fontSize: scale(23),
+    lineHeight: scale(27),
+    letterSpacing: -0.7,
+    fontFamily: fonts.extrabold,
+  },
+  scKwhUnit: {
+    color: "rgba(255,255,255,0.95)",
+    fontSize: scale(10),
+    fontFamily: fonts.extrabold,
+  },
   scSavings: {
     flexDirection: "row",
     alignItems: "center",
@@ -1800,7 +1950,11 @@ const st = StyleSheet.create({
     borderRadius: scale(8),
     backgroundColor: "#FFFFFF",
   },
-  scSavingsText: { color: "#f48d06", fontSize: scale(8), fontFamily: fonts.semibold },
+  scSavingsText: {
+    color: "#f48d06",
+    fontSize: scale(8),
+    fontFamily: fonts.semibold,
+  },
   scDelta: {
     flexDirection: "row",
     alignItems: "center",
