@@ -23,30 +23,10 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import Paho from "paho-mqtt";
 import "text-encoding";
 import { supabase } from "../../lib/supabase";
-import { CountUpText } from "../../components/count-up-text";
 import { DashboardStats } from "./stats-and-battery";
 import { DashboardActions } from "./dashboard-actions";
-import { st } from "./home-styles";
+import { scale } from "../../components/glass-ui";
 
-import {
-  Card,
-  Glass,
-  LiveDot,
-  SectionHead,
-  brandAccent,
-  scale,
-  GOLD,
-  NAVY,
-} from "../../components/glass-ui";
-import Svg, {
-  Defs,
-  LinearGradient as SvgGradient,
-  Line,
-  Path,
-  Stop,
-} from "react-native-svg";
-
-const AnimatedPath = Animated.createAnimatedComponent(Path);
 const BRAND_ORANGE = "#F5A220";
 const BRAND_ORANGE_DARK = "#E6641F";
 
@@ -70,32 +50,6 @@ function useGridPalette(usingGrid: boolean, mode: Mode): GridPalette {
   };
 }
 
-function EnterView({
-  delay,
-  style,
-  children,
-}: {
-  delay?: number;
-  style?: object;
-  children: React.ReactNode;
-}) {
-  return <View style={style}>{children}</View>;
-}
-
-const SOURCE_META: Record<
-  string,
-  { icon: keyof typeof Ionicons.glyphMap; color: string; tint: string }
-> = {
-  Battery: {
-    icon: "battery-charging",
-    color: BRAND_ORANGE_DARK,
-    tint: "rgba(245,162,32,0.14)",
-  },
-  Grid: { icon: "flash", color: "#7C3AED", tint: "rgba(124,58,237,0.12)" },
-  Solar: { icon: "sunny", color: "#B45309", tint: "rgba(245,158,11,0.16)" },
-};
-
-
 export default function HomeScreen() {
   const { colors: c, mode } = useTheme();
   const { ready, isLoggedIn, user } = useAuth();
@@ -117,11 +71,11 @@ export default function HomeScreen() {
     scrollContainerRef,
     setScrollOffsetY,
   } = useAppTour();
-  const accent = (alpha = 1) => brandAccent(mode, alpha);
-  const { gridActive, batteryCardInk } = useGridPalette(
-    usingGrid,
-    mode,
-  );
+
+  // Provide a safe fallback for accent if needed
+  const accent = (alpha = 1) => `rgba(245,162,32,${alpha})`;
+
+  const { gridActive, batteryCardInk } = useGridPalette(usingGrid, mode);
 
   const [batteryPct, setBatteryPct] = useState<number | null>(null);
   const [livePower, setLivePower] = useState<number | null>(null);
@@ -148,6 +102,7 @@ export default function HomeScreen() {
       : currentHour < 18
         ? "Good afternoon"
         : "Good evening";
+
   const metadataName =
     typeof user?.user_metadata?.firstname === "string"
       ? user.user_metadata.firstname
@@ -317,15 +272,26 @@ export default function HomeScreen() {
     return () => clearTimeout(timer);
   }, [ready, isLoggedIn, checked, completed, welcomeSeen, openWelcome]);
 
+  // Dynamically set initial source based on grid state
   const [zones, setZones] = useState([
     {
       id: "1",
       name: "test appliance",
-      source: "battery",
+      source: usingGrid ? "Grid" : "Battery",
       detail: "connected to relay 1",
-      on: true, // Match default boot state
+      on: true,
     },
   ]);
+
+  // Keep the zone source updated whenever the power source switches
+  useEffect(() => {
+    setZones((prevZones) =>
+      prevZones.map((z) =>
+        z.id === "1" ? { ...z, source: usingGrid ? "Grid" : "Battery" } : z,
+      ),
+    );
+  }, [usingGrid]);
+
   const [activeTile, setActiveTile] = useState<number | null>(null);
 
   const isActive = true;
@@ -350,7 +316,7 @@ export default function HomeScreen() {
       kwh: 4.82,
       comparison: "5.36 kwh yesterday",
       delta: "-10.1%",
-      savings: "â‰ˆ â‚±86 saved off meralco billing",
+      savings: "≈ ₱86 saved off meralco billing",
       deltaLabel: "vs yesterday",
     },
     "7days": {
@@ -358,7 +324,7 @@ export default function HomeScreen() {
       kwh: 31.64,
       comparison: "34.20 kwh previous 7 days",
       delta: "-7.5%",
-      savings: "â‰ˆ â‚±566 saved off meralco billing",
+      savings: "≈ ₱566 saved off meralco billing",
       deltaLabel: "vs previous 7 days",
     },
     month: {
@@ -366,7 +332,7 @@ export default function HomeScreen() {
       kwh: 128.45,
       comparison: "141.80 kwh previous month",
       delta: "-9.4%",
-      savings: "â‰ˆ â‚±2,298 saved off meralco billing",
+      savings: "≈ ₱2,298 saved off meralco billing",
       deltaLabel: "vs previous month",
     },
   } as const;
@@ -375,14 +341,94 @@ export default function HomeScreen() {
   const dynamicKwhHarvested = (footsteps * 0.0002725).toFixed(2);
 
   return (
-    <ScreenShell scroll={false} contentPaddingHorizontal={8} contentPaddingBottom={0}>
-      <ScrollView ref={(node) => { scrollContainerRef.current = node; }} onScroll={(event) => setScrollOffsetY(event.nativeEvent.contentOffset.y)} scrollEventThrottle={16} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: scale(88) }} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={activeOrangeDark} colors={[activeOrangeDark]} />} >
-        <View style={st.hero}>
-          <HeroGlow mode={mode} gridActive={gridActive} intensity={isActive ? 1 : mode === "dark" ? 0.4 : 0.85} bleedBottom={scale(76)} />
-          <View style={st.heroTopBar}><TopBar gutter={0} title="Dashboard" /></View>
+    <ScreenShell
+      scroll={false}
+      contentPaddingHorizontal={8}
+      contentPaddingBottom={0}
+    >
+      <ScrollView
+        ref={(node) => {
+          scrollContainerRef.current = node;
+        }}
+        onScroll={(event) =>
+          setScrollOffsetY(event.nativeEvent.contentOffset.y)
+        }
+        scrollEventThrottle={16}
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ paddingBottom: scale(88) }}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={activeOrangeDark}
+            colors={[activeOrangeDark]}
+          />
+        }
+      >
+        <View
+          style={{
+            marginHorizontal: -8,
+            paddingHorizontal: 8,
+            paddingBottom: scale(8),
+            position: "relative",
+            zIndex: 10,
+          }}
+        >
+          <HeroGlow
+            mode={mode}
+            gridActive={gridActive}
+            intensity={isActive ? 1 : mode === "dark" ? 0.4 : 0.85}
+            bleedBottom={scale(76)}
+          />
+          <View style={{ zIndex: 5 }}>
+            <TopBar gutter={0} title="Dashboard" />
+          </View>
         </View>
-        <DashboardStats c={c} mode={mode} usingGrid={usingGrid} isActive={isActive} activeAccent={activeAccent} activeOrangeDark={activeOrangeDark} batteryPct={batteryPct} displayVoltage={displayVoltage} mqttStatus={mqttStatus} batteryCardInk={batteryCardInk} batteryCardMutedInk={batteryCardMutedInk} statsPop={statsPop} graphProgress={graphProgress} greeting={greeting} metadataName={metadataName} consumptionRange={consumptionRange} consumptionData={consumptionData} selectedConsumption={selectedConsumption} setConsumptionRange={setConsumptionRange} rangeMenuOpen={rangeMenuOpen} setRangeMenuOpen={setRangeMenuOpen} stats={stats} openOverrides={openOverrides} />
-        <DashboardActions c={c} mode={mode} usingGrid={usingGrid} activeOrange={activeOrange} activeOrangeDark={activeOrangeDark} activeAccent={activeAccent} activeAccentSoft={activeAccentSoft} gridActive={gridActive} isActive={isActive} router={router} zones={zones} setZones={setZones} activeTile={activeTile} setActiveTile={setActiveTile} mqttClientRef={mqttClientRef} footsteps={footsteps} dynamicKwhHarvested={dynamicKwhHarvested} accent={accent} />
+        <DashboardStats
+          c={c}
+          mode={mode}
+          usingGrid={usingGrid}
+          isActive={isActive}
+          activeAccent={activeAccent}
+          activeOrangeDark={activeOrangeDark}
+          batteryPct={batteryPct}
+          displayVoltage={displayVoltage}
+          mqttStatus={mqttStatus}
+          batteryCardInk={batteryCardInk}
+          batteryCardMutedInk={batteryCardMutedInk}
+          statsPop={statsPop}
+          graphProgress={graphProgress}
+          greeting={greeting}
+          metadataName={metadataName}
+          consumptionRange={consumptionRange}
+          consumptionData={consumptionData}
+          selectedConsumption={selectedConsumption}
+          setConsumptionRange={setConsumptionRange}
+          rangeMenuOpen={rangeMenuOpen}
+          setRangeMenuOpen={setRangeMenuOpen}
+          stats={stats}
+          openOverrides={openOverrides}
+        />
+        <DashboardActions
+          c={c}
+          mode={mode}
+          usingGrid={usingGrid}
+          activeOrange={activeOrange}
+          activeOrangeDark={activeOrangeDark}
+          activeAccent={activeAccent}
+          activeAccentSoft={activeAccentSoft}
+          gridActive={gridActive}
+          isActive={isActive}
+          router={router}
+          zones={zones}
+          setZones={setZones}
+          activeTile={activeTile}
+          setActiveTile={setActiveTile}
+          mqttClientRef={mqttClientRef}
+          footsteps={footsteps}
+          dynamicKwhHarvested={dynamicKwhHarvested}
+          accent={accent}
+        />
       </ScrollView>
     </ScreenShell>
   );

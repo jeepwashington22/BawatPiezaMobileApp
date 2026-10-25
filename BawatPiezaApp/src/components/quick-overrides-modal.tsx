@@ -4,8 +4,6 @@ import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import AsyncStorage from "@react-native-async-storage/async-storage";
-import Paho from "paho-mqtt";
 import { fonts, useTheme } from "../theme";
 import { scale } from "./glass-ui";
 import { usePowerOverride } from "../hooks/use-power-override";
@@ -30,45 +28,18 @@ export function QuickOverridesModal({ visible, onClose }: Props) {
   const gridActive = override === "grid";
   const powerStops = gridActive ? GRID_STOPS : ORANGE_STOPS;
 
-  const sendMqttCommand = async (commandName: string) => {
-    try {
-      const hubId = await AsyncStorage.getItem("bawatpieza_hub_id");
-      if (!hubId) return;
-
-      const clientId = `app-override-${Math.random().toString(16).substring(2, 8)}`;
-      const client = new Paho.Client("broker.hivemq.com", 8884, clientId);
-
-      client.connect({
-        useSSL: true,
-        onSuccess: () => {
-          const payload = JSON.stringify({ command: commandName });
-          const message = new Paho.Message(payload);
-          message.destinationName = `bawatpieza/devices/${hubId}/commands`;
-          client.send(message);
-
-          setTimeout(() => client.disconnect(), 500);
-        },
-      });
-    } catch (err) {
-      console.error("failed to send MQTT override command", err);
-    }
-  };
-
   const handleForceGrid = () => {
     setOverride("grid");
-    sendMqttCommand("force_grid");
     setTimeout(() => onClose(), 400);
   };
 
   const handleForceBattery = () => {
     setOverride("battery");
-    sendMqttCommand("force_battery");
     setTimeout(() => onClose(), 400);
   };
 
   const handleShutdown = () => {
     setOverride("shutdown");
-    sendMqttCommand("force_shutdown");
     setTimeout(() => onClose(), 400);
   };
 

@@ -11,16 +11,13 @@ import React, {
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import Paho from "paho-mqtt";
 
-/** Power source override chosen from Quick Overrides. `null` = Auto (no override). */
 export type PowerOverride = "grid" | "battery" | "shutdown" | null;
 
 type PowerOverrideContextValue = {
   override: PowerOverride;
   setOverride: (o: PowerOverride) => void;
   clearOverride: () => void;
-  /** True while the user forced grid — dashboard shows green "Using Grid" state. */
   usingGrid: boolean;
-  /** Single global sheet state — one modal for the whole app, no stacking. */
   overridesOpen: boolean;
   openOverrides: () => void;
   closeOverrides: () => void;
@@ -42,38 +39,37 @@ export function PowerOverrideProvider({ children }: { children: ReactNode }) {
   const [overridesOpen, setOverridesOpen] = useState(false);
   const mqttClientRef = useRef<Paho.Client | null>(null);
 
-  // keep one persistent mqtt connection alive in the background
-  useEffect(() => {
-    let client: Paho.Client | null = null;
+  const ensureConnection = useCallback(async () => {
+    const hubId = await AsyncStorage.getItem("bawatpieza_hub_id");
+    if (!hubId) return null;
 
-    const initMqtt = async () => {
-      try {
-        const hubId = await AsyncStorage.getItem("bawatpieza_hub_id");
-        if (!hubId) return;
+    if (mqttClientRef.current && mqttClientRef.current.isConnected()) {
+      return mqttClientRef.current;
+    }
 
-        const clientId = `app-bg-${Math.random().toString(16).substring(2, 8)}`;
-        client = new Paho.Client("broker.hivemq.com", 8884, clientId);
-        mqttClientRef.current = client;
+    return new Promise<Paho.Client>((resolve) => {
+      const clientId = `app-bg-${Math.random().toString(16).substring(2, 8)}`;
+      const client = new Paho.Client("broker.hivemq.com", 8884, clientId);
 
-        client.connect({
-          useSSL: true,
-          keepAliveInterval: 30,
-          onSuccess: () =>
-            console.log("background mqtt connected for instant overrides"),
-        });
-      } catch (err) {
-        console.log("mqtt background init failed", err);
-      }
-    };
-
-    initMqtt();
-
-    return () => {
-      if (client && client.isConnected()) {
-        client.disconnect();
-      }
-    };
+      client.connect({
+        useSSL: true,
+        reconnect: true,
+        keepAliveInterval: 30,
+        onSuccess: () => {
+          mqttClientRef.current = client;
+          resolve(client);
+        },
+        onFailure: (err) => {
+          console.log("mqtt connect failed", err);
+          resolve(client);
+        },
+      });
+    });
   }, []);
+
+  useEffect(() => {
+    ensureConnection();
+  }, [ensureConnection]);
 
   useEffect(() => {
     AsyncStorage.getItem(STORAGE_KEY)
@@ -84,31 +80,47 @@ export function PowerOverrideProvider({ children }: { children: ReactNode }) {
       .catch(() => {});
   }, []);
 
-  // update the state AND fire the hardware command instantly using the open connection
-  const setOverride = useCallback(async (o: PowerOverride) => {
-    setOverrideState(o);
+  const setOverride = useCallback(
+    async (o: PowerOverride) => {
+      setOverrideState(o);
 
-    if (o) {
-      AsyncStorage.setItem(STORAGE_KEY, o).catch(() => {});
+      if (o) {
+        AsyncStorage.setItem(STORAGE_KEY, o).catch(() => {});
 
-      try {
-        const client = mqttClientRef.current;
-        const hubId = await AsyncStorage.getItem("bawatpieza_hub_id");
+        try {
+          const hubId = await AsyncStorage.getItem("bawatpieza_hub_id");
+          if (!hubId) return;
 
-        if (client && client.isConnected() && hubId) {
-          const commandName = `force_${o}`;
-          const payload = JSON.stringify({ command: commandName });
+          let payloadObj: any = { command: `force_${o}` };
+
+          if (o === "grid") {
+            payloadObj.grid_relay = true;
+            payloadObj.battery_relay = true;
+          } else if (o === "battery") {
+            payloadObj.grid_relay = false;
+            payloadObj.battery_relay = true;
+          } else if (o === "shutdown") {
+            payloadObj.grid_relay = false;
+            payloadObj.battery_relay = false;
+          }
+
+          const payload = JSON.stringify(payloadObj);
           const message = new Paho.Message(payload);
           message.destinationName = `bawatpieza/devices/${hubId}/commands`;
-          client.send(message);
+
+          const client = await ensureConnection();
+          if (client && client.isConnected()) {
+            client.send(message);
+          }
+        } catch (err) {
+          console.log("failed to send command", err);
         }
-      } catch (err) {
-        console.log("failed to send override command", err);
+      } else {
+        AsyncStorage.removeItem(STORAGE_KEY).catch(() => {});
       }
-    } else {
-      AsyncStorage.removeItem(STORAGE_KEY).catch(() => {});
-    }
-  }, []);
+    },
+    [ensureConnection],
+  );
 
   const clearOverride = useCallback(() => setOverride(null), [setOverride]);
 
@@ -146,7 +158,7 @@ export function usePowerOverride(): PowerOverrideContextValue {
   const ctx = useContext(PowerOverrideContext);
   if (!ctx)
     throw new Error(
-      "usePowerOverride must be used inside <PowerOverrideProvider>",
+      "usepoweroverride must be used inside <poweroverrideprovider>",
     );
   return ctx;
 }
