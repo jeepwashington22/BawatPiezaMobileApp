@@ -983,15 +983,14 @@ router.post('/invites/:id/decline', requireAuth, async (req, res, next) => {
 router.get('/device-access', requireAuth, async (req, res, next) => {
   try {
     const me = req.user!.id;
-    const { data: acceptedInvite, error: inviteError } = await supabase
-      .from('share_invites')
-      .select('inviter_id')
-      .eq('invitee_id', me)
-      .eq('status', 'accepted')
-      .order('responded_at', { ascending: false })
+    const { data: deviceAccess, error: accessError } = await supabase
+      .from('device_access')
+      .select('hub_id')
+      .eq('user_id', me)
+      .order('created_at', { ascending: false })
       .limit(1)
       .maybeSingle();
-    if (inviteError) throw createHttpError(500, inviteError.message);
+    if (accessError) throw createHttpError(500, accessError.message);
 
     const { data: ownPairing, error: ownError } = await supabase
       .from('device_pairings')
@@ -1001,19 +1000,11 @@ router.get('/device-access', requireAuth, async (req, res, next) => {
       .maybeSingle();
     if (ownError) throw createHttpError(500, ownError.message);
 
-    if (acceptedInvite?.inviter_id) {
-      const { data: ownerPairing, error: ownerError } = await supabase
-        .from('device_pairings')
-        .select('hub_id')
-        .eq('user_id', acceptedInvite.inviter_id)
-        .limit(1)
-        .maybeSingle();
-      if (ownerError) throw createHttpError(500, ownerError.message);
-
+    if (deviceAccess?.hub_id) {
       res.json({
         ok: true,
         access_granted: true,
-        hub_id: ownerPairing?.hub_id ?? ownPairing?.hub_id ?? null,
+        hub_id: deviceAccess.hub_id,
         can_invite: false,
       });
       return;

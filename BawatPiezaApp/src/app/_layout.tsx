@@ -121,8 +121,8 @@ function AuthedShell({ fontsLoaded }: { fontsLoaded: boolean }) {
           access = true;
         } else {
           // 2. Ask the backend which hub this account can access (own or shared owner).
-          // GET /accounts/device-access returns hub_id for own pairings or for
-          // accepted share_invites (the inviter's hub_id), plus access_granted.
+          // GET /accounts/device-access returns hub_id for own pairings or
+          // device_access grants created from accepted share_invites.
           try {
             const { data } = await supabase.auth.getSession();
             const token = data.session?.access_token ?? null;
