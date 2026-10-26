@@ -70,13 +70,66 @@ The Shared Users two-step invite flow (see
 | Table | Key columns | Notes |
 | --- | --- | --- |
 | `share_invites` | `inviter_id`, `invitee_id`, `status` (`pending`/`accepted`/`declined`), `created_at`, `responded_at` | `unique (inviter_id, invitee_id)` — re-inviting after a decline re-opens the same row |
-| `notifications` | `user_id` (recipient), `actor_id`, `type` (`share_invite`/`share_accepted`/`share_declined`), `title`, `body`, `reference_id`, `read_at` | `reference_id` points at `share_invites.id` |
+| `notifications` | `user_id` (recipient), `actor_id`, `type` (`share_invite`/`share_accepted`/`share_declined`/`battery_full`/`battery_low`), `title`, `body`, `reference_id`, `read_at` | `reference_id` points at `share_invites.id` |
 
 RLS: `share_invites` is service-role only (all access through the backend);
 `notifications` lets the owner read/update their own rows. Backend endpoints:
 `GET /accounts/invitable`, `POST /accounts/invite`, `GET /accounts/invites`,
 `POST /accounts/invites/:id/accept|decline`, `GET /notifications`,
 `POST /notifications/read`.
+
+## Device access (migration 013)
+
+`device_access` records the hub grants created for accepted shared-user
+invites. Migration 014 adds `member_email`, populated from `auth.users.email`
+for existing and future grants and kept synchronized if a member changes
+their email. This makes the member identifiable in the `device_access` table
+without relying on the UUID alone. The device-access policies in migration 013 let both the paired owner
+and accepted shared users read the device, zone, tile, energy, report,
+prediction, status, action, health, and kinetic-log data associated with that
+hub. Shared users can also read and update the hub's system thresholds; they
+cannot change device-scoped records unless another policy explicitly allows
+it.
+
+Hub-keyed data is checked against `device_pairings.hub_id`. UUID-keyed
+energy-management data is associated by matching the hub's normalized MAC
+identifier to `esp_devices.mac_address`. Populate that MAC column with the
+paired device's address for energy-table access to work. The firmware's hub ID
+is the lowercase MAC address without colons.
+
+The home dashboard reads authorized `kinetic_logs` rows and aggregates daily
+step counts and generated kWh in the app. The table's RLS policy checks the
+caller's owner/shared access, so the owner and accepted shared users see the
+same device history instead of per-account local counters or placeholder
+generation figures.
+
+Owners unlink a paired hub through `DELETE /accounts/device-access` with its
+`hub_id`. The backend deletes only a pairing owned by the authenticated user;
+the `device_access` foreign key cascades the shared grants for that hub. A
+shared user can use the same endpoint to disconnect their own access; this
+changes their accepted invite to declined and the migration 013 trigger removes
+only their grant. The mobile app periodically revalidates access and clears
+cached hub/shared-access IDs after the backend reports that access has ended.
+
+Migration 013 is safe to re-run: it replaces its triggers and policies before
+recreating them. If migration 013 was already applied before the device-data
+policies were added, run the updated migration again to install those policies.
+Apply migration 014 after migration 013 to add and populate member emails.
+
+Battery milestone history is stored in `battery_level_milestones` (migration
+015). It records only threshold readings of 20%, 50%, 95%, or 100%, along
+with the hub ID, battery voltage, and time reached. The backend subscribes to
+hub MQTT telemetry and inserts a record when telemetry enters one of those
+thresholds, so recording does not depend on a dashboard being open. Reaching
+the same threshold again after moving away creates another history row. The
+table's read policy allows the paired owner and accepted shared users to view
+the same history; only the backend writes records. Migration 016 adds the
+`battery_full` and `battery_low` notification types. When battery telemetry
+reaches 100% or 20%, the backend notifies the paired owner and all users with
+device access. At 20%, it also publishes the firmware's `force_grid` command
+unless telemetry already reports Grid mode; it retries at a limited interval
+until Grid mode is reported. Apply migrations 015 and 016 after migration 014
+before restarting the backend with the battery listener enabled.
 
 ## Edge function — `welcome-email`
 

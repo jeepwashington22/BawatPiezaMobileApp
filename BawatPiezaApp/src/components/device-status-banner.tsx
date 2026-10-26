@@ -15,27 +15,29 @@ const SHARED_ACCESS_KEY = 'bawatpieza_shared_access';
 export function useDeviceConnection() {
   const pathname = usePathname();
   const [hasDevice, setHasDevice] = useState<boolean | null>(null);
+  const [accessRefresh, setAccessRefresh] = useState(0);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setAccessRefresh((value) => value + 1);
+    }, 15_000);
+    return () => clearInterval(interval);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
-
-    Promise.all([
-      AsyncStorage.getItem(DEVICE_STORAGE_KEY),
-      AsyncStorage.getItem(SHARED_ACCESS_KEY),
-    ])
-      .then(async ([hubId, sharedAccess]) => {
-        if (hubId) {
-          if (!cancelled) setHasDevice(true);
-          return;
-        }
-        if (sharedAccess === '1') {
-          if (!cancelled) setHasDevice(true);
-          return;
-        }
-
+    let checking = false;
+    const checkAccess = async () => {
+      if (checking) return;
+      checking = true;
+      try {
         const { data } = await supabase.auth.getSession();
         const token = data.session?.access_token;
         if (!token) {
+          await Promise.all([
+            AsyncStorage.removeItem(DEVICE_STORAGE_KEY),
+            AsyncStorage.removeItem(SHARED_ACCESS_KEY),
+          ]);
           if (!cancelled) setHasDevice(false);
           return;
         }
@@ -44,22 +46,44 @@ export function useDeviceConnection() {
           headers: { Authorization: `Bearer ${token}` },
           timeoutMs: 8_000,
         });
-        const json = (await response.json().catch(() => null)) as {
+        if (!response.ok) throw new Error(`Device access check failed (${response.status})`);
+        const json = (await response.json()) as {
           hub_id?: string | null;
           access_granted?: boolean;
-        } | null;
-        const sharedHubId = json?.hub_id;
-        if (sharedHubId) await AsyncStorage.setItem(DEVICE_STORAGE_KEY, sharedHubId);
-        if (!cancelled) setHasDevice(Boolean(json?.access_granted || sharedHubId));
-      })
-      .catch(() => {
-        if (!cancelled) setHasDevice(false);
+          can_unlink?: boolean;
+        };
+        const accessGranted = Boolean(json.access_granted && json.hub_id);
+        if (accessGranted && json.hub_id) {
+          await AsyncStorage.setItem(DEVICE_STORAGE_KEY, json.hub_id);
+          if (json.can_unlink === false) {
+            await AsyncStorage.setItem(SHARED_ACCESS_KEY, '1');
+          } else {
+            await AsyncStorage.removeItem(SHARED_ACCESS_KEY);
+          }
+        } else {
+          await Promise.all([
+            AsyncStorage.removeItem(DEVICE_STORAGE_KEY),
+            AsyncStorage.removeItem(SHARED_ACCESS_KEY),
+          ]);
+        }
+        if (!cancelled) setHasDevice(accessGranted);
+    } catch (error) {
+      console.warn('[device-status] failed to refresh device access', error);
+      void AsyncStorage.getItem(DEVICE_STORAGE_KEY).then((cachedHubId) => {
+        if (!cancelled) setHasDevice(Boolean(cachedHubId));
       });
+    } finally {
+      checking = false;
+    }
+    };
+    void checkAccess();
+    const interval = setInterval(() => void checkAccess(), 15_000);
 
     return () => {
-      cancelled = true;
+    cancelled = true;
+    clearInterval(interval);
     };
-  }, [pathname]);
+  }, [pathname, accessRefresh]);
 
   return hasDevice;
 }

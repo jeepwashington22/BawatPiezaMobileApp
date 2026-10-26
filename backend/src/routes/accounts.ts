@@ -1000,21 +1000,130 @@ router.get('/device-access', requireAuth, async (req, res, next) => {
       .maybeSingle();
     if (ownError) throw createHttpError(500, ownError.message);
 
+    if (ownPairing?.hub_id) {
+      res.json({
+        ok: true,
+        access_granted: true,
+        hub_id: ownPairing.hub_id,
+        can_invite: true,
+        can_unlink: true,
+      });
+      return;
+    }
+
     if (deviceAccess?.hub_id) {
       res.json({
         ok: true,
         access_granted: true,
         hub_id: deviceAccess.hub_id,
         can_invite: false,
+        can_unlink: false,
       });
       return;
     }
 
     res.json({
       ok: true,
-      access_granted: Boolean(ownPairing?.hub_id),
-      hub_id: ownPairing?.hub_id ?? null,
-      can_invite: Boolean(ownPairing?.hub_id),
+      access_granted: false,
+      hub_id: null,
+      can_invite: false,
+      can_unlink: false,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.delete('/device-access', requireAuth, async (req, res, next) => {
+  try {
+    const parsed = z.object({ hub_id: z.string().min(1).optional() }).safeParse(req.body ?? {});
+    if (!parsed.success) {
+      throw createHttpError(400, 'Invalid hub ID.');
+    }
+    const me = req.user!.id;
+    const { data: pairings, error: pairingError } = await supabase
+      .from('device_pairings')
+      .select('hub_id')
+      .eq('user_id', me)
+      .order('last_connected', { ascending: false });
+    if (pairingError) throw createHttpError(500, pairingError.message);
+    const pairing =
+      pairings?.find((row) => row.hub_id === parsed.data.hub_id) ??
+      (pairings?.length === 1 ? pairings[0] : null);
+    if (!pairing && pairings?.length) {
+      throw createHttpError(404, 'The requested hub is not paired to this account.');
+    }
+    if (pairing?.hub_id) {
+      const { error: deleteError } = await supabase
+        .from('device_pairings')
+        .delete()
+        .eq('hub_id', pairing.hub_id)
+        .eq('user_id', me);
+      if (deleteError) throw createHttpError(500, deleteError.message);
+
+      res.json({ ok: true, hub_id: pairing.hub_id, disconnected: 'device' });
+      return;
+    }
+
+    const { data: grants, error: grantError } = await supabase
+      .from('device_access')
+      .select('hub_id, share_invite_id')
+      .eq('user_id', me)
+      .order('created_at', { ascending: false });
+    if (grantError) throw createHttpError(500, grantError.message);
+    const grant =
+      grants?.find((row) => row.hub_id === parsed.data.hub_id) ??
+      (grants?.length === 1 ? grants[0] : null);
+    let inviteId = grant?.share_invite_id;
+    if (!grant && grants?.length) {
+      throw createHttpError(404, 'The requested hub is not shared with this account.');
+    }
+
+    if (!inviteId) {
+      let inviteQuery = supabase
+        .from('share_invites')
+        .select('id')
+        .eq('invitee_id', me)
+        .eq('status', 'accepted')
+        .order('responded_at', { ascending: false });
+      if (parsed.data.hub_id) {
+        const { data: ownerPairings, error: ownerPairingError } = await supabase
+          .from('device_pairings')
+          .select('user_id')
+          .eq('hub_id', parsed.data.hub_id);
+        if (ownerPairingError) throw createHttpError(500, ownerPairingError.message);
+        const ownerIds = (ownerPairings ?? []).map((row) => row.user_id);
+        if (!ownerIds.length) {
+          throw createHttpError(404, 'The requested hub is no longer paired to its owner.');
+        }
+        inviteQuery = inviteQuery.in('inviter_id', ownerIds);
+      }
+      const { data: acceptedInvites, error: inviteError } = await inviteQuery.limit(2);
+      if (inviteError) throw createHttpError(500, inviteError.message);
+      if (acceptedInvites?.length === 1) inviteId = acceptedInvites[0]?.id;
+    }
+    if (!inviteId) throw createHttpError(404, 'No paired device or shared access was found for this account.');
+
+    const { data: revokedInvite, error: revokeError } = await supabase
+      .from('share_invites')
+      .update({
+        status: 'declined',
+        responded_at: new Date().toISOString(),
+      })
+      .eq('id', inviteId)
+      .eq('invitee_id', me)
+      .eq('status', 'accepted')
+      .select('id')
+      .maybeSingle();
+    if (revokeError) throw createHttpError(500, revokeError.message);
+    if (!revokedInvite) {
+      throw createHttpError(409, 'Shared device access has already been removed.');
+    }
+
+    res.json({
+      ok: true,
+      hub_id: grant?.hub_id ?? parsed.data.hub_id ?? null,
+      disconnected: 'shared_access',
     });
   } catch (err) {
     next(err);

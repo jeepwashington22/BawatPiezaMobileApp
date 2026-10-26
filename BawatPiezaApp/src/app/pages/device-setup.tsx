@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Pressable,
   StyleSheet,
@@ -13,12 +13,17 @@ import { ScreenShell } from "../../components/screen-shell";
 import { scale } from "../../components/glass-ui";
 import { ZONES_STORAGE_KEY } from "../../components/zone-management-screen";
 import { useAuth } from "../../hooks/use-auth";
-import { deviceSetupRequiredKey } from "../../lib/device-setup";
+import {
+  deviceSetupRequiredKey,
+  installedTileCountKey,
+} from "../../lib/device-setup";
 import { fonts, useTheme } from "../../theme";
 
 const MAX_CHANNELS = 5;
 const MAX_ROOMS_PER_CHANNEL = 5;
 const MAX_BULBS_PER_ROOM = 5;
+const MIN_TRIANGULAR_TILES = 6;
+const TILE_COUNT_ACCOUNT_KEY = "bawatpieza_installed_tile_count";
 
 type RoomSetup = {
   name: string;
@@ -43,11 +48,38 @@ export default function DeviceSetupScreen() {
   const router = useRouter();
   const { user } = useAuth();
   const { colors: c } = useTheme();
+  const [setupStep, setSetupStep] = useState<"tiles" | "rooms">("tiles");
+  const [installedTileCountInput, setInstalledTileCountInput] =
+    useState(String(MIN_TRIANGULAR_TILES));
   const [channels, setChannels] = useState<ChannelSetup[]>(
     Array.from({ length: MAX_CHANNELS }, () => ({ rooms: [] })),
   );
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    void (async () => {
+      try {
+        const hubId = await AsyncStorage.getItem("bawatpieza_hub_id");
+        const key = hubId
+          ? installedTileCountKey(hubId)
+          : user?.id
+            ? `${TILE_COUNT_ACCOUNT_KEY}:${user.id}`
+            : null;
+        if (!key) return;
+        const savedCount = Number(await AsyncStorage.getItem(key));
+        if (active && Number.isSafeInteger(savedCount) && savedCount >= MIN_TRIANGULAR_TILES) {
+          setInstalledTileCountInput(String(savedCount));
+        }
+      } catch (loadError) {
+        console.error("[device-setup] Could not load installed tile count:", loadError);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [user?.id]);
 
   const setRoomCount = (channelIndex: number, count: number) => {
     setChannels((current) =>
@@ -84,6 +116,16 @@ export default function DeviceSetupScreen() {
   };
 
   const finishSetup = async () => {
+    const installedTileCount = Number(installedTileCountInput);
+    if (
+      !Number.isSafeInteger(installedTileCount) ||
+      installedTileCount < MIN_TRIANGULAR_TILES
+    ) {
+      setError(`Enter at least ${MIN_TRIANGULAR_TILES} triangular tiles.`);
+      setSetupStep("tiles");
+      return;
+    }
+
     const configuredRooms = channels.flatMap((channel, channelIndex) =>
       channel.rooms.map((room, roomIndex) => ({
         ...room,
@@ -122,6 +164,11 @@ export default function DeviceSetupScreen() {
       }));
       const newZoneIds = new Set(newZones.map((zone) => zone.id));
       const retainedZones = existingZones.filter((zone) => !newZoneIds.has(zone.id));
+      const hubId = await AsyncStorage.getItem("bawatpieza_hub_id");
+      const tileCountKey = hubId
+        ? installedTileCountKey(hubId)
+        : `${TILE_COUNT_ACCOUNT_KEY}:${user.id}`;
+      await AsyncStorage.setItem(tileCountKey, String(installedTileCount));
       await AsyncStorage.setItem(
         ZONES_STORAGE_KEY,
         JSON.stringify([...retainedZones, ...newZones]),
@@ -136,6 +183,35 @@ export default function DeviceSetupScreen() {
     }
   };
 
+  const continueToRooms = () => {
+    const installedTileCount = Number(installedTileCountInput);
+    if (
+      !Number.isSafeInteger(installedTileCount) ||
+      installedTileCount < MIN_TRIANGULAR_TILES
+    ) {
+      setError(`Enter at least ${MIN_TRIANGULAR_TILES} triangular tiles.`);
+      return;
+    }
+    setError("");
+    setSetupStep("rooms");
+  };
+
+  const adjustTileCount = (amount: number) => {
+    const current = Number(installedTileCountInput);
+    const safeCurrent =
+      Number.isSafeInteger(current) && current >= MIN_TRIANGULAR_TILES
+        ? current
+        : MIN_TRIANGULAR_TILES;
+    setInstalledTileCountInput(
+      String(
+        Math.min(
+          Number.MAX_SAFE_INTEGER,
+          Math.max(MIN_TRIANGULAR_TILES, safeCurrent + amount),
+        ),
+      ),
+    );
+  };
+
   return (
     <ScreenShell scroll title="Device Setup">
       <View style={styles.header}>
@@ -143,25 +219,94 @@ export default function DeviceSetupScreen() {
           <Ionicons name="grid-outline" size={scale(23)} color="#F97316" />
         </View>
         <View style={styles.headerCopy}>
-          <Text style={[styles.eyebrow, { color: c.muted }]}>DEVICE SETUP</Text>
+          <Text style={[styles.eyebrow, { color: c.muted }]}>
+            DEVICE SETUP · STEP {setupStep === "tiles" ? "1" : "2"} OF 2
+          </Text>
           <Text style={[styles.heading, { color: c.text }]}>
-            Configure your rooms
+            {setupStep === "tiles"
+              ? "How many tiles are installed?"
+              : "Configure your rooms"}
           </Text>
           <Text style={[styles.subtitle, { color: c.muted }]}>
-            Choose how many rooms are connected to each channel, then enter
-            the installed bulb count for every room.
+            {setupStep === "tiles"
+              ? "Count the triangular energy-harvesting tiles installed at your site."
+              : "Choose how many rooms are connected to each channel, then enter the installed bulb count for every room."}
           </Text>
         </View>
       </View>
 
-      <View style={[styles.limitNote, { backgroundColor: c.surface }]}>
-        <Ionicons name="information-circle-outline" size={scale(17)} color="#F97316" />
-        <Text style={[styles.limitText, { color: c.muted }]}>
-          Up to 5 rooms per channel and 5 bulbs per room.
-        </Text>
-      </View>
+      {setupStep === "tiles" ? (
+        <>
+          <View style={[styles.tileCountCard, { backgroundColor: c.surface, borderColor: c.line }]}>
+            <View style={styles.tileCountIcon}>
+              <Ionicons name="triangle" size={scale(26)} color="#F97316" />
+            </View>
+            <Text style={[styles.tileCountLabel, { color: c.muted }]}>
+              INSTALLED TRIANGULAR TILES
+            </Text>
+            <View style={styles.tileCountStepper}>
+              <Pressable
+                onPress={() =>
+                  adjustTileCount(-1)
+                }
+                disabled={Number(installedTileCountInput) <= MIN_TRIANGULAR_TILES}
+                style={[
+                  styles.tileCountButton,
+                  Number(installedTileCountInput) <= MIN_TRIANGULAR_TILES && styles.disabledButton,
+                ]}
+                accessibilityRole="button"
+                accessibilityLabel="Remove one installed tile"
+              >
+                <Ionicons name="remove" size={scale(22)} color="#F97316" />
+              </Pressable>
+              <TextInput
+                value={installedTileCountInput}
+                onChangeText={(value) => {
+                  if (/^\d*$/.test(value)) setInstalledTileCountInput(value);
+                }}
+                onBlur={() => {
+                  const count = Number(installedTileCountInput);
+                  if (!Number.isSafeInteger(count) || count < MIN_TRIANGULAR_TILES) {
+                    setInstalledTileCountInput(String(MIN_TRIANGULAR_TILES));
+                  }
+                }}
+                keyboardType="number-pad"
+                selectTextOnFocus
+                style={[styles.tileCountValue, { color: c.text }]}
+                accessibilityLabel="Number of installed triangular tiles"
+              />
+              <Pressable
+                onPress={() => adjustTileCount(1)}
+                style={styles.tileCountButton}
+                accessibilityRole="button"
+                accessibilityLabel="Add one installed tile"
+              >
+                <Ionicons name="add" size={scale(22)} color="#F97316" />
+              </Pressable>
+            </View>
+            <Text style={[styles.tileCountHint, { color: c.muted }]}>
+              Minimum 6 tiles. You can enter your full installed count.
+            </Text>
+          </View>
+          <Pressable
+            onPress={continueToRooms}
+            style={styles.continueButton}
+            accessibilityRole="button"
+          >
+            <Text style={styles.continueText}>Continue to Room Setup</Text>
+            <Ionicons name="arrow-forward" size={scale(17)} color="#FFFFFF" />
+          </Pressable>
+        </>
+      ) : (
+        <>
+          <View style={[styles.limitNote, { backgroundColor: c.surface }]}>
+            <Ionicons name="information-circle-outline" size={scale(17)} color="#F97316" />
+            <Text style={[styles.limitText, { color: c.muted }]}>
+              {Number(installedTileCountInput)} tiles recorded. Up to 5 rooms per channel and 5 bulbs per room.
+            </Text>
+          </View>
 
-      {channels.map((channel, channelIndex) => (
+          {channels.map((channel, channelIndex) => (
         <View
           key={`channel-${channelIndex + 1}`}
           style={[styles.channelCard, { backgroundColor: c.surface, borderColor: c.line }]}
@@ -254,18 +399,34 @@ export default function DeviceSetupScreen() {
             </View>
           ))}
         </View>
-      ))}
+          ))}
 
-      {error ? <Text style={styles.error}>{error}</Text> : null}
-      <Pressable
-        onPress={() => void finishSetup()}
-        disabled={saving}
-        style={[styles.continueButton, saving && { opacity: 0.65 }]}
-        accessibilityRole="button"
-      >
-        <Text style={styles.continueText}>{saving ? "Saving..." : "Save and Continue"}</Text>
-        <Ionicons name="arrow-forward" size={scale(17)} color="#FFFFFF" />
-      </Pressable>
+          {error ? <Text style={styles.error}>{error}</Text> : null}
+          <View style={styles.roomActions}>
+            <Pressable
+              onPress={() => {
+                setError("");
+                setSetupStep("tiles");
+              }}
+              style={[styles.backButton, { borderColor: c.line }]}
+              accessibilityRole="button"
+            >
+              <Ionicons name="arrow-back" size={scale(17)} color={c.text} />
+              <Text style={[styles.backText, { color: c.text }]}>Tiles</Text>
+            </Pressable>
+            <Pressable
+              onPress={() => void finishSetup()}
+              disabled={saving}
+              style={[styles.continueButton, styles.saveButton, saving && { opacity: 0.65 }]}
+              accessibilityRole="button"
+            >
+              <Text style={styles.continueText}>{saving ? "Saving..." : "Save and Continue"}</Text>
+              <Ionicons name="arrow-forward" size={scale(17)} color="#FFFFFF" />
+            </Pressable>
+          </View>
+        </>
+      )}
+      {setupStep === "tiles" && error ? <Text style={styles.error}>{error}</Text> : null}
     </ScreenShell>
   );
 }
@@ -278,6 +439,17 @@ const styles = StyleSheet.create({
   heading: { fontSize: scale(20), fontFamily: fonts.extrabold, marginTop: scale(2) },
   subtitle: { fontSize: scale(9), fontFamily: fonts.medium, lineHeight: scale(14), marginTop: scale(3) },
   limitNote: { flexDirection: "row", alignItems: "center", gap: scale(7), padding: scale(11), borderRadius: scale(12), marginBottom: scale(12) },
+  tileCountCard: { alignItems: "center", borderWidth: 1, borderRadius: scale(18), padding: scale(22), marginTop: scale(8), marginBottom: scale(14) },
+  tileCountIcon: { width: scale(58), height: scale(58), borderRadius: scale(18), backgroundColor: "rgba(249,115,22,0.14)", alignItems: "center", justifyContent: "center", marginBottom: scale(14) },
+  tileCountLabel: { fontSize: scale(9), letterSpacing: 1.1, fontFamily: fonts.extrabold, textAlign: "center" },
+  tileCountStepper: { flexDirection: "row", alignItems: "center", gap: scale(28), marginTop: scale(14), marginBottom: scale(10) },
+  tileCountButton: { width: scale(44), height: scale(44), borderRadius: scale(14), backgroundColor: "rgba(249,115,22,0.14)", alignItems: "center", justifyContent: "center" },
+  disabledButton: { opacity: 0.45 },
+  tileCountValue: { minWidth: scale(74), textAlign: "center", fontSize: scale(38), fontFamily: fonts.extrabold, padding: 0 },
+  tileCountHint: { fontSize: scale(9), fontFamily: fonts.medium, textAlign: "center" },
+  roomActions: { flexDirection: "row", alignItems: "center", gap: scale(9), marginTop: scale(5), marginBottom: scale(24) },
+  backButton: { minHeight: scale(49), borderWidth: 1, borderRadius: scale(15), paddingHorizontal: scale(13), flexDirection: "row", alignItems: "center", justifyContent: "center", gap: scale(6) },
+  backText: { fontSize: scale(10), fontFamily: fonts.bold },
   limitText: { flex: 1, fontSize: scale(9), fontFamily: fonts.medium },
   channelCard: { borderWidth: 1, borderRadius: scale(16), padding: scale(12), marginBottom: scale(10) },
   channelHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
@@ -296,6 +468,7 @@ const styles = StyleSheet.create({
   bulbButton: { width: scale(28), height: scale(28), borderRadius: scale(8), backgroundColor: "rgba(249,115,22,0.14)", alignItems: "center", justifyContent: "center" },
   bulbValue: { minWidth: scale(16), textAlign: "center", fontSize: scale(12), fontFamily: fonts.extrabold },
   error: { color: "#C2410C", fontSize: scale(9), fontFamily: fonts.bold, marginBottom: scale(9) },
-  continueButton: { minHeight: scale(49), borderRadius: scale(15), backgroundColor: "#F97316", flexDirection: "row", alignItems: "center", justifyContent: "center", gap: scale(8), marginTop: scale(5), marginBottom: scale(24) },
+  continueButton: { minHeight: scale(49), borderRadius: scale(15), backgroundColor: "#F97316", flexDirection: "row", alignItems: "center", justifyContent: "center", gap: scale(8), marginTop: scale(5), marginBottom: scale(24), paddingHorizontal: scale(16) },
+  saveButton: { flex: 1, marginBottom: 0 },
   continueText: { color: "#FFFFFF", fontSize: scale(12), fontFamily: fonts.extrabold },
 });

@@ -1,6 +1,5 @@
-﻿import React, { useEffect, useRef } from "react";
+import React, { useEffect, useRef } from "react";
 import { Animated, Pressable, ScrollView, StyleSheet, View } from "react-native";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { AppText as Text } from "../../../components/app-text";
@@ -8,7 +7,6 @@ import { Card, SectionHead, scale, NAVY } from "../../../components/glass-ui";
 import { TourSpot } from "../../../components/app-tour-overlay";
 import { Mode, ThemeColors, fonts } from "../../../theme";
 import { st } from "./home-styles";
-import Paho from "paho-mqtt";
 import { useRouter, type Href } from "expo-router";
 
 const BRAND_ORANGE = "#F5A220";
@@ -172,8 +170,8 @@ function ZoneSwitch({
 }
 
 export type DashboardZone = { id: string; name: string; source: string; detail: string; on: boolean };
-type Props = { c: ThemeColors; mode: Mode; usingGrid: boolean; activeOrange: string; activeOrangeDark: string; activeAccent: string; activeAccentSoft: string; gridActive: boolean; isActive: boolean; router: ReturnType<typeof useRouter>; zones: DashboardZone[]; setZones: React.Dispatch<React.SetStateAction<DashboardZone[]>>; activeTile: number | null; setActiveTile: React.Dispatch<React.SetStateAction<number | null>>; mqttClientRef: React.MutableRefObject<Paho.Client | null>; footsteps: number; dynamicKwhHarvested: string; accent: (alpha?: number) => string; };
-export function DashboardActions({ c, mode, usingGrid, activeOrange, activeOrangeDark, activeAccent, activeAccentSoft, gridActive, isActive, router, zones, setZones, activeTile, setActiveTile, mqttClientRef, footsteps, dynamicKwhHarvested, accent }: Props) { return (
+type Props = { c: ThemeColors; mode: Mode; usingGrid: boolean; activeOrange: string; activeOrangeDark: string; activeAccent: string; activeAccentSoft: string; gridActive: boolean; isActive: boolean; router: ReturnType<typeof useRouter>; zones: DashboardZone[]; onZoneToggle: (zoneId: string) => void; activeTile: number | null; setActiveTile: React.Dispatch<React.SetStateAction<number | null>>; footsteps: number; dynamicKwhHarvested: string; accent: (alpha?: number) => string; };
+export function DashboardActions({ c, mode, usingGrid, activeOrange, activeOrangeDark, activeAccent, activeAccentSoft, gridActive, isActive, router, zones, onZoneToggle, activeTile, setActiveTile, footsteps, dynamicKwhHarvested, accent }: Props) { return (
   <>
         <View style={st.quickActionsSection}>
           <Text style={[st.quickActionsTitle, { color: c.text }]}>
@@ -472,37 +470,7 @@ export function DashboardActions({ c, mode, usingGrid, activeOrange, activeOrang
                           <ZoneSwitch
                             on={live}
                             mode={mode}
-                            onToggle={async () => {
-                              const nextState = !z.on;
-                              setZones((zs) =>
-                                zs.map((x) =>
-                                  x.id === z.id ? { ...x, on: nextState } : x,
-                                ),
-                              );
-
-                              if (
-                                mqttClientRef.current &&
-                                mqttClientRef.current.isConnected()
-                              ) {
-                                const hubId =
-                                  await AsyncStorage.getItem(
-                                    "bawatpieza_hub_id",
-                                  );
-                                if (hubId) {
-                                  // DIRECT MAPPING: App ON -> sends 'charger_on' (Energizes Relay Coil -> Closes NO Contact)
-                                  const commandPayload = JSON.stringify({
-                                    command: nextState
-                                      ? "charger_on"
-                                      : "charger_off",
-                                  });
-                                  const message = new Paho.Message(
-                                    commandPayload,
-                                  );
-                                  message.destinationName = `bawatpieza/devices/${hubId}/commands`;
-                                  mqttClientRef.current.send(message);
-                                }
-                              }
-                            }}
+                            onToggle={() => onZoneToggle(z.id)}
                             gridActive={gridActive}
                           />
                         </View>

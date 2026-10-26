@@ -49,6 +49,14 @@ to read is the address the app actually used.
 6. Profile → **Device** runs the built-in diagnostic (`/health`) and prints the
    resolved address plus latency for Backend API, Supabase, and Redis.
 
+## Device disconnect returns HTTP 404
+
+The disconnect route is compiled into `backend/dist/`. Restarting a backend
+that runs `node dist/index.js` does not rebuild that output. Stop the backend,
+run `npm run build` from `backend/`, then start it again with `npm start`. For
+a hosted backend, ensure its deployment build runs `npm run build` before the
+start command and redeploy it.
+
 ## `npm run android` fails: "Failed to resolve the Android SDK path" / `'adb' is not recognized`
 
 `expo start --android` launches a device through `adb`, so it needs the Android

@@ -170,6 +170,47 @@ export function ProvisioningScreen() {
     if (onConfirm) onConfirm();
   };
 
+  const savePairingAndContinue = async (hubId: string) => {
+    if (!user?.id) {
+      showModal(
+        "Sign-in Required",
+        "Sign in again before saving this hub to your account.",
+        "error",
+      );
+      return;
+    }
+
+    setIsConnecting(true);
+    try {
+      const { error: pairingError } = await supabase
+        .from("device_pairings")
+        .upsert(
+          {
+            hub_id: hubId,
+            user_id: user.id,
+            last_connected: new Date().toISOString(),
+          },
+          { onConflict: "hub_id" },
+        );
+      if (pairingError) throw pairingError;
+
+      router.replace({
+        pathname: "/pages/device-setup",
+        params: { hubId },
+      });
+    } catch (pairingError) {
+      console.error("[provisioning] Could not save device pairing:", pairingError);
+      showModal(
+        "Pairing Not Saved",
+        "The hub is configured, but your account could not save the pairing. Reconnect your phone to Wi-Fi with internet access, then tap Retry.",
+        "error",
+        () => void savePairingAndContinue(hubId),
+      );
+    } finally {
+      setIsConnecting(false);
+    }
+  };
+
   const openWifiSettings = () => {
     const open =
       Platform.OS === "android"
@@ -224,34 +265,13 @@ export function ProvisioningScreen() {
             await AsyncStorage.setItem(deviceSetupRequiredKey(user.id), "1");
           }
 
-          if (user?.id) {
-            const { error: pairingError } = await supabase
-              .from("device_pairings")
-              .upsert({
-                hub_id: hubId,
-                user_id: user.id,
-                last_connected: new Date().toISOString(),
-              });
-            if (pairingError) {
-              console.warn(
-                "[provisioning] Could not save device pairing for shared access:",
-                pairingError.message,
-              );
-            }
-          }
-
           setIsConnecting(false);
           // Show the warning modal to ensure they reconnect to internet
           showModal(
             "Hub Configured!",
             "The hub is successfully restarting to join your network.\n\nIMPORTANT: You must open your phone's Wi-Fi settings and reconnect to a network with internet BEFORE you tap Continue.",
             "warning", // Use the new warning style
-            () => {
-              router.replace({
-                pathname: "/pages/device-setup",
-                params: { hubId },
-              });
-            },
+            () => void savePairingAndContinue(hubId),
           );
         } else {
           setIsConnecting(false);
@@ -809,7 +829,9 @@ export function ProvisioningScreen() {
               <Text style={[styles.modalButtonText, { color: c.onAccent }]}>
                 {modalConfig.type === "warning" ||
                 modalConfig.type === "success"
-                  ? "Continue to Dashboard"
+                  ? "Continue to Device Setup"
+                  : modalConfig.onConfirm
+                    ? "Retry"
                   : "Got it"}
               </Text>
             </Pressable>

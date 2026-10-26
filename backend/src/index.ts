@@ -12,6 +12,7 @@ import notificationsRouter from './routes/notifications.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { connectRedis, disconnectRedis } from './lib/redis.js';
 import { verifyMailer } from './lib/mailer.js';
+import { startBatteryMilestoneListener } from './lib/batteryMilestoneListener.js';
 
 const app = express();
 
@@ -57,9 +58,11 @@ async function main(): Promise<void> {
   const server = app.listen(PORT, () => {
     console.log(`API listening on http://localhost:${PORT}`);
   });
+  const stopBatteryMilestoneListener = startBatteryMilestoneListener();
 
   const shutdown = async (signal: string): Promise<void> => {
     console.log(`${signal} received, shutting down...`);
+    stopBatteryMilestoneListener();
     server.close(async () => {
       await disconnectRedis();
       process.exit(0);

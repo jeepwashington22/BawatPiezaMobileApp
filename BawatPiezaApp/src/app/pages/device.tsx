@@ -1,5 +1,5 @@
 import { fonts, useTheme, type ThemeColors } from "../../theme";
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
   StyleSheet,
@@ -13,6 +13,7 @@ import { ScreenShell } from "../../components/screen-shell";
 import { ContentCard } from "../../components/content-card";
 import { useRouter } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { supabase } from "../../lib/supabase";
 
 // @ts-ignore
 import Paho from "paho-mqtt";
@@ -26,6 +27,7 @@ export default function DeviceScreen() {
   const BAD = c.danger;
 
   const [hubId, setHubId] = useState<string | null>(null);
+  const [canUnlink, setCanUnlink] = useState(false);
   const [unlinking, setUnlinking] = useState(false);
   const [restarting, setRestarting] = useState(false);
 
@@ -50,7 +52,88 @@ export default function DeviceScreen() {
   });
 
   useEffect(() => {
-    AsyncStorage.getItem("bawatpieza_hub_id").then(setHubId);
+    // Fast-path: Load from local storage immediately so UI doesn't wait
+    AsyncStorage.getItem("bawatpieza_hub_id").then((id) => {
+      if (id) {
+        setHubId(id);
+        setCanUnlink(true);
+      }
+    });
+
+    let cancelled = false;
+    let checking = false;
+
+    const refreshDeviceAccess = async () => {
+      if (checking) return;
+      checking = true;
+      try {
+        const { data: authData } = await supabase.auth.getSession();
+        const user = authData.session?.user;
+
+        if (!user) {
+          // If completely logged out, clear the screen
+          await Promise.all([
+            AsyncStorage.removeItem("bawatpieza_hub_id"),
+            AsyncStorage.removeItem("bawatpieza_shared_access"),
+          ]);
+          if (!cancelled) {
+            setHubId(null);
+            setCanUnlink(false);
+          }
+          return;
+        }
+
+        const localHubId = await AsyncStorage.getItem("bawatpieza_hub_id");
+
+        // Use limit(1) instead of single() to prevent crashes if there are duplicate test rows
+        const { data: pairings, error } = await supabase
+          .from("device_pairings")
+          .select("hub_id")
+          .eq("user_id", user.id)
+          .limit(1);
+
+        if (!cancelled) {
+          if (pairings && pairings.length > 0 && pairings[0].hub_id) {
+            // DB has the pairing, sync it to local UI
+            const dbHubId = pairings[0].hub_id;
+            await AsyncStorage.setItem("bawatpieza_hub_id", dbHubId);
+            setHubId(dbHubId);
+            setCanUnlink(true);
+          } else if (localHubId) {
+            // DB read failed or returned empty, but phone remembers the hub.
+            // TRUST THE PHONE. Do not wipe the UI.
+            setHubId(localHubId);
+            setCanUnlink(true);
+
+            // Quietly attempt to repair the DB row, but ignore errors if RLS blocks it
+            try {
+              await supabase.from("device_pairings").upsert(
+                {
+                  hub_id: localHubId,
+                  user_id: user.id,
+                  last_connected: new Date().toISOString(),
+                },
+                { onConflict: "hub_id" },
+              );
+            } catch (e) {
+              // ignore silently
+            }
+          }
+        }
+      } catch (error) {
+        console.warn("[device] failed to refresh device access", error);
+      } finally {
+        checking = false;
+      }
+    };
+
+    void refreshDeviceAccess();
+    // check every 5 seconds instead of 15 for faster UI updates
+    const interval = setInterval(() => void refreshDeviceAccess(), 5000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
   }, []);
 
   // === REAL-TIME STATUS WATCHDOG ===
@@ -194,7 +277,7 @@ export default function DeviceScreen() {
             const message = new Paho.Message(
               JSON.stringify({ command: "restart" }),
             );
-            message.destinationName = `bawatpieza/devices/${hubId}/command`;
+            message.destinationName = `bawatpieza/devices/${hubId}/commands`;
             client.send(message);
 
             setTimeout(() => {
@@ -239,27 +322,48 @@ export default function DeviceScreen() {
   // --- UNLINK LOGIC ---
   const confirmUnlink = () => {
     showModal(
-      "Unlink Hub",
-      "This will remove the hub from your account and force the hardware back into setup mode. Are you sure?",
+      canUnlink ? "Unlink Hub" : "Disconnect Shared Device",
+      canUnlink
+        ? "This will remove the hub from your account, revoke access for all shared users, and force the hardware back into setup mode. Are you sure?"
+        : "This will remove your shared access to this device. The owner's connection will not be affected. Are you sure?",
       "warning",
       true,
       performUnlink,
-      "Unlink",
+      canUnlink ? "Unlink" : "Disconnect",
     );
   };
 
   const performUnlink = async () => {
     setUnlinking(true);
 
-    if (hubId) {
-      try {
+    try {
+      const { data } = await supabase.auth.getSession();
+      const user = data.session?.user;
+      if (!user) throw new Error("Your session expired. Please sign in again.");
+
+      // delete directly from supabase instead of api endpoint
+      const { error } = await supabase
+        .from("device_pairings")
+        .delete()
+        .eq("hub_id", hubId)
+        .eq("user_id", user.id);
+
+      if (error) throw error;
+
+      await Promise.all([
+        AsyncStorage.removeItem("bawatpieza_hub_id"),
+        AsyncStorage.removeItem("bawatpieza_shared_access"),
+      ]);
+      setHubId(null);
+      setCanUnlink(false);
+
+      if (hubId && canUnlink) {
         const client = new Paho.Client(
           "broker.hivemq.com",
           8000,
           "/mqtt",
           "app_cmd_" + Math.random().toString(16).substring(2, 10),
         );
-
         client.connect({
           useSSL: false,
           timeout: 5,
@@ -267,29 +371,35 @@ export default function DeviceScreen() {
             const message = new Paho.Message(
               JSON.stringify({ command: "reset" }),
             );
-            message.destinationName = `bawatpieza/devices/${hubId}/command`;
+            message.destinationName = `bawatpieza/devices/${hubId}/commands`;
             client.send(message);
-
             setTimeout(() => client.disconnect(), 500);
           },
-          onFailure: (err: any) => {
-            console.log("MQTT Unlink failed", err);
+          onFailure: (error: unknown) => {
+            console.warn("[device] hub reset after unlink failed", error);
           },
         });
-      } catch (error) {
-        console.log("MQTT Error", error);
       }
+
+      showModal(
+        canUnlink ? "Unlinked" : "Disconnected",
+        canUnlink
+          ? "The device was removed from your account. Shared users have lost access."
+          : "Your shared access to this device has been removed.",
+        "success",
+      );
+    } catch (error) {
+      console.error("[device] failed to unlink hub", error);
+      showModal(
+        "Unlink failed",
+        error instanceof Error
+          ? error.message
+          : "The device could not be unlinked.",
+        "error",
+      );
+    } finally {
+      setUnlinking(false);
     }
-
-    await AsyncStorage.removeItem("bawatpieza_hub_id");
-    setHubId(null);
-    setUnlinking(false);
-
-    showModal(
-      "Unlinked",
-      "The device has been successfully removed.",
-      "success",
-    );
   };
 
   return (
@@ -316,7 +426,7 @@ export default function DeviceScreen() {
                   onPress={restarting ? undefined : confirmUnlink}
                   style={[styles.rerun, { color: BAD }]}
                 >
-                  Unlink
+                  {canUnlink ? "Unlink" : "Disconnect"}
                 </Text>
               )}
             </View>

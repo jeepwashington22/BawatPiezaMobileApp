@@ -28,26 +28,16 @@ export function QuickOverridesModal({ visible, onClose }: Props) {
   const gridActive = override === "grid";
   const powerStops = gridActive ? GRID_STOPS : ORANGE_STOPS;
 
-  const handleForceGrid = () => {
-    setOverride("grid");
-    setTimeout(() => onClose(), 400);
-  };
-
-  const handleForceBattery = () => {
-    setOverride("battery");
-    setTimeout(() => onClose(), 400);
-  };
-
-  const handleShutdown = () => {
-    setOverride("shutdown");
-    setTimeout(() => onClose(), 400);
+  const handleOverride = (mode: "grid" | "battery" | "shutdown") => {
+    void setOverride(mode);
+    onClose();
   };
 
   return (
     <Modal
       visible={visible}
       transparent
-      animationType="slide"
+      animationType="none"
       onRequestClose={onClose}
       statusBarTranslucent
       navigationBarTranslucent
@@ -100,21 +90,21 @@ export function QuickOverridesModal({ visible, onClose }: Props) {
               label="Force Grid"
               active={override === "grid"}
               color={GRID_GREEN}
-              onPress={handleForceGrid}
+              onPress={() => handleOverride("grid")}
             />
             <OverrideButton
               icon="flash"
               label="Force Battery"
               active={override === "battery"}
               color={ORANGE}
-              onPress={handleForceBattery}
+              onPress={() => handleOverride("battery")}
             />
             <OverrideButton
               icon="power"
               label="Shutdown"
               active={override === "shutdown"}
               color="#DC2626"
-              onPress={handleShutdown}
+              onPress={() => handleOverride("shutdown")}
             />
           </View>
 

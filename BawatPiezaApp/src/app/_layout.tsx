@@ -112,63 +112,69 @@ function AuthedShell({ fontsLoaded }: { fontsLoaded: boolean }) {
     }
 
     let cancelled = false;
-    (async () => {
-      let access = false;
+    let checking = false;
+    const refreshAccess = async () => {
+      if (checking) return;
+      checking = true;
       try {
-        // 1. Own paired device — instant, local storage.
-        const hubId = await AsyncStorage.getItem(DEVICE_STORAGE_KEY);
-        if (hubId) {
-          access = true;
-        } else {
-          // 2. Ask the backend which hub this account can access (own or shared owner).
-          // GET /accounts/device-access returns hub_id for own pairings or
-          // device_access grants created from accepted share_invites.
-          try {
-            const { data } = await supabase.auth.getSession();
-            const token = data.session?.access_token ?? null;
-            if (token) {
-              const res = await apiFetch("/accounts/device-access", {
-                headers: { Authorization: `Bearer ${token}` },
-                timeoutMs: 8_000,
-              });
-              if (res.ok) {
-                const json = (await res.json().catch(() => null)) as {
-                  hub_id?: string | null;
-                  access_granted?: boolean;
-                } | null;
-                const apiHubId = json?.hub_id ?? null;
-                if (apiHubId) {
-                  // Persist locally so individual screens (home, device, MQTT, …)
-                  // work without another API round trip.
-                  await AsyncStorage.setItem(DEVICE_STORAGE_KEY, apiHubId);
-                  access = true;
-                } else if (json?.access_granted) {
-                  access = true;
-                }
-              }
-            }
-          } catch {
-            // Best-effort: an unreachable backend counts as "not shared".
-          }
-
-          // 3. Offline fallback: local shared-access flag set at invite-accept time.
-          if (!access) {
-            const sharedFlag = await AsyncStorage.getItem(SHARED_ACCESS_KEY);
-            if (sharedFlag === "1") {
-              access = true;
-            }
-          }
+        const { data } = await supabase.auth.getSession();
+        const token = data.session?.access_token ?? null;
+        if (!token) {
+          await Promise.all([
+            AsyncStorage.removeItem(DEVICE_STORAGE_KEY),
+            AsyncStorage.removeItem(SHARED_ACCESS_KEY),
+          ]);
+          if (!cancelled) setHasAccess(false);
+          return;
         }
-      } catch {
-        // Storage read failure — fail closed.
+
+        const res = await apiFetch("/accounts/device-access", {
+          headers: { Authorization: `Bearer ${token}` },
+          timeoutMs: 8_000,
+        });
+        if (!res.ok) {
+          throw new Error(`Device access check failed (${res.status})`);
+        }
+        const json = (await res.json()) as {
+          hub_id?: string | null;
+          access_granted?: boolean;
+          can_unlink?: boolean;
+        };
+        const apiHubId = json.hub_id ?? null;
+        const access = Boolean(json.access_granted && apiHubId);
+        if (access && apiHubId) {
+          await AsyncStorage.setItem(DEVICE_STORAGE_KEY, apiHubId);
+          if (json.can_unlink === false) {
+            await AsyncStorage.setItem(SHARED_ACCESS_KEY, "1");
+          } else {
+            await AsyncStorage.removeItem(SHARED_ACCESS_KEY);
+          }
+        } else {
+          await Promise.all([
+            AsyncStorage.removeItem(DEVICE_STORAGE_KEY),
+            AsyncStorage.removeItem(SHARED_ACCESS_KEY),
+          ]);
+        }
+        if (!cancelled) setHasAccess(access);
+      } catch (error) {
+        console.warn("[device-access] failed to refresh access", error);
+        try {
+          const cachedHubId = await AsyncStorage.getItem(DEVICE_STORAGE_KEY);
+          if (!cancelled) setHasAccess(Boolean(cachedHubId));
+        } catch (storageError) {
+          console.warn("[device-access] failed to read cached access", storageError);
+        }
+      } finally {
+        if (!cancelled) setGateReady(true);
+        checking = false;
       }
-      if (!cancelled) {
-        setHasAccess(access);
-        setGateReady(true);
-      }
-    })();
+    };
+
+    void refreshAccess();
+    const interval = setInterval(() => void refreshAccess(), 15_000);
     return () => {
       cancelled = true;
+      clearInterval(interval);
     };
   }, [ready, isLoggedIn]);
 

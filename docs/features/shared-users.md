@@ -15,6 +15,11 @@
 
 The invite is a **two-step** handshake: an invite does not grant access by
 itself — the invited user must accept, and only then are they a *shared user*.
+After acceptance, the owner and shared user connect to the same hub telemetry
+and can see the current Grid, Battery, or Shutdown override selected on the
+device. If the owner unlinks the hub, the pairing is deleted and the shared
+user's device grant is removed with it; the app clears the cached hub and shows
+that no device is connected.
 
 1. **Invite.** On the account tab the user taps **＋ Invite existing user**. A
    popup loads `GET /accounts/invitable` — the list of *active* accounts that
