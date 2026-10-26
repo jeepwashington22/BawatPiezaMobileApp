@@ -10,6 +10,7 @@
 #include <Adafruit_INA219.h>
 #include <HTTPClient.h> 
 #include <Update.h>
+#include <PZEM004Tv30.h> // added pzem library
 
 #define SCREEN_WIDTH 128
 #define SCREEN_HEIGHT 64
@@ -18,22 +19,25 @@
 #define PIN_RESET_BTN 0  
 #define PIN_BUZZER    14 
 
+// === PZEM-004T V3 PINS ===
+#define PZEM_RX_PIN 16
+#define PZEM_TX_PIN 17
+
 // === CAPACITOR BUCKET DUMP PINS & THRESHOLDS ===
-#define PIN_CAP_VOLTS    34  // Reads 100k/22k Voltage Divider
-#define PIN_DUMP_TRIGGER 26  // Drives 2N5551 Base to trigger MOSFET/Dump
+#define PIN_CAP_VOLTS    34  
+#define PIN_DUMP_TRIGGER 26  
 
 // === RELAY MODULE SETTINGS ===
 #define PIN_RELAY_CHARGER 27 
-#define PIN_RELAY_CH7     32 // Relay CH7 (Grid Power)
-#define PIN_RELAY_CH8     33 // Relay CH8 (Battery Power)
+#define PIN_RELAY_CH7     32 
+#define PIN_RELAY_CH8     33 
 
-// updated to active-low logic for standard relay modules
 #define RELAY_ON  LOW
 #define RELAY_OFF HIGH
 
-const float VOLTAGE_MULTIPLIER   = 5.545; // (100k + 22k) / 22k
-const float TARGET_DUMP_VOLTAGE  = 6.0;   // Open dump at 6.0V
-const float STOP_DUMP_VOLTAGE    = 5.0;   // Close dump below 5.0V
+const float VOLTAGE_MULTIPLIER   = 5.545; 
+const float TARGET_DUMP_VOLTAGE  = 6.0;   
+const float STOP_DUMP_VOLTAGE    = 5.0;   
 
 // === TCA9548A MULTIPLEXER ADDRESS ===
 #define TCAADDR 0x70
@@ -47,6 +51,7 @@ float currentCapacity_mAh       = 0.0;
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 Adafruit_INA219 ina_dynamo;  
 Adafruit_INA219 ina_battery; 
+PZEM004Tv30 pzem(Serial2, PZEM_RX_PIN, PZEM_TX_PIN); // added pzem object
 
 Preferences preferences;
 WebServer server(80);
@@ -58,13 +63,13 @@ PubSubClient mqtt(espClient);
 const char* mqtt_broker = "broker.hivemq.com"; 
 const int mqtt_port     = 1883; 
 
-// SUPABASE CREDENTIALS
 const char* supabase_url = "https://qbajmzjrnkxbsexzdixs.supabase.co/rest/v1/kinetic_logs";
 const char* supabase_key = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFiYWptempybmt4YnNleHpkaXhzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODgwMDM1ODUsImV4cCI6MjEwMzU3OTU4NX0.90OEN6du1xSn725B7DHijW2KrmeB4ZdyAhzbe6r1ZlU"; 
 
 bool isConfigured          = false;
 bool isDumping             = false;
 bool isChargerOn           = false; 
+String currentPowerMode    = "shutdown";
 unsigned long dumpStartTime = 0;
 
 unsigned long lastDisplayUpdate   = 0;
@@ -153,7 +158,6 @@ void resetWifiSettings() {
   ESP.restart();
 }
 
-// === SCALED FOR 4S (12.8V) LiFePO4 ===
 int getLiFePO4Percentage(float voltage) {
   const int numPoints = 9;
   float volts[numPoints]   = {10.00, 11.20, 12.00, 12.40, 12.80, 13.00, 13.20, 13.40, 14.40};
@@ -173,13 +177,12 @@ int getLiFePO4Percentage(float voltage) {
   return 0;
 }
 
-// === SAFE I2C VOLTAGE READ (Prevents transient 0V display drops) ===
 float getSafeBatteryVoltage() {
   tcaselect(0);
   float v = ina_battery.getBusVoltage_V();
   if (isnan(v) || v < 1.0) {
     delay(5);
-    v = ina_battery.getBusVoltage_V(); // Retry once on I2C noise
+    v = ina_battery.getBusVoltage_V(); 
   }
   return (isnan(v)) ? 0.0 : v;
 }
@@ -253,34 +256,50 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
         isChargerOn = false;
         digitalWrite(PIN_RELAY_CHARGER, RELAY_OFF);
         updateOLED("CHARGER", "Relay OFF", "");
-      } else if (doc["command"] == "force_battery") {
-        digitalWrite(PIN_RELAY_CH7, RELAY_OFF);
-        digitalWrite(PIN_RELAY_CH8, RELAY_ON);
-        updateOLED("POWER", "Force Battery", "CH8 ON | CH7 OFF");
+      } else if (doc["command"] == "force_battery" || doc["command"] == "force_grid" || doc["command"] == "force_shutdown") {
+        
+        bool grid_on = false;
+        bool bat_on = false;
+        String modeName = "";
+
+        if (doc["command"] == "force_grid") {
+          grid_on = true;
+          bat_on = true;
+          modeName = "Force Grid";
+        } else if (doc["command"] == "force_battery") {
+          grid_on = false;
+          bat_on = true;
+          modeName = "Force Battery";
+        } else if (doc["command"] == "force_shutdown") {
+          grid_on = false;
+          bat_on = false;
+          modeName = "Force Shutdown";
+        }
+
+        if (doc.containsKey("grid_relay")) grid_on = doc["grid_relay"].as<bool>();
+        if (doc.containsKey("battery_relay")) bat_on = doc["battery_relay"].as<bool>();
+
+        currentPowerMode = grid_on ? "grid" : bat_on ? "battery" : "shutdown";
+        digitalWrite(PIN_RELAY_CH7, grid_on ? RELAY_ON : RELAY_OFF);
+        digitalWrite(PIN_RELAY_CH8, bat_on ? RELAY_ON : RELAY_OFF);
+
+        String oledStatus = String("CH7 ") + (grid_on ? "ON" : "OFF") + " | CH8 " + (bat_on ? "ON" : "OFF");
+        updateOLED("POWER", modeName, oledStatus);
         beepSuccess();
-      } else if (doc["command"] == "force_grid") {
-        digitalWrite(PIN_RELAY_CH7, RELAY_ON);
-        digitalWrite(PIN_RELAY_CH8, RELAY_OFF);
-        updateOLED("POWER", "Force Grid", "CH7 ON | CH8 OFF");
-        beepSuccess();
-      } else if (doc["command"] == "force_shutdown") {
-        digitalWrite(PIN_RELAY_CH7, RELAY_OFF);
-        digitalWrite(PIN_RELAY_CH8, RELAY_OFF);
-        updateOLED("POWER", "Force Shutdown", "CH7 & CH8 OFF");
-        beepSuccess();
+
       } else if (doc["command"] == "ota_update") {
         if (doc.containsKey("url")) {
           String url = doc["url"].as<String>();
           performOTA(url);
         }
-      } else if (doc["command"] == "calibrate_full") { // NEW: Force SOC to 100%
+      } else if (doc["command"] == "calibrate_full") { 
         currentCapacity_mAh = TOTAL_CAPACITY_MAH;
         preferences.begin("battery", false);
         preferences.putFloat("mah", currentCapacity_mAh);
         preferences.end();
         updateOLED("CALIBRATED", "SOC: 100%", "60000 mAh Saved");
         beepSuccess();
-      } else if (doc["command"] == "recalibrate_voltage") { // NEW: Force reset SOC to curve
+      } else if (doc["command"] == "recalibrate_voltage") { 
         float v = getSafeBatteryVoltage();
         if (v > 6.0) {
           int pct = getLiFePO4Percentage(v);
@@ -384,9 +403,6 @@ void setup() {
   int bootPct = getLiFePO4Percentage(bootVolts);
   float voltageCapacity_mAh = (bootPct / 100.0) * TOTAL_CAPACITY_MAH;
 
-  // RECALIBRATION RULE:
-  // Reset NVS if uninitialized (-1.0), fully charged (>=14.0V), OR if voltage indicates 
-  // battery is substantially higher than stored capacity (e.g. off-board charging occurred).
   if (currentCapacity_mAh == -1.0 || bootVolts >= 14.00 || (voltageCapacity_mAh - currentCapacity_mAh) > (0.20 * TOTAL_CAPACITY_MAH)) {
     currentCapacity_mAh = voltageCapacity_mAh;
     preferences.putFloat("mah", currentCapacity_mAh);
@@ -395,6 +411,9 @@ void setup() {
 
   mqtt.setServer(mqtt_broker, mqtt_port);
   mqtt.setCallback(mqttCallback); 
+  if (!mqtt.setBufferSize(768)) {
+    Serial.println("[MQTT] Failed to allocate telemetry buffer");
+  }
 
   preferences.begin("wifi-config", true);
   String ssid = preferences.getString("ssid", "");
@@ -586,6 +605,13 @@ void loop() {
   if (currentMillis - lastSerialPrint >= 1000) {
     lastSerialPrint = currentMillis;
 
+    // pzem reads
+    float pzem_v = pzem.voltage();
+    float pzem_i = pzem.current();
+    float pzem_w = pzem.power();
+    float pzem_e = pzem.energy();
+    if (isnan(pzem_v)) { pzem_v = 0; pzem_i = 0; pzem_w = 0; pzem_e = 0; }
+
     tcaselect(2); 
     float dyn_v  = ina_dynamo.getBusVoltage_V();
     float dyn_ma_raw = abs(ina_dynamo.getCurrent_mA()); 
@@ -628,6 +654,10 @@ void loop() {
     Serial.print("V | Current: "); Serial.print(bat_a, 3);
     Serial.print(" A | Load Power: "); Serial.print(bat_w, 3); Serial.println(" W");
 
+    Serial.print("[GRID POWER]     Volts: "); Serial.print(pzem_v, 1);
+    Serial.print("V | Current: "); Serial.print(pzem_i, 3);
+    Serial.print(" A | Power: "); Serial.print(pzem_w, 1); Serial.println(" W");
+
     Serial.print("[STATE OF CHARGE] Capacity: "); Serial.print(currentCapacity_mAh, 0);
     Serial.print(" / "); Serial.print(TOTAL_CAPACITY_MAH, 0);
     Serial.print(" mAh ("); Serial.print(bat_pct); Serial.println("%)");
@@ -651,6 +681,13 @@ void loop() {
 
     if (currentMillis - lastTelemetryPublish >= 1500) {
       lastTelemetryPublish = currentMillis;
+
+      // pzem reads for mqtt
+      float pzem_v = pzem.voltage();
+      float pzem_i = pzem.current();
+      float pzem_w = pzem.power();
+      float pzem_e = pzem.energy();
+      if (isnan(pzem_v)) { pzem_v = 0; pzem_i = 0; pzem_w = 0; pzem_e = 0; }
 
       tcaselect(2); 
       float dyn_v  = ina_dynamo.getBusVoltage_V();
@@ -681,7 +718,7 @@ void loop() {
         bat_a = 0.0;
       }
 
-      StaticJsonDocument<256> doc;
+      StaticJsonDocument<768> doc;
       doc["cap_v"]      = serialized(String(capVolts, 2));
       doc["dumping"]    = isDumping;
       doc["dyn_v"]      = serialized(String(dyn_v, 2));
@@ -693,12 +730,21 @@ void loop() {
       doc["bat_pct"]    = bat_pct;
       doc["bat_mah"]    = (int)currentCapacity_mAh;
       doc["charger_on"] = isChargerOn; 
+      doc["power_mode"] = currentPowerMode;
+      
+      // new pzem data appended
+      doc["grid_v"]     = serialized(String(pzem_v, 1));
+      doc["grid_a"]     = serialized(String(pzem_i, 3));
+      doc["grid_w"]     = serialized(String(pzem_w, 1));
+      doc["grid_kwh"]   = serialized(String(pzem_e, 3));
 
       String payload;
       serializeJson(doc, payload);
 
       if (mqtt.connected()) {
-        mqtt.publish(telemetryTopic.c_str(), payload.c_str());
+        if (!mqtt.publish(telemetryTopic.c_str(), payload.c_str())) {
+          Serial.printf("[MQTT] Telemetry publish failed (%u bytes)\n", payload.length());
+        }
       }
     }
 
