@@ -1,6 +1,8 @@
 import { useEffect, type ReactNode } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { usePathname, useRouter } from 'expo-router';
 import { useAuth } from './use-auth';
+import { deviceSetupRequiredKey } from '../lib/device-setup';
 
 /**
  * Routes anyone can visit without a session (login gate + recovery).
@@ -42,7 +44,7 @@ function isPublicRoute(pathname: string): boolean {
  *   (revoked/expired → session becomes null → guard fires).
  */
 export function AuthGate({ children }: { children: ReactNode }) {
-  const { ready, isLoggedIn } = useAuth();
+  const { ready, isLoggedIn, user } = useAuth();
   const pathname = usePathname();
   const router = useRouter();
 
@@ -51,10 +53,38 @@ export function AuthGate({ children }: { children: ReactNode }) {
     const route = pathname.toLowerCase();
     if (!isLoggedIn && !isPublicRoute(route)) {
       router.replace('/login');
-    } else if (isLoggedIn && (route === '/' || route === '/index' || route === '/login' || route === '/onboarding')) {
-      router.replace('/home');
+      return;
     }
-  }, [ready, isLoggedIn, pathname, router]);
+    if (!isLoggedIn || !user?.id) return;
+
+    let active = true;
+    const isDeviceSetup = route === '/pages/device-setup';
+    AsyncStorage.getItem(deviceSetupRequiredKey(user.id))
+      .then((required) => {
+        if (!active) return;
+        if (required === '1' && !isDeviceSetup) {
+          router.replace('/pages/device-setup');
+        } else if (
+          required !== '1' &&
+          (route === '/' || route === '/index' || route === '/login' || route === '/onboarding')
+        ) {
+          router.replace('/home');
+        }
+      })
+      .catch((error) => {
+        console.error('[auth-gate] Could not check device setup status:', error);
+        if (
+          active &&
+          (route === '/' || route === '/index' || route === '/login' || route === '/onboarding')
+        ) {
+          router.replace('/home');
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [ready, isLoggedIn, pathname, router, user?.id]);
 
   return <>{children}</>;
 }

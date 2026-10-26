@@ -1,6 +1,6 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { View } from "react-native";
-import { Stack, usePathname } from "expo-router";
+import { Stack, usePathname, useRouter } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import {
   useFonts,
@@ -20,8 +20,16 @@ import { NetworkBanner } from "../components/network-banner";
 import { QuickOverridesModal } from "../components/quick-overrides-modal";
 import { AppTourOverlay } from "../components/app-tour-overlay";
 
-// Keep the splash visible until fonts + root layout are ready,
-// then hide it so the app (login screen) is actually rendered.
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { supabase } from "../lib/supabase";
+import { apiFetch } from "../lib/api";
+
+/** AsyncStorage key written once a hub is successfully paired (provisioning). */
+const DEVICE_STORAGE_KEY = "bawatpieza_hub_id";
+
+/** AsyncStorage flag set when this account has an accepted shared-user relationship. */
+const SHARED_ACCESS_KEY = "bawatpieza_shared_access";
+
 SplashScreen.preventAutoHideAsync();
 
 export default function RootLayout() {
@@ -33,10 +41,6 @@ export default function RootLayout() {
     Poppins_800ExtraBold,
   });
 
-  useEffect(() => {
-    if (fontsLoaded) SplashScreen.hideAsync();
-  }, [fontsLoaded]);
-
   if (!fontsLoaded) return null;
 
   return (
@@ -45,7 +49,7 @@ export default function RootLayout() {
         <PowerOverrideProvider>
           <AppTourProvider>
             <AuthGate>
-              <AuthedShell />
+              <AuthedShell fontsLoaded={fontsLoaded} />
             </AuthGate>
           </AppTourProvider>
         </PowerOverrideProvider>
@@ -54,29 +58,142 @@ export default function RootLayout() {
   );
 }
 
-/**
- * Inner shell — reads the session so it can hold the splash screen until the
- * session check finishes, and hides the network banner on setup screens.
- * Uses `useSegments` (static-safe) instead of pathname matching where possible.
- */
-function AuthedShell() {
+function AuthedShell({ fontsLoaded }: { fontsLoaded: boolean }) {
   const { ready, isLoggedIn } = useAuth();
   const pathname = usePathname();
+  const router = useRouter();
 
-  // Hold the splash until fonts + session are resolved: no protected link can
-  // render for a logged-out user, and no login flash for a logged-in one.
-  useEffect(() => {
-    if (ready) SplashScreen.hideAsync().catch(() => {});
-  }, [ready]);
-
-  // Same setup-screen exclusion as before: never mount the Network & MQTT
-  // banner while configuring a hub.
   const currentRoute = pathname.toLowerCase();
   const isHomeScreen = currentRoute === "/home" || currentRoute === "/";
   const isSetupScreen =
     currentRoute.includes("provisioning") ||
     currentRoute.includes("device") ||
     currentRoute.includes("setup");
+
+  // Routes exempt from the "connect a device first" requirement: authentication
+  // screens plus the device/provisioning/setup flow itself (needed to pair),
+  // AND /pages/accounts so shared users can accept an invite before pairing.
+  const AUTH_ROUTES = new Set([
+    "/",
+    "/index",
+    "/login",
+    "/signup",
+    "/forgot-password",
+    "/onboarding",
+    "/oauth",
+    "/pages/accounts",
+    "/accounts",
+  ]);
+
+  function isDeviceRoute(route: string): boolean {
+    return (
+      route === "/pages/device" ||
+      route === "/pages/accounts" ||
+      route === "/accounts" ||
+      route.includes("provisioning") ||
+      route.includes("setup")
+    );
+  }
+
+  // ---- Device-access gate ------------------------------------------------
+  const [gateReady, setGateReady] = useState(false);
+  const [hasAccess, setHasAccess] = useState(false);
+
+  useEffect(() => {
+    if (!ready) {
+      setGateReady(false);
+      setHasAccess(false);
+      return;
+    }
+    if (!isLoggedIn) {
+      setGateReady(true);
+      setHasAccess(false);
+      return;
+    }
+
+    let cancelled = false;
+    (async () => {
+      let access = false;
+      try {
+        // 1. Own paired device — instant, local storage.
+        const hubId = await AsyncStorage.getItem(DEVICE_STORAGE_KEY);
+        if (hubId) {
+          access = true;
+        } else {
+          // 2. Ask the backend which hub this account can access (own or shared owner).
+          // GET /accounts/device-access returns hub_id for own pairings or for
+          // accepted share_invites (the inviter's hub_id), plus access_granted.
+          try {
+            const { data } = await supabase.auth.getSession();
+            const token = data.session?.access_token ?? null;
+            if (token) {
+              const res = await apiFetch("/accounts/device-access", {
+                headers: { Authorization: `Bearer ${token}` },
+                timeoutMs: 8_000,
+              });
+              if (res.ok) {
+                const json = (await res.json().catch(() => null)) as {
+                  hub_id?: string | null;
+                  access_granted?: boolean;
+                } | null;
+                const apiHubId = json?.hub_id ?? null;
+                if (apiHubId) {
+                  // Persist locally so individual screens (home, device, MQTT, …)
+                  // work without another API round trip.
+                  await AsyncStorage.setItem(DEVICE_STORAGE_KEY, apiHubId);
+                  access = true;
+                } else if (json?.access_granted) {
+                  access = true;
+                }
+              }
+            }
+          } catch {
+            // Best-effort: an unreachable backend counts as "not shared".
+          }
+
+          // 3. Offline fallback: local shared-access flag set at invite-accept time.
+          if (!access) {
+            const sharedFlag = await AsyncStorage.getItem(SHARED_ACCESS_KEY);
+            if (sharedFlag === "1") {
+              access = true;
+            }
+          }
+        }
+      } catch {
+        // Storage read failure — fail closed.
+      }
+      if (!cancelled) {
+        setHasAccess(access);
+        setGateReady(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [ready, isLoggedIn]);
+
+  // ---- Send accounts without a device (and without shared access) ---------
+  // to the device page so they can pair a hub before reaching the UI.
+  useEffect(() => {
+    if (!gateReady || !isLoggedIn) return;
+    const route = currentRoute.replace(/\/+$/, "") || "/";
+    if (
+      !hasAccess &&
+      !isDeviceRoute(route) &&
+      !AUTH_ROUTES.has(route)
+    ) {
+      router.replace("/pages/device");
+    }
+  }, [gateReady, hasAccess, isLoggedIn, currentRoute, router]);
+
+  // Hold the splash until fonts + session + device gate resolve so the UI
+  // never flashes before we know whether the account may enter.
+  const splashReady = fontsLoaded && ready && gateReady;
+  useEffect(() => {
+    if (splashReady) SplashScreen.hideAsync().catch(() => {});
+  }, [splashReady]);
+
+  if (!splashReady) return null;
 
   return (
     <View style={{ flex: 1 }}>
@@ -111,9 +228,7 @@ function AuthedShell() {
           }}
         />
       </Stack>
-      {/* Single global Quick Overrides sheet — one modal for the whole app. */}
       <GlobalOverridesSheet />
-      {/* Quick tour overlay — welcome card + spotlight steps, app-wide. */}
       {isLoggedIn && isHomeScreen && <AppTourOverlay />}
     </View>
   );

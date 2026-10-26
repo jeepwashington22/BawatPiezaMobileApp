@@ -6,6 +6,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import Svg, { Defs, Line, LinearGradient as SvgGradient, Path, Stop } from 'react-native-svg';
 
 import { ScreenShell } from './screen-shell';
+import { NoDeviceNotice, useDeviceConnection } from './device-status-banner';
 import { TopBar } from './top-bar';
 import { HeroGlow } from './hero-glow';
 import { Card, scale } from './glass-ui';
@@ -52,6 +53,7 @@ const METRICS: HeroMetric[] = [
 
 export function ReportsRedesign() {
   const { colors: c, mode } = useTheme();
+  const hasDevice = useDeviceConnection();
   const [range, setRange] = useState<ReportRange>('today');
   // Default to the billing impact slide; the left arrow reveals kWh harvested.
   const [metricIndex, setMetricIndex] = useState(1);
@@ -77,6 +79,7 @@ export function ReportsRedesign() {
         <View style={styles.heroTopBar}>
           <TopBar gutter={0} title="Reports" glass />
         </View>
+        <NoDeviceNotice hasDevice={hasDevice} />
 
         {/* Period selector — kept at the top, above the metric it controls */}
         <View style={styles.heroPeriodRow}>

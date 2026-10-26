@@ -2,12 +2,12 @@ import React from "react";
 import { Animated, Pressable, View } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
-import { AppText as Text } from "../../components/app-text";
-import { Glass, Card, LiveDot, scale } from "../../components/glass-ui";
-import { CountUpText } from "../../components/count-up-text";
-import { TourSpot } from "../../components/app-tour-overlay";
+import { AppText as Text } from "../../../components/app-text";
+import { Glass, Card, LiveDot, scale } from "../../../components/glass-ui";
+import { CountUpText } from "../../../components/count-up-text";
+import { TourSpot } from "../../../components/app-tour-overlay";
 import Svg, { Defs, LinearGradient as SvgGradient, Line, Path, Stop } from "react-native-svg";
-import { Mode, ThemeColors, fonts } from "../../theme";
+import { Mode, ThemeColors, fonts } from "../../../theme";
 import { st } from "./home-styles";
 
 const BRAND_ORANGE_DARK = "#E6641F";
@@ -17,12 +17,17 @@ function EnterView({ delay, style, children }: { delay?: number; style?: object;
 export type ConsumptionRange = "today" | "7days" | "month";
 export type ConsumptionEntry = { label: string; kwh: number; comparison: string; delta: string; savings: string; deltaLabel: string };
 export type Stat = { label: string; value: number | string; decimals?: number; unit: string };
-type Props = { c: ThemeColors; mode: Mode; usingGrid: boolean; isActive: boolean; activeAccent: string; activeOrangeDark: string; batteryPct: number | null; displayVoltage: string; mqttStatus: "Connecting..." | "Live" | "Offline"; batteryCardInk: string; batteryCardMutedInk: string; statsPop: Animated.Value; graphProgress: Animated.Value; greeting: string; metadataName: string; consumptionRange: ConsumptionRange; consumptionData: Record<ConsumptionRange, ConsumptionEntry>; selectedConsumption: ConsumptionEntry; setConsumptionRange: (range: ConsumptionRange) => void; rangeMenuOpen: boolean; setRangeMenuOpen: React.Dispatch<React.SetStateAction<boolean>>; stats: Stat[]; openOverrides: () => void; };
-export function DashboardStats({ c, mode, usingGrid, isActive, activeAccent, activeOrangeDark, batteryPct, displayVoltage, mqttStatus, batteryCardInk, batteryCardMutedInk, statsPop, graphProgress, greeting, metadataName, consumptionRange, consumptionData, selectedConsumption, setConsumptionRange, rangeMenuOpen, setRangeMenuOpen, stats, openOverrides }: Props) { return (
+type Props = { c: ThemeColors; mode: Mode; usingGrid: boolean; isActive: boolean; isSharedUser: boolean; activeAccent: string; activeOrangeDark: string; batteryPct: number | null; displayVoltage: string; mqttStatus: "Connecting..." | "Live" | "Offline"; batteryCardInk: string; batteryCardMutedInk: string; statsPop: Animated.Value; graphProgress: Animated.Value; greeting: string; metadataName: string; consumptionRange: ConsumptionRange; consumptionData: Record<ConsumptionRange, ConsumptionEntry>; selectedConsumption: ConsumptionEntry; setConsumptionRange: (range: ConsumptionRange) => void; rangeMenuOpen: boolean; setRangeMenuOpen: React.Dispatch<React.SetStateAction<boolean>>; stats: Stat[]; openOverrides: () => void; };
+export function DashboardStats({ c, mode, usingGrid, isActive, isSharedUser, activeAccent, activeOrangeDark, batteryPct, displayVoltage, mqttStatus, batteryCardInk, batteryCardMutedInk, statsPop, graphProgress, greeting, metadataName, consumptionRange, consumptionData, selectedConsumption, setConsumptionRange, rangeMenuOpen, setRangeMenuOpen, stats, openOverrides }: Props) { return (
   <>
         <EnterView delay={90} style={st.statsSection}>
           <View style={st.greetingRow}>
             <View style={st.greeting}>
+              {isSharedUser && (
+                <Text style={[st.greetingEyebrow, { color: c.orange }]}>
+                  Shared user
+                </Text>
+              )}
               <Text style={[st.greetingEyebrow, { color: c.muted }]}>
                 Welcome back
               </Text>
@@ -345,7 +350,7 @@ export function DashboardStats({ c, mode, usingGrid, isActive, activeAccent, act
                   <View style={st.batteryGridBanner}>
                     <Ionicons name="flash" size={scale(12)} color="#FFFFFF" />
                     <Text style={st.batteryGridBannerText}>
-                      using grid — battery on standby
+                      Using Grid — Battery on Standby
                     </Text>
                     <Ionicons
                       name="chevron-forward"
@@ -374,7 +379,7 @@ export function DashboardStats({ c, mode, usingGrid, isActive, activeAccent, act
                         { color: batteryCardMutedInk },
                       ]}
                     >
-                      tap to open quick overrides
+                      Tap to open quick overrides
                     </Text>
                     <Ionicons
                       name="chevron-forward"

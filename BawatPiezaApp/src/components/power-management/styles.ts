@@ -1,6 +1,6 @@
 import { StyleSheet } from "react-native";
-import { fonts } from "../../../theme";
-import { scale } from "../../../components/glass-ui";
+import { fonts } from "../../theme";
+import { scale } from "../glass-ui";
 
 export const styles = StyleSheet.create({
   header: {

@@ -3,6 +3,7 @@ import { ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { BottomNav } from './bottom-nav';
+import { NoDeviceNotice, useDeviceConnection } from './device-status-banner';
 import { TopBar } from './top-bar';
 import { useTheme } from '../theme';
 import { useAppTour } from '../hooks/use-app-tour';
@@ -24,6 +25,7 @@ export type ScreenShellProps = {
   contentPaddingBottom?: number;
   title?: string;
   showBack?: boolean;
+  showNoDeviceNotice?: boolean;
 };
 
 export function ScreenShell({
@@ -34,9 +36,11 @@ export function ScreenShell({
   contentPaddingBottom = 110,
   title,
   showBack = false,
+  showNoDeviceNotice = false,
 }: ScreenShellProps) {
   const { colors: c } = useTheme();
   const { scrollContainerRef, setScrollOffsetY } = useAppTour();
+  const hasDevice = useDeviceConnection();
 
   const content = scroll ? (
     <ScrollView
@@ -49,6 +53,7 @@ export function ScreenShell({
       showsVerticalScrollIndicator={false}
     >
       {title || showBack ? <TopBar gutter={0} title={title} showBack={showBack} /> : null}
+      {showNoDeviceNotice && <NoDeviceNotice hasDevice={hasDevice} />}
       {children}
     </ScrollView>
   ) : (
@@ -62,6 +67,7 @@ export function ScreenShell({
       ]}
     >
       {title || showBack ? <TopBar gutter={0} title={title} showBack={showBack} /> : null}
+      {showNoDeviceNotice && <NoDeviceNotice hasDevice={hasDevice} />}
       {children}
     </View>
   );

@@ -1,16 +1,16 @@
 import { StyleSheet } from "react-native";
-import { fonts } from "../../theme";
-import { scale } from "../../components/glass-ui";
-import { GOLD } from "../../components/glass-ui";
+import { fonts } from "../../../theme";
+import { scale } from "../../../components/glass-ui";
+import { GOLD } from "../../../components/glass-ui";
 
 const BRAND_ORANGE = "#F5A220";
 const BRAND_ORANGE_DARK = "#E6641F";
 
 export const st = StyleSheet.create({
   hero: {
-    marginHorizontal: -8,
-    paddingHorizontal: 8,
-    paddingBottom: scale(8),
+    marginHorizontal: -20,
+    paddingHorizontal: 20,
+    paddingBottom: scale(18),
     position: "relative",
     zIndex: 10,
   },

@@ -664,6 +664,29 @@ router.post('/invite', requireAuth, async (req, res, next) => {
     const { inviteeId } = parsed.data;
     if (inviteeId === me) throw createHttpError(400, 'You cannot invite yourself.');
 
+    const { data: acceptedShare, error: shareError } = await supabase
+      .from('share_invites')
+      .select('id')
+      .eq('invitee_id', me)
+      .eq('status', 'accepted')
+      .limit(1)
+      .maybeSingle();
+    if (shareError) throw createHttpError(500, shareError.message);
+    if (acceptedShare) {
+      throw createHttpError(403, 'Shared users cannot invite other users. Only device owners can send invites.');
+    }
+
+    const { data: ownPairing, error: pairingError } = await supabase
+      .from('device_pairings')
+      .select('hub_id')
+      .eq('user_id', me)
+      .limit(1)
+      .maybeSingle();
+    if (pairingError) throw createHttpError(500, pairingError.message);
+    if (!ownPairing?.hub_id) {
+      throw createHttpError(403, 'Only users who own a paired device can invite shared users.');
+    }
+
     const { data: invitee, error: invErr } = await supabase
       .from('user_accounts')
       .select('id, firstname, lastname, email, status')
@@ -791,8 +814,12 @@ router.get('/invites', requireAuth, async (req, res, next) => {
   }
 });
 
-/** Loads one invite and asserts the caller is the pending invitee. */
-async function consumeInviteForResponse(inviteId: string, userId: string) {
+/** Loads an invite and distinguishes a matching prior response from a pending invite. */
+async function consumeInviteForResponse(
+  inviteId: string,
+  userId: string,
+  responseStatus: 'accepted' | 'declined',
+) {
   const { data: invite, error } = await supabase
     .from('share_invites')
     .select('id, inviter_id, invitee_id, status')
@@ -801,8 +828,9 @@ async function consumeInviteForResponse(inviteId: string, userId: string) {
   if (error) throw createHttpError(500, error.message);
   if (!invite) throw createHttpError(404, 'This invite no longer exists.');
   if (invite.invitee_id !== userId) throw createHttpError(403, 'This invite was not sent to you.');
+  if (invite.status === responseStatus) return { invite, alreadyResponded: true };
   if (invite.status !== 'pending') throw createHttpError(409, 'This invite has already been answered.');
-  return invite;
+  return { invite, alreadyResponded: false };
 }
 
 /** Caller's own display name, for notification copy. */
@@ -823,13 +851,40 @@ async function callerName(userId: string): Promise<string> {
 router.post('/invites/:id/accept', requireAuth, async (req, res, next) => {
   try {
     const me = req.user!.id;
-    const invite = await consumeInviteForResponse(String(req.params.id), me);
+    const { invite, alreadyResponded } = await consumeInviteForResponse(
+      String(req.params.id),
+      me,
+      'accepted',
+    );
+
+    if (alreadyResponded) {
+      await supabase
+        .from('notifications')
+        .delete()
+        .eq('user_id', me)
+        .eq('type', 'share_invite')
+        .eq('reference_id', invite.id);
+      res.json({
+        ok: true,
+        invite: { id: invite.id, status: 'accepted' },
+        message: 'This invite was already accepted. Shared access is active.',
+      });
+      return;
+    }
 
     const { error: upErr } = await supabase
       .from('share_invites')
       .update({ status: 'accepted', responded_at: new Date().toISOString() })
       .eq('id', invite.id);
     if (upErr) throw createHttpError(500, upErr.message);
+
+    const { error: notificationError } = await supabase
+      .from('notifications')
+      .delete()
+      .eq('user_id', me)
+      .eq('type', 'share_invite')
+      .eq('reference_id', invite.id);
+    if (notificationError) console.error('[accounts] invite notification cleanup failed:', notificationError.message);
 
     await pushNotification({
       userId: invite.inviter_id,
@@ -858,13 +913,40 @@ router.post('/invites/:id/accept', requireAuth, async (req, res, next) => {
 router.post('/invites/:id/decline', requireAuth, async (req, res, next) => {
   try {
     const me = req.user!.id;
-    const invite = await consumeInviteForResponse(String(req.params.id), me);
+    const { invite, alreadyResponded } = await consumeInviteForResponse(
+      String(req.params.id),
+      me,
+      'declined',
+    );
+
+    if (alreadyResponded) {
+      await supabase
+        .from('notifications')
+        .delete()
+        .eq('user_id', me)
+        .eq('type', 'share_invite')
+        .eq('reference_id', invite.id);
+      res.json({
+        ok: true,
+        invite: { id: invite.id, status: 'declined' },
+        message: 'This invite was already declined.',
+      });
+      return;
+    }
 
     const { error: upErr } = await supabase
       .from('share_invites')
       .update({ status: 'declined', responded_at: new Date().toISOString() })
       .eq('id', invite.id);
     if (upErr) throw createHttpError(500, upErr.message);
+
+    const { error: notificationError } = await supabase
+      .from('notifications')
+      .delete()
+      .eq('user_id', me)
+      .eq('type', 'share_invite')
+      .eq('reference_id', invite.id);
+    if (notificationError) console.error('[accounts] invite notification cleanup failed:', notificationError.message);
 
     await pushNotification({
       userId: invite.inviter_id,
@@ -898,6 +980,56 @@ router.post('/invites/:id/decline', requireAuth, async (req, res, next) => {
  * completed the handshake are not fetched at all. Without the flag the full
  * list is returned, so other consumers (web dashboard) are unaffected.
  */
+router.get('/device-access', requireAuth, async (req, res, next) => {
+  try {
+    const me = req.user!.id;
+    const { data: acceptedInvite, error: inviteError } = await supabase
+      .from('share_invites')
+      .select('inviter_id')
+      .eq('invitee_id', me)
+      .eq('status', 'accepted')
+      .order('responded_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (inviteError) throw createHttpError(500, inviteError.message);
+
+    const { data: ownPairing, error: ownError } = await supabase
+      .from('device_pairings')
+      .select('hub_id')
+      .eq('user_id', me)
+      .limit(1)
+      .maybeSingle();
+    if (ownError) throw createHttpError(500, ownError.message);
+
+    if (acceptedInvite?.inviter_id) {
+      const { data: ownerPairing, error: ownerError } = await supabase
+        .from('device_pairings')
+        .select('hub_id')
+        .eq('user_id', acceptedInvite.inviter_id)
+        .limit(1)
+        .maybeSingle();
+      if (ownerError) throw createHttpError(500, ownerError.message);
+
+      res.json({
+        ok: true,
+        access_granted: true,
+        hub_id: ownerPairing?.hub_id ?? ownPairing?.hub_id ?? null,
+        can_invite: false,
+      });
+      return;
+    }
+
+    res.json({
+      ok: true,
+      access_granted: Boolean(ownPairing?.hub_id),
+      hub_id: ownPairing?.hub_id ?? null,
+      can_invite: Boolean(ownPairing?.hub_id),
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.get('/', requireAuth, async (req, res, next) => {
   try {
     const me = req.user!.id;
@@ -946,6 +1078,13 @@ router.get('/', requireAuth, async (req, res, next) => {
         .order('created_at', { ascending: false });
       if (error) throw createHttpError(500, error.message);
 
+      const { data: pairings, error: pairingError } = await supabase
+        .from('device_pairings')
+        .select('user_id, hub_id')
+        .in('user_id', sharedIds);
+      if (pairingError) throw createHttpError(500, pairingError.message);
+      const hubByUser = new Map((pairings ?? []).map((pairing) => [pairing.user_id, pairing.hub_id]));
+
       res.json({
         ok: true,
         accounts: (data ?? []).map((a) => ({
@@ -963,6 +1102,7 @@ router.get('/', requireAuth, async (req, res, next) => {
           created: a.created_at,
           createdTime: new Date(a.created_at).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
           share: 'shared',
+          hub_id: hubByUser.get(a.id) ?? null,
           shared_since: sharedSince.get(a.id) ?? null,
         })),
       });

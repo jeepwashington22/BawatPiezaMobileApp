@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  DeviceEventEmitter,
   Pressable,
   StyleSheet,
   TextInput,
@@ -10,6 +11,8 @@ import {
 } from 'react-native';
 import { AppText as Text } from '../../components/app-text';
 import { Ionicons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { ScreenShell } from '../../components/screen-shell';
 import { TileLoader } from '../../components/tile-loader';
 import { ContentCard } from '../../components/content-card';
@@ -78,6 +81,7 @@ function roleLabel(role?: string | null): string {
 }
 
 export default function AccountsScreen() {
+  const router = useRouter();
   const { colors: c } = useTheme();
   const styles = makeStyles(c);
   const PRUSSIAN = c.accent;
@@ -91,6 +95,7 @@ export default function AccountsScreen() {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [receivedInvites, setReceivedInvites] = useState<Invite[]>([]);
   const [sentInvites, setSentInvites] = useState<Invite[]>([]);
+  const [canInvite, setCanInvite] = useState(false);
 
   // Inline invite state — no modal. `invitable` is loaded once with the
   // screen and realtime-filtered by the top search bar as you type.
@@ -125,10 +130,11 @@ export default function AccountsScreen() {
       // + invitable candidates, all in parallel so the inline invite search
       // works without opening any popup.
       const auth = { headers: { Authorization: `Bearer ${token}` } };
-      const [res, invitesRes, invitableRes] = await Promise.all([
+      const [res, invitesRes, invitableRes, deviceAccessRes] = await Promise.all([
         apiFetch('/accounts?shared=1', auth),
         apiFetch('/accounts/invites', auth),
         apiFetch('/accounts/invitable', auth),
+        apiFetch('/accounts/device-access', auth),
       ]);
       const json = (await res.json().catch(() => null)) as (
         | { accounts?: Account[]; message?: string }
@@ -157,6 +163,15 @@ export default function AccountsScreen() {
         } | null;
         setInvitable(invJson?.accounts ?? []);
       }
+
+      if (deviceAccessRes.ok) {
+        const accessJson = (await deviceAccessRes.json().catch(() => null)) as {
+          can_invite?: boolean;
+        } | null;
+        setCanInvite(accessJson?.can_invite === true);
+      } else {
+        setCanInvite(false);
+      }
     } catch (e) {
       setError(describeApiFailure(e, 'Failed to load accounts'));
     } finally {
@@ -179,6 +194,10 @@ export default function AccountsScreen() {
   /** Invite one account inline — triggered by the Invite button on its row. */
   const inviteUser = useCallback(
     async (invitee: Account) => {
+      if (!canInvite) {
+        Alert.alert('Device required', 'Only users who own a paired device can invite shared users.');
+        return;
+      }
       setInvitingId(invitee.id);
       try {
         const token = await getToken();
@@ -198,7 +217,7 @@ export default function AccountsScreen() {
         setInvitingId(null);
       }
     },
-    [getToken, load, setInvitingId],
+    [canInvite, getToken, load],
   );
 
   /** Accepts or declines an invite received by this user. */
@@ -214,21 +233,73 @@ export default function AccountsScreen() {
         });
         const json = (await res.json().catch(() => null)) as { message?: string } | null;
         if (!res.ok) throw new Error(json?.message || `Backend responded ${res.status}`);
+        setReceivedInvites((current) => current.filter((pending) => pending.id !== invite.id));
+        DeviceEventEmitter.emit('bawatpieza:refresh-notifications');
         Alert.alert(
           action === 'accept' ? 'Access granted' : 'Invite declined',
-          json?.message ??
-            (action === 'accept' ? 'You are now a shared user.' : 'Invite declined.'),
+          json?.message ?? (action === 'accept' ? 'You are now a shared user.' : 'Invite declined.'),
         );
+        if (action === 'accept') {
+          // Persist shared-access locally so the device gate lets this
+          // account in even without its own paired hub.
+          try {
+            await AsyncStorage.setItem('bawatpieza_shared_access', '1');
+          } catch {
+            // ignore
+          }
+          // Fetch and store the owner's hub_id so device screens (MQTT,
+          // dashboard, thresholds, …) work immediately for shared users.
+          try {
+            const { data: authData } = await supabase.auth.getSession();
+            const token = authData.session?.access_token;
+            if (token) {
+              const devRes = await apiFetch('/accounts/device-access', {
+                headers: { Authorization: `Bearer ${token}` },
+                timeoutMs: 8_000,
+              });
+              if (devRes.ok) {
+                const devJson = (await devRes.json().catch(() => null)) as {
+                  hub_id?: string | null;
+                } | null;
+                if (devJson?.hub_id) {
+                  await AsyncStorage.setItem('bawatpieza_hub_id', devJson.hub_id);
+                }
+              }
+            }
+          } catch {
+            // ignore — the gate will retry on next launch.
+          }
+        }
         await load();
+        if (action === 'accept') router.replace('/home');
       } catch (e) {
         Alert.alert('Could not respond', describeApiFailure(e, 'Something went wrong.'));
       } finally {
         setRespondingId(null);
       }
     },
-    [getToken, load],
+    [getToken, load, router],
   );
 
+  const confirmInviteResponse = useCallback(
+    (invite: Invite, action: 'accept' | 'decline') => {
+      Alert.alert(
+        action === 'accept' ? 'Accept shared access?' : 'Decline shared access?',
+        action === 'accept'
+          ? 'The inviter will be able to share their device with you.'
+          : 'You will not get access to the inviter’s device.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: action === 'accept' ? 'Accept' : 'Decline',
+            style: action === 'decline' ? 'destructive' : 'default',
+            onPress: () => void respondToInvite(invite, action),
+          },
+        ],
+      );
+    },
+    [respondToInvite],
+  );
   /**
    * Realtime filtering: computed on every keystroke against the data already
    * in memory — no network round trip, so results update as you type.
@@ -271,13 +342,13 @@ export default function AccountsScreen() {
             <TextInput
               value={query}
               onChangeText={setQuery}
-              placeholder="Search user by name or email..."
+              placeholder={canInvite ? "Search user by name or email..." : "Search shared users..."}
               placeholderTextColor={MUTED}
               style={styles.searchInput}
               autoCapitalize="none"
               autoCorrect={false}
               keyboardType="email-address"
-              accessibilityLabel="Search users by name or email to filter or invite"
+              accessibilityLabel={canInvite ? "Search users by name or email to filter or invite" : "Search shared users"}
             />
             {query.length > 0 && (
               <Pressable onPress={() => setQuery('')} hitSlop={8} accessibilityLabel="Clear search">
@@ -290,7 +361,7 @@ export default function AccountsScreen() {
       {/* Inline invite results: the search bar above realtime-filters
           invitable emails as you type — tap Invite on a row to send.
           No modal, no extra tap. */}
-      {!error && query.trim().length > 0 && (
+      {!error && canInvite && query.trim().length > 0 && (
         <ContentCard
           eyebrow="Invite user"
           title={
@@ -408,7 +479,7 @@ export default function AccountsScreen() {
               </View>
               <Pressable
                 disabled={respondingId === invite.id}
-                onPress={() => respondToInvite(invite, 'accept')}
+                onPress={() => confirmInviteResponse(invite, 'accept')}
                 style={({ pressed }) => [
                   styles.actionBtn,
                   { backgroundColor: OK },
@@ -423,7 +494,7 @@ export default function AccountsScreen() {
               </Pressable>
               <Pressable
                 disabled={respondingId === invite.id}
-                onPress={() => respondToInvite(invite, 'decline')}
+                onPress={() => confirmInviteResponse(invite, 'decline')}
                 style={({ pressed }) => [styles.actionBtnOutline, pressed && { opacity: 0.7 }]}
               >
                 <Text style={styles.actionBtnOutlineText}>Decline</Text>
@@ -650,5 +721,3 @@ const makeStyles = (c: ThemeColors) => {
   pendingChipText: { color: PRUSSIAN, fontSize: 11, fontWeight: '800', fontFamily: fonts.extrabold },
   });
 };
-
-

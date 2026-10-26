@@ -6,11 +6,12 @@ import Paho from "paho-mqtt";
 import { AppText as Text } from "../../../components/app-text";
 import { ScreenShell } from "../../../components/screen-shell";
 import { fonts, useTheme } from "../../../theme";
-import { Monitor } from "./monitor";
-import { Configure } from "./configure";
-import { Allocation } from "./allocation";
-import { Override } from "./override";
-import { styles } from "./styles";
+import { Monitor } from "../../../components/power-management/monitor";
+import { Configure } from "../../../components/power-management/configure";
+import { Allocation } from "../../../components/power-management/allocation";
+import { Override } from "../../../components/power-management/override";
+import { styles } from "../../../components/power-management/styles";
+import { useDeviceConnection } from "../../../components/device-status-banner";
 
 type PowerTab = "monitor" | "configure" | "allocation" | "override";
 
@@ -19,6 +20,7 @@ export function PowerManagementScreen() {
   const [tab, setTab] = useState<PowerTab>("monitor");
   const [batteryPct, setBatteryPct] = useState<number | null>(null);
   const [batteryV, setBatteryV] = useState<number | null>(null);
+  const hasDevice = useDeviceConnection();
 
   useEffect(() => {
     let activeClient: Paho.Client | null = null;
@@ -36,6 +38,7 @@ export function PowerManagementScreen() {
           } catch {
             // Ignore non-JSON telemetry messages.
           }
+
         };
         client.connect({
           useSSL: true,
@@ -50,10 +53,10 @@ export function PowerManagementScreen() {
     return () => {
       if (activeClient?.isConnected()) activeClient.disconnect();
     };
-  }, []);
+  }, [hasDevice]);
 
   return (
-    <ScreenShell scroll title="Power Management">
+    <ScreenShell scroll title="Power Management" showNoDeviceNotice>
       <View style={[styles.tabs, { backgroundColor: c.surface }]}>
         {(["monitor", "configure", "allocation", "override"] as PowerTab[]).map((item) => {
           const active = tab === item;
@@ -72,3 +75,5 @@ export function PowerManagementScreen() {
     </ScreenShell>
   );
 }
+
+export default PowerManagementScreen;

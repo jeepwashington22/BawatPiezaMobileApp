@@ -24,9 +24,13 @@ import Paho from "paho-mqtt";
 import "text-encoding";
 import { supabase } from "../../lib/supabase";
 import { CountUpText } from "../../components/count-up-text";
-import { DashboardStats } from "./stats-and-battery";
-import { DashboardActions } from "./dashboard-actions";
-import { st } from "./home-styles";
+import { DashboardStats } from "./dashboard/stats-and-battery";
+import { DashboardActions } from "./dashboard/dashboard-actions";
+import { st } from "./dashboard/home-styles";
+import {
+  NoDeviceNotice,
+  useDeviceConnection,
+} from "../../components/device-status-banner";
 
 import {
   Card,
@@ -100,6 +104,7 @@ export default function HomeScreen() {
   const { colors: c, mode } = useTheme();
   const { ready, isLoggedIn, user } = useAuth();
   const router = useRouter();
+  const hasDevice = useDeviceConnection();
 
   const { override, openOverrides } = usePowerOverride();
   const usingGrid = override !== "battery";
@@ -131,6 +136,7 @@ export default function HomeScreen() {
     "Connecting..." | "Live" | "Offline"
   >("Connecting...");
   const [refreshing, setRefreshing] = useState(false);
+  const [isSharedUser, setIsSharedUser] = useState(false);
   const mqttClientRef = useRef<Paho.Client | null>(null);
 
   const batteryCardMutedInk =
@@ -156,6 +162,22 @@ export default function HomeScreen() {
         : typeof user?.user_metadata?.full_name === "string"
           ? user.user_metadata.full_name.split(" ")[0]
           : "";
+
+  useEffect(() => {
+    let cancelled = false;
+    AsyncStorage.getItem("bawatpieza_shared_access")
+      .then((value) => {
+        if (!cancelled) setIsSharedUser(value === "1");
+      })
+      .catch((error) => {
+        console.warn("failed to read shared user status", error);
+        if (!cancelled) setIsSharedUser(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     const loadTodaySteps = async () => {
@@ -186,18 +208,6 @@ export default function HomeScreen() {
         setMqttStatus("Offline");
         setRefreshing(false);
         return;
-      }
-
-      if (user?.id) {
-        try {
-          await supabase.from("device_pairings").upsert({
-            hub_id: hubId,
-            user_id: user.id,
-            last_connected: new Date().toISOString(),
-          });
-        } catch (dbErr) {
-          console.log("could not save pairing to cloud:", dbErr);
-        }
       }
 
       const clientId = `app-home-${Math.random().toString(16).substring(2, 8)}`;
@@ -272,7 +282,7 @@ export default function HomeScreen() {
     }
 
     return client;
-  }, [user]);
+  }, [user, hasDevice]);
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
@@ -328,7 +338,7 @@ export default function HomeScreen() {
   ]);
   const [activeTile, setActiveTile] = useState<number | null>(null);
 
-  const isActive = true;
+  const isActive = hasDevice === true;
 
   const stats = [
     { label: "Voltage", value: Number(displayVoltage), decimals: 2, unit: "V" },
@@ -375,13 +385,14 @@ export default function HomeScreen() {
   const dynamicKwhHarvested = (footsteps * 0.0002725).toFixed(2);
 
   return (
-    <ScreenShell scroll={false} contentPaddingHorizontal={8} contentPaddingBottom={0}>
+    <ScreenShell scroll={false} contentPaddingHorizontal={10} contentPaddingBottom={0}>
       <ScrollView ref={(node) => { scrollContainerRef.current = node; }} onScroll={(event) => setScrollOffsetY(event.nativeEvent.contentOffset.y)} scrollEventThrottle={16} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: scale(88) }} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={activeOrangeDark} colors={[activeOrangeDark]} />} >
         <View style={st.hero}>
           <HeroGlow mode={mode} gridActive={gridActive} intensity={isActive ? 1 : mode === "dark" ? 0.4 : 0.85} bleedBottom={scale(76)} />
-          <View style={st.heroTopBar}><TopBar gutter={0} title="Dashboard" /></View>
+          <View style={st.heroTopBar}><TopBar gutter={2} title="Dashboard" glass /></View>
         </View>
-        <DashboardStats c={c} mode={mode} usingGrid={usingGrid} isActive={isActive} activeAccent={activeAccent} activeOrangeDark={activeOrangeDark} batteryPct={batteryPct} displayVoltage={displayVoltage} mqttStatus={mqttStatus} batteryCardInk={batteryCardInk} batteryCardMutedInk={batteryCardMutedInk} statsPop={statsPop} graphProgress={graphProgress} greeting={greeting} metadataName={metadataName} consumptionRange={consumptionRange} consumptionData={consumptionData} selectedConsumption={selectedConsumption} setConsumptionRange={setConsumptionRange} rangeMenuOpen={rangeMenuOpen} setRangeMenuOpen={setRangeMenuOpen} stats={stats} openOverrides={openOverrides} />
+        <NoDeviceNotice hasDevice={hasDevice} />
+        <DashboardStats c={c} mode={mode} usingGrid={usingGrid} isActive={isActive} isSharedUser={isSharedUser} activeAccent={activeAccent} activeOrangeDark={activeOrangeDark} batteryPct={batteryPct} displayVoltage={displayVoltage} mqttStatus={mqttStatus} batteryCardInk={batteryCardInk} batteryCardMutedInk={batteryCardMutedInk} statsPop={statsPop} graphProgress={graphProgress} greeting={greeting} metadataName={metadataName} consumptionRange={consumptionRange} consumptionData={consumptionData} selectedConsumption={selectedConsumption} setConsumptionRange={setConsumptionRange} rangeMenuOpen={rangeMenuOpen} setRangeMenuOpen={setRangeMenuOpen} stats={stats} openOverrides={openOverrides} />
         <DashboardActions c={c} mode={mode} usingGrid={usingGrid} activeOrange={activeOrange} activeOrangeDark={activeOrangeDark} activeAccent={activeAccent} activeAccentSoft={activeAccentSoft} gridActive={gridActive} isActive={isActive} router={router} zones={zones} setZones={setZones} activeTile={activeTile} setActiveTile={setActiveTile} mqttClientRef={mqttClientRef} footsteps={footsteps} dynamicKwhHarvested={dynamicKwhHarvested} accent={accent} />
       </ScrollView>
     </ScreenShell>

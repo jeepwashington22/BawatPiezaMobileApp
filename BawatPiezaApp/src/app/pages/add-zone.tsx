@@ -32,7 +32,7 @@ export default function AddZoneScreen() {
       setError("Complete the building, floor, and room code fields.");
       return;
     }
-    const bulbs = Math.max(0, Number(installedBulbs) || 0);
+    const bulbs = Math.min(5, Math.max(0, Number(installedBulbs) || 0));
     try {
       const stored = await AsyncStorage.getItem(ZONES_STORAGE_KEY);
       const zones = stored ? (JSON.parse(stored) as Array<Record<string, unknown>>) : [];
@@ -82,8 +82,16 @@ export default function AddZoneScreen() {
         <Pressable onPress={() => setInstalledBulbs(String(Math.max(0, Number(installedBulbs) - 1)))} style={styles.stepButton}>
           <Ionicons name="remove" size={scale(18)} color="#F97316" />
         </Pressable>
-        <TextInput value={installedBulbs} onChangeText={setInstalledBulbs} keyboardType="number-pad" style={[styles.stepValue, { color: c.text }]} />
-        <Pressable onPress={() => setInstalledBulbs(String((Number(installedBulbs) || 0) + 1))} style={styles.stepButton}>
+        <TextInput
+          value={installedBulbs}
+          onChangeText={(value) => {
+            const digits = value.replace(/\D/g, "").slice(0, 1);
+            setInstalledBulbs(digits ? String(Math.min(5, Number(digits))) : "");
+          }}
+          keyboardType="number-pad"
+          style={[styles.stepValue, { color: c.text }]}
+        />
+        <Pressable onPress={() => setInstalledBulbs(String(Math.min(5, (Number(installedBulbs) || 0) + 1)))} style={styles.stepButton}>
           <Ionicons name="add" size={scale(18)} color="#F97316" />
         </Pressable>
       </View>

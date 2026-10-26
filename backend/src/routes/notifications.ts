@@ -22,7 +22,31 @@ router.get('/', requireAuth, async (req, res, next) => {
       .limit(30);
     if (error) throw createHttpError(500, error.message);
 
-    const rows = data ?? [];
+    let rows = data ?? [];
+    const inviteIds = rows
+      .filter((notification) => notification.type === 'share_invite')
+      .map((notification) => notification.reference_id)
+      .filter((id): id is string => Boolean(id));
+
+    if (inviteIds.length) {
+      const { data: pendingInvites, error: inviteError } = await supabase
+        .from('share_invites')
+        .select('id')
+        .eq('invitee_id', me)
+        .eq('status', 'pending')
+        .in('id', inviteIds);
+      if (inviteError) throw createHttpError(500, inviteError.message);
+
+      const pendingInviteIds = new Set((pendingInvites ?? []).map((invite) => invite.id));
+      rows = rows.filter(
+        (notification) =>
+          notification.type !== 'share_invite' ||
+          (notification.reference_id !== null && pendingInviteIds.has(notification.reference_id)),
+      );
+    } else {
+      rows = rows.filter((notification) => notification.type !== 'share_invite');
+    }
+
     res.json({
       ok: true,
       notifications: rows,

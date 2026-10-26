@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Alert, DeviceEventEmitter, Pressable, StyleSheet, View } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AppText as Text } from '../../components/app-text';
 import { Ionicons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
 import { ScreenShell } from '../../components/screen-shell';
 import { TileLoader } from '../../components/tile-loader';
 import { ContentCard } from '../../components/content-card';
@@ -108,6 +109,7 @@ const PALETTE: Record<Tone, { background: string; icon: string }> = {
 export default function NotificationsScreen() {
   const { colors: c } = useTheme();
   const styles = makeStyles(c);
+  const router = useRouter();
 
   const { session } = useAuth();
 
@@ -183,8 +185,11 @@ export default function NotificationsScreen() {
           const cached = JSON.parse(cachedValue) as NotificationCache;
           if (Array.isArray(cached.notifications)) {
             hasCachedFeed = true;
-            setItems(mapNotifications(cached.notifications));
-            setUnread(cached.unread);
+            const nonInviteNotifications = cached.notifications.filter(
+              (notification) => notification.type !== 'share_invite',
+            );
+            setItems(mapNotifications(nonInviteNotifications));
+            setUnread(nonInviteNotifications.filter((notification) => notification.read_at === null).length);
             setLoading(false);
           }
         }
@@ -203,14 +208,29 @@ export default function NotificationsScreen() {
         unread?: number; message?: string;
       } | null;
       if (!res.ok) throw new Error(json?.message || `Backend responded ${res.status}`);
-      const notifications = json?.notifications ?? [];
+      const invitesRes = await apiFetch('/accounts/invites', {
+        timeoutMs: 8_000,
+        silent: true,
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const invitesJson = invitesRes.ok
+        ? (await invitesRes.json().catch(() => null)) as {
+            received?: { id: string }[];
+          } | null
+        : null;
+      const pendingInviteIds = new Set((invitesJson?.received ?? []).map((invite) => invite.id));
+      const notifications = (json?.notifications ?? []).filter(
+        (notification) =>
+          notification.type !== 'share_invite' ||
+          (notification.reference_id !== null && pendingInviteIds.has(notification.reference_id)),
+      );
       setItems(mapNotifications(notifications));
-      setUnread(json?.unread ?? notifications.filter((notification) => notification.read_at === null).length);
+      setUnread(notifications.filter((notification) => notification.read_at === null).length);
       if (cacheKey) {
         try {
           await AsyncStorage.setItem(cacheKey, JSON.stringify({
             notifications,
-            unread: json?.unread ?? 0,
+            unread: notifications.filter((notification) => notification.read_at === null).length,
             cachedAt: new Date().toISOString(),
           } satisfies NotificationCache));
         } catch (cacheError) {
@@ -224,8 +244,11 @@ export default function NotificationsScreen() {
           if (cachedValue) {
             const cached = JSON.parse(cachedValue) as NotificationCache;
             if (Array.isArray(cached.notifications)) {
-              setItems(mapNotifications(cached.notifications));
-              setUnread(cached.unread);
+              const nonInviteNotifications = cached.notifications.filter(
+                (notification) => notification.type !== 'share_invite',
+              );
+              setItems(mapNotifications(nonInviteNotifications));
+              setUnread(nonInviteNotifications.filter((notification) => notification.read_at === null).length);
               setError('Showing cached notifications. We could not check for new updates.');
               return;
             }
@@ -261,12 +284,59 @@ export default function NotificationsScreen() {
       });
       const json = (await res.json().catch(() => null)) as { message?: string } | null;
       if (!res.ok) throw new Error(json?.message || `Backend responded ${res.status}`);
+      DeviceEventEmitter.emit('bawatpieza:refresh-notifications');
+      setItems((current) => current.filter((notification) => notification.refId !== item.refId));
+      setUnread((current) => Math.max(0, current - (item.read ? 0 : 1)));
+      if (session?.user?.id) {
+        try {
+          await AsyncStorage.removeItem(`${NOTIFICATION_CACHE_PREFIX}${session.user.id}`);
+        } catch (cacheError) {
+          console.warn('[notifications] Could not clear answered invite from cache:', cacheError);
+        }
+      }
+      if (action === 'accept') {
+        await AsyncStorage.setItem('bawatpieza_shared_access', '1');
+        try {
+          const accessRes = await apiFetch('/accounts/device-access', {
+            headers: { Authorization: `Bearer ${token}` },
+            timeoutMs: 8_000,
+          });
+          if (accessRes.ok) {
+            const accessJson = (await accessRes.json().catch(() => null)) as {
+              hub_id?: string | null;
+            } | null;
+            if (accessJson?.hub_id) {
+              await AsyncStorage.setItem('bawatpieza_hub_id', accessJson.hub_id);
+            }
+          }
+        } catch (accessError) {
+          console.warn('[notifications] Could not refresh shared device access:', accessError);
+        }
+      }
       await load();
+      if (action === 'accept') router.replace('/home');
     } catch (e) {
       setError(describeApiFailure(e, 'Could not respond to the invite'));
     } finally {
       setRespondingId(null);
     }
+  }
+
+  function confirmResponse(item: Item, action: 'accept' | 'decline') {
+    Alert.alert(
+      action === 'accept' ? 'Accept shared access?' : 'Decline shared access?',
+      action === 'accept'
+        ? 'The inviter will be able to share their device with you.'
+        : 'You will not get access to the inviter’s device.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: action === 'accept' ? 'Accept' : 'Decline',
+          style: action === 'decline' ? 'destructive' : 'default',
+          onPress: () => void respond(item, action),
+        },
+      ],
+    );
   }
 
   async function markAllRead() {
@@ -338,8 +408,8 @@ export default function NotificationsScreen() {
                 styles={styles}
                 busy={respondingId === item.refId}
                 disabled={respondingId !== null}
-                onAccept={() => void respond(item, 'accept')}
-                onDecline={() => void respond(item, 'decline')}
+                onAccept={() => confirmResponse(item, 'accept')}
+                onDecline={() => confirmResponse(item, 'decline')}
               />
             ))}
             {others.length > 0 && invites.length > 0 && (

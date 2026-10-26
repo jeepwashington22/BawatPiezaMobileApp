@@ -3,10 +3,10 @@ import { Animated, Pressable, ScrollView, StyleSheet, View } from "react-native"
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
-import { AppText as Text } from "../../components/app-text";
-import { Card, SectionHead, scale, NAVY } from "../../components/glass-ui";
-import { TourSpot } from "../../components/app-tour-overlay";
-import { Mode, ThemeColors, fonts } from "../../theme";
+import { AppText as Text } from "../../../components/app-text";
+import { Card, SectionHead, scale, NAVY } from "../../../components/glass-ui";
+import { TourSpot } from "../../../components/app-tour-overlay";
+import { Mode, ThemeColors, fonts } from "../../../theme";
 import { st } from "./home-styles";
 import Paho from "paho-mqtt";
 import { useRouter, type Href } from "expo-router";

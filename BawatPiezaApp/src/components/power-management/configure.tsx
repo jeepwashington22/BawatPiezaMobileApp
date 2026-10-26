@@ -1,12 +1,12 @@
 import { Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { useState } from "react";
 import { useRouter, type Href } from "expo-router";
-import { AppText as Text } from "../../../components/app-text";
+import { AppText as Text } from "../app-text";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
-import { Card, Glass, scale } from "../../../components/glass-ui";
-import { fonts, type Mode, type ThemeColors } from "../../../theme";
-import { usePowerOverride } from "../../../hooks/use-power-override";
+import { Card, Glass, scale } from "../glass-ui";
+import { fonts, type Mode, type ThemeColors } from "../../theme";
+import { usePowerOverride } from "../../hooks/use-power-override";
 import { styles } from "./styles";
 import { SectionLabel, ThresholdCard, ScheduleRow, ActionButton, ZoneCard } from "./shared";
 

@@ -1,8 +1,8 @@
 import { Pressable, StyleSheet, View } from "react-native";
-import { AppText as Text } from "../../../components/app-text";
+import { AppText as Text } from "../app-text";
 import { Ionicons } from "@expo/vector-icons";
-import { Card, scale } from "../../../components/glass-ui";
-import { fonts, type Mode, type ThemeColors } from "../../../theme";
+import { Card, scale } from "../glass-ui";
+import { fonts, type Mode, type ThemeColors } from "../../theme";
 import { styles } from "./styles";
 
 export function SectionLabel({

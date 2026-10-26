@@ -148,7 +148,7 @@ export function Glass({ mode, style, children }: { mode: Mode; style?: any; chil
         <BlurView
           intensity={mode === 'dark' ? 36 : 60}
           tint={mode === 'dark' ? 'dark' : 'light'}
-          experimentalBlurMethod="dimezisBlurView"
+          blurMethod="none"
           style={StyleSheet.absoluteFill}
         />
       )}

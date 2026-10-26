@@ -31,6 +31,7 @@ import type { IoniconName } from "../lib/network";
 // ADDED IMPORTS FOR DB PAIRING
 import { useAuth } from "../hooks/use-auth";
 import { supabase } from "../lib/supabase";
+import { deviceSetupRequiredKey } from "../lib/device-setup";
 
 /* ---------------------------------- model --------------------------------- */
 
@@ -178,7 +179,12 @@ export function ProvisioningScreen() {
   };
 
   const simulatePair = () => {
-    router.replace("/home");
+    void (async () => {
+      if (user?.id) {
+        await AsyncStorage.setItem(deviceSetupRequiredKey(user.id), "1");
+      }
+      router.replace("/pages/device-setup");
+    })();
   };
 
   const connectToHub = async () => {
@@ -214,10 +220,25 @@ export function ProvisioningScreen() {
         if (data.status === "success") {
           const hubId = data.hub_id;
           await AsyncStorage.setItem("bawatpieza_hub_id", hubId);
+          if (user?.id) {
+            await AsyncStorage.setItem(deviceSetupRequiredKey(user.id), "1");
+          }
 
-          // ---> SUPABASE OFFLINE CRASH FIX <---
-          // Removed the cloud upsert logic from here entirely.
-          // It now triggers silently when the Home Screen mounts with an active internet connection.
+          if (user?.id) {
+            const { error: pairingError } = await supabase
+              .from("device_pairings")
+              .upsert({
+                hub_id: hubId,
+                user_id: user.id,
+                last_connected: new Date().toISOString(),
+              });
+            if (pairingError) {
+              console.warn(
+                "[provisioning] Could not save device pairing for shared access:",
+                pairingError.message,
+              );
+            }
+          }
 
           setIsConnecting(false);
           // Show the warning modal to ensure they reconnect to internet
@@ -227,8 +248,8 @@ export function ProvisioningScreen() {
             "warning", // Use the new warning style
             () => {
               router.replace({
-                pathname: "/home",
-                params: { hubId: hubId },
+                pathname: "/pages/device-setup",
+                params: { hubId },
               });
             },
           );
