@@ -10,7 +10,7 @@
 #include <Adafruit_INA219.h>
 #include <HTTPClient.h> 
 #include <Update.h>
-#include <PZEM004Tv30.h> // added pzem library
+#include <PZEM004Tv30.h> 
 
 #define SCREEN_WIDTH 128
 #define SCREEN_HEIGHT 64
@@ -28,12 +28,20 @@
 #define PIN_DUMP_TRIGGER 26  
 
 // === RELAY MODULE SETTINGS ===
+#define PIN_RELAY_CH1     25  // Room Bulb 1
+#define PIN_RELAY_CH2     26  // Room Bulb 2 (Reused PIN_DUMP_TRIGGER if needed, adjust if overlapping with ESP32 pins. Assuming 26 was dump, shifted dump to 15 if needed, but keeping 26 for relay CH2 requires moving dump trigger. Let's move DUMP to 15).
+#undef PIN_DUMP_TRIGGER
+#define PIN_DUMP_TRIGGER  15 
+
 #define PIN_RELAY_CHARGER 27 
-#define PIN_RELAY_CH7     32 
-#define PIN_RELAY_CH8     33 
+#define PIN_RELAY_CH7     32  // Battery Selector
+#define PIN_RELAY_CH8     33  // Grid Selector
 
 #define RELAY_ON  LOW
 #define RELAY_OFF HIGH
+
+const int ROOM_CHANNELS[] = {1, 2};
+const int TOTAL_ROOM_CHANNELS = 2;
 
 const float VOLTAGE_MULTIPLIER   = 5.545; 
 const float TARGET_DUMP_VOLTAGE  = 6.0;   
@@ -49,9 +57,9 @@ float currentCapacity_mAh       = 0.0;
 
 // Hardware Objects
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
-Adafruit_INA219 ina_dynamo;  
 Adafruit_INA219 ina_battery; 
-PZEM004Tv30 pzem(Serial2, PZEM_RX_PIN, PZEM_TX_PIN); // added pzem object
+Adafruit_INA219 ina_tiles[7]; // Array to hold up to 7 tile INA sensors
+PZEM004Tv30 pzem(Serial2, PZEM_RX_PIN, PZEM_TX_PIN); 
 
 Preferences preferences;
 WebServer server(80);
@@ -71,6 +79,9 @@ bool isDumping             = false;
 bool isChargerOn           = false; 
 String currentPowerMode    = "shutdown";
 unsigned long dumpStartTime = 0;
+
+int detected_tiles = 0;
+uint8_t active_tile_channels[7];
 
 unsigned long lastDisplayUpdate   = 0;
 unsigned long lastTelemetryPublish = 0;
@@ -256,8 +267,13 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
         isChargerOn = false;
         digitalWrite(PIN_RELAY_CHARGER, RELAY_OFF);
         updateOLED("CHARGER", "Relay OFF", "");
+      } else if (doc["command"] == "room_relay") {
+        int ch = doc["channel"].as<int>();
+        bool state = doc["state"].as<bool>();
+        if (ch == 1) digitalWrite(PIN_RELAY_CH1, state ? RELAY_ON : RELAY_OFF);
+        if (ch == 2) digitalWrite(PIN_RELAY_CH2, state ? RELAY_ON : RELAY_OFF);
+        updateOLED("ROOM RELAY", "CH" + String(ch) + (state ? " ON" : " OFF"), "");
       } else if (doc["command"] == "force_battery" || doc["command"] == "force_grid" || doc["command"] == "force_shutdown") {
-        
         bool grid_on = false;
         bool bat_on = false;
         String modeName = "";
@@ -286,11 +302,9 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
         String oledStatus = String("CH7 ") + (grid_on ? "ON" : "OFF") + " | CH8 " + (bat_on ? "ON" : "OFF");
         updateOLED("POWER", modeName, oledStatus);
         beepSuccess();
-
       } else if (doc["command"] == "ota_update") {
         if (doc.containsKey("url")) {
-          String url = doc["url"].as<String>();
-          performOTA(url);
+          performOTA(doc["url"].as<String>());
         }
       } else if (doc["command"] == "calibrate_full") { 
         currentCapacity_mAh = TOTAL_CAPACITY_MAH;
@@ -362,6 +376,12 @@ void setup() {
   pinMode(PIN_DUMP_TRIGGER, OUTPUT);
   digitalWrite(PIN_DUMP_TRIGGER, LOW); 
   
+  pinMode(PIN_RELAY_CH1, OUTPUT);
+  digitalWrite(PIN_RELAY_CH1, RELAY_OFF);
+
+  pinMode(PIN_RELAY_CH2, OUTPUT);
+  digitalWrite(PIN_RELAY_CH2, RELAY_OFF);
+
   pinMode(PIN_RELAY_CHARGER, OUTPUT);
   digitalWrite(PIN_RELAY_CHARGER, RELAY_OFF); 
 
@@ -382,6 +402,7 @@ void setup() {
   }
   delay(100);
 
+  // Initialize Battery INA219 on Channel 0
   tcaselect(0);
   if (!ina_battery.begin()) {
     Serial.println("Warning: Battery INA219 missing on Channel 0.");
@@ -389,12 +410,21 @@ void setup() {
     ina_battery.setCalibration_32V_2A();
   }
 
-  tcaselect(2);
-  if (!ina_dynamo.begin()) {
-    Serial.println("Warning: Harvester INA219 missing on Channel 2.");
-  } else {
-    ina_dynamo.setCalibration_32V_2A();
+  // === DYNAMIC TILE DETECTION (Scanning Channels 1 to 7) ===
+  detected_tiles = 0;
+  for (uint8_t i = 1; i <= 7; i++) {
+    tcaselect(i);
+    // Initialize array at index i-1 for Multiplexer Channels 1-7
+    if (ina_tiles[i-1].begin()) {
+      ina_tiles[i-1].setCalibration_32V_2A();
+      active_tile_channels[detected_tiles] = i;
+      detected_tiles++;
+      Serial.print("Tile INA219 found on Multiplexer Channel ");
+      Serial.println(i);
+    }
   }
+  Serial.print("Total Tiles Detected: ");
+  Serial.println(detected_tiles);
 
   preferences.begin("battery", false);
   currentCapacity_mAh = preferences.getFloat("mah", -1.0); 
@@ -439,28 +469,37 @@ void setup() {
     WiFi.softAP("BawatPieza-Setup");
     updateOLED("SETUP MODE", "Connect AP to", "BawatPieza-Setup");
 
+    // Existing connection endpoint
     server.on("/connect-hub", HTTP_POST, []() {
       if (server.hasArg("ssid") && server.hasArg("pass")) {
         String newSSID = server.arg("ssid");
         String newPass = server.arg("pass");
-
         preferences.begin("wifi-config", false);
         preferences.putString("ssid", newSSID);
         preferences.putString("pass", newPass);
         preferences.end();
-
         String mac = WiFi.macAddress();
         mac.replace(":", "");
         mac.toLowerCase();
-        String jsonResponse = "{\"status\":\"success\", \"hub_id\":\"" + mac + "\"}";
-
-        server.send(200, "application/json", jsonResponse);
-
+        server.send(200, "application/json", "{\"status\":\"success\", \"hub_id\":\"" + mac + "\"}");
         delay(1000);
         ESP.restart(); 
       } else {
         server.send(400, "application/json", "{\"status\":\"error\"}");
       }
+    });
+
+    // NEW ENDPOINT: App queries this to fetch dynamic tile count & room channels during setup
+    server.on("/device-info", HTTP_GET, []() {
+      StaticJsonDocument<256> infoDoc;
+      infoDoc["installed_tile_count"] = detected_tiles;
+      JsonArray roomChs = infoDoc.createNestedArray("active_room_channels");
+      for (int i = 0; i < TOTAL_ROOM_CHANNELS; i++) {
+        roomChs.add(ROOM_CHANNELS[i]);
+      }
+      String resp;
+      serializeJson(infoDoc, resp);
+      server.send(200, "application/json", resp);
     });
 
     server.begin();
@@ -472,14 +511,21 @@ void loop() {
   checkEmergencyReset();
   unsigned long currentMillis = millis();
 
-  tcaselect(2); 
+  // === DYNAMIC FOOTSTEP SCANNING OVER ALL DETECTED TILES ===
+  float sum_raw_mA = 0.0;
+  float max_raw_V = 0.0;
 
-  float raw_mA = ina_dynamo.getCurrent_mA();
-  float raw_V  = ina_dynamo.getBusVoltage_V();
-  if (isnan(raw_mA)) raw_mA = 0.0;
-  if (isnan(raw_V)) raw_V = 0.0;
-  float incoming_mA = abs(raw_mA); 
+  for (int i = 0; i < detected_tiles; i++) {
+    uint8_t ch = active_tile_channels[i];
+    tcaselect(ch);
+    float tile_mA = ina_tiles[ch-1].getCurrent_mA();
+    float tile_V  = ina_tiles[ch-1].getBusVoltage_V();
+    
+    if (!isnan(tile_mA)) sum_raw_mA += abs(tile_mA);
+    if (!isnan(tile_V) && tile_V > max_raw_V) max_raw_V = tile_V;
+  }
 
+  float incoming_mA = sum_raw_mA; 
   if (incoming_mA > 3200.0) {
     incoming_mA = 0.0;
   }
@@ -497,7 +543,7 @@ void loop() {
     lastSpikeTime = currentMillis; 
     if (incoming_mA > stepPeak_mA) stepPeak_mA = incoming_mA; 
     stepSum_mA += incoming_mA; 
-    stepSum_V += raw_V; 
+    stepSum_V += max_raw_V; 
     stepReadings++;
   }
 
@@ -547,7 +593,7 @@ void loop() {
         http.addHeader("apikey", supabase_key);
         http.addHeader("Authorization", "Bearer " + String(supabase_key));
         
-        String dbPayload = "{\"hub_id\":\"" + macID + "\",\"tile_label\":\"Tile 1\",\"duration_ms\":" + String(stepDuration) + ",\"avg_v\":" + String(average_V, 2) + ",\"avg_a\":" + String(average_A, 3) + ",\"power_w\":" + String(average_W, 3) + ",\"energy_j\":" + String(step_Joules, 4) + "}";
+        String dbPayload = "{\"hub_id\":\"" + macID + "\",\"tile_label\":\"Combined Tiles\",\"duration_ms\":" + String(stepDuration) + ",\"avg_v\":" + String(average_V, 2) + ",\"avg_a\":" + String(average_A, 3) + ",\"power_w\":" + String(average_W, 3) + ",\"energy_j\":" + String(step_Joules, 4) + "}";
         
         int httpResponseCode = http.POST(dbPayload);
         if (httpResponseCode > 0) {
@@ -605,23 +651,18 @@ void loop() {
   if (currentMillis - lastSerialPrint >= 1000) {
     lastSerialPrint = currentMillis;
 
-    // pzem reads
     float pzem_v = pzem.voltage();
     float pzem_i = pzem.current();
     float pzem_w = pzem.power();
     float pzem_e = pzem.energy();
     if (isnan(pzem_v)) { pzem_v = 0; pzem_i = 0; pzem_w = 0; pzem_e = 0; }
 
-    tcaselect(2); 
-    float dyn_v  = ina_dynamo.getBusVoltage_V();
-    float dyn_ma_raw = abs(ina_dynamo.getCurrent_mA()); 
-    if (isnan(dyn_v))  dyn_v = 0.0;
-    if (isnan(dyn_ma_raw)) dyn_ma_raw = 0.0;
-
+    float dyn_ma_raw = sum_raw_mA; 
+    float dyn_v = max_raw_V;
     if (dyn_ma_raw > 3200.0) dyn_ma_raw = 0.0; 
 
     float dyn_a = dyn_ma_raw / 1000.0; 
-    if (dyn_a <= 0.1) dyn_a *= 20.0;
+    if (dyn_a > 0 && dyn_a <= 0.1) dyn_a *= 20.0;
 
     float dyn_w = (dyn_v * dyn_a); 
     if (dyn_w < 0) dyn_w = 0.0;
@@ -648,7 +689,7 @@ void loop() {
 
     Serial.print("[HARVEST FLOW]   Volts: "); Serial.print(dyn_v, 2);
     Serial.print("V | Current: "); Serial.print(dyn_a, 3);
-    Serial.print(" A | Power: "); Serial.print(dyn_w, 3); Serial.println(" W");
+    Serial.print(" A | Power: "); Serial.print(dyn_w, 3); Serial.print(" W | Tiles: "); Serial.println(detected_tiles);
 
     Serial.print("[RELAY / LOAD]   Volts: "); Serial.print(bat_v, 2);
     Serial.print("V | Current: "); Serial.print(bat_a, 3);
@@ -682,23 +723,18 @@ void loop() {
     if (currentMillis - lastTelemetryPublish >= 1500) {
       lastTelemetryPublish = currentMillis;
 
-      // pzem reads for mqtt
       float pzem_v = pzem.voltage();
       float pzem_i = pzem.current();
       float pzem_w = pzem.power();
       float pzem_e = pzem.energy();
       if (isnan(pzem_v)) { pzem_v = 0; pzem_i = 0; pzem_w = 0; pzem_e = 0; }
 
-      tcaselect(2); 
-      float dyn_v  = ina_dynamo.getBusVoltage_V();
-      float dyn_ma_raw = abs(ina_dynamo.getCurrent_mA());
-      if (isnan(dyn_v))  dyn_v = 0.0;
-      if (isnan(dyn_ma_raw)) dyn_ma_raw = 0.0;
-
+      float dyn_ma_raw = sum_raw_mA;
+      float dyn_v = max_raw_V;
       if (dyn_ma_raw > 3200.0) dyn_ma_raw = 0.0;
 
       float dyn_a = dyn_ma_raw / 1000.0;
-      if (dyn_a <= 0.1) dyn_a *= 20.0;
+      if (dyn_a > 0 && dyn_a <= 0.1) dyn_a *= 20.0;
 
       float dyn_w = (dyn_v * dyn_a); 
       if (dyn_w < 0) dyn_w = 0.0;
@@ -718,7 +754,7 @@ void loop() {
         bat_a = 0.0;
       }
 
-      StaticJsonDocument<768> doc;
+      StaticJsonDocument<1024> doc;
       doc["cap_v"]      = serialized(String(capVolts, 2));
       doc["dumping"]    = isDumping;
       doc["dyn_v"]      = serialized(String(dyn_v, 2));
@@ -732,11 +768,17 @@ void loop() {
       doc["charger_on"] = isChargerOn; 
       doc["power_mode"] = currentPowerMode;
       
-      // new pzem data appended
       doc["grid_v"]     = serialized(String(pzem_v, 1));
       doc["grid_a"]     = serialized(String(pzem_i, 3));
       doc["grid_w"]     = serialized(String(pzem_w, 1));
       doc["grid_kwh"]   = serialized(String(pzem_e, 3));
+
+      // Append hardware configuration for App syncing
+      doc["installed_tiles"] = detected_tiles;
+      JsonArray roomChs = doc.createNestedArray("active_room_channels");
+      for (int i = 0; i < TOTAL_ROOM_CHANNELS; i++) {
+        roomChs.add(ROOM_CHANNELS[i]);
+      }
 
       String payload;
       serializeJson(doc, payload);
