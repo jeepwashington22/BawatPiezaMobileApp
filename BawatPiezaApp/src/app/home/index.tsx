@@ -27,31 +27,15 @@ import { supabase } from "../../lib/supabase";
 import { installedTileCountKey } from "../../lib/device-setup";
 import { CountUpText } from "../../components/count-up-text";
 import { DashboardStats } from "./dashboard/stats-and-battery";
-import { DashboardActions } from "./dashboard/dashboard-actions";
+import {
+  DashboardActions,
+  type DashboardZone,
+} from "./dashboard/dashboard-actions";
 import { st } from "./dashboard/home-styles";
-import {
-  useDeviceConnection,
-} from "../../components/device-status-banner";
+import { useDeviceConnection } from "../../components/device-status-banner";
+import { ZONES_STORAGE_KEY } from "../../components/zone-management-screen";
+import { brandAccent, scale } from "../../components/glass-ui";
 
-import {
-  Card,
-  Glass,
-  LiveDot,
-  SectionHead,
-  brandAccent,
-  scale,
-  GOLD,
-  NAVY,
-} from "../../components/glass-ui";
-import Svg, {
-  Defs,
-  LinearGradient as SvgGradient,
-  Line,
-  Path,
-  Stop,
-} from "react-native-svg";
-
-const AnimatedPath = Animated.createAnimatedComponent(Path);
 const BRAND_ORANGE = "#F5A220";
 const BRAND_ORANGE_DARK = "#E6641F";
 
@@ -106,31 +90,6 @@ function useGridPalette(usingGrid: boolean, mode: Mode): GridPalette {
   };
 }
 
-function EnterView({
-  delay,
-  style,
-  children,
-}: {
-  delay?: number;
-  style?: object;
-  children: React.ReactNode;
-}) {
-  return <View style={style}>{children}</View>;
-}
-
-const SOURCE_META: Record<
-  string,
-  { icon: keyof typeof Ionicons.glyphMap; color: string; tint: string }
-> = {
-  Battery: {
-    icon: "battery-charging",
-    color: BRAND_ORANGE_DARK,
-    tint: "rgba(245,162,32,0.14)",
-  },
-  Grid: { icon: "flash", color: "#7C3AED", tint: "rgba(124,58,237,0.12)" },
-  Solar: { icon: "sunny", color: "#B45309", tint: "rgba(245,158,11,0.16)" },
-};
-
 export default function HomeScreen() {
   const { colors: c, mode } = useTheme();
   const { ready, isLoggedIn, user } = useAuth();
@@ -174,13 +133,10 @@ export default function HomeScreen() {
   >("Connecting...");
   const [refreshing, setRefreshing] = useState(false);
   const [isSharedUser, setIsSharedUser] = useState(false);
+
+  const [zones, setZones] = useState<DashboardZone[]>([]);
+
   const mqttClientRef = useRef<Paho.Client | null>(null);
-  const zoneStateRef = useRef(true);
-  const pendingZoneStateRef = useRef<{
-    on: boolean;
-    expiresAt: number;
-  } | null>(null);
-  const zoneCommandIdRef = useRef(0);
 
   const batteryCardMutedInk =
     mode === "dark" ? "rgba(255,255,255,0.82)" : "rgba(10,42,74,0.72)";
@@ -220,6 +176,73 @@ export default function HomeScreen() {
     return () => {
       cancelled = true;
     };
+  }, []);
+
+  const loadConfiguredZones = useCallback(async () => {
+    try {
+      const hubId = await AsyncStorage.getItem("bawatpieza_hub_id");
+      if (!hubId) {
+        setZones([]);
+        return;
+      }
+
+      let fetchedZones: DashboardZone[] = [];
+
+      const { data, error } = await supabase
+        .from("device_setups")
+        .select("setup_payload")
+        .eq("hub_id", hubId)
+        .maybeSingle();
+
+      if (!error && data?.setup_payload?.channels) {
+        const payloadChannels = data.setup_payload.channels as Array<{
+          channel: number;
+          rooms?: Array<{ name?: string; bulbs?: number }>;
+        }>;
+
+        fetchedZones = payloadChannels.map((ch) => {
+          const roomName = ch.rooms?.[0]?.name || `Room Channel ${ch.channel}`;
+          const bulbs = ch.rooms?.[0]?.bulbs || 1;
+          return {
+            id: `ch-${ch.channel}`,
+            name: roomName,
+            source: "Battery",
+            detail: `Relay CH${ch.channel} · ${bulbs} bulb${bulbs > 1 ? "s" : ""}`,
+            on: true,
+            channel: ch.channel,
+          };
+        });
+      }
+
+      if (fetchedZones.length === 0) {
+        const localZonesStr = await AsyncStorage.getItem(ZONES_STORAGE_KEY);
+        if (localZonesStr) {
+          const parsed = JSON.parse(localZonesStr);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            fetchedZones = parsed.map((z: any, idx: number) => ({
+              id: z.id || `ch-${z.channel || idx + 1}`,
+              name: z.name || `Room ${idx + 1}`,
+              source: "Battery",
+              detail: `Relay CH${z.channel || idx + 1} · ${z.installedBulbs || 1} bulb${(z.installedBulbs || 1) > 1 ? "s" : ""}`,
+              on: true,
+              channel: z.channel || idx + 1,
+            }));
+          }
+        }
+      }
+
+      setZones((prev) => {
+        if (prev.length === 0) return fetchedZones;
+        return fetchedZones.map((fz) => {
+          const existing = prev.find(
+            (p) => p.channel === fz.channel || p.id === fz.id,
+          );
+          return existing ? { ...fz, on: existing.on } : fz;
+        });
+      });
+    } catch (err) {
+      console.error("[dashboard] failed to load configured rooms", err);
+    }
   }, []);
 
   const loadGenerationSummary = useCallback(async () => {
@@ -280,12 +303,9 @@ export default function HomeScreen() {
 
     const refreshSummary = async () => {
       try {
-        await loadGenerationSummary();
+        await Promise.all([loadGenerationSummary(), loadConfiguredZones()]);
       } catch (error) {
-        console.error(
-          "[dashboard] failed to load device generation history",
-          error,
-        );
+        console.error("[dashboard] failed to load device data", error);
       } finally {
         if (!cancelled) setHasLoadedGenerationSummary(true);
       }
@@ -300,7 +320,13 @@ export default function HomeScreen() {
       cancelled = true;
       clearInterval(interval);
     };
-  }, [ready, isLoggedIn, hasDevice, loadGenerationSummary]);
+  }, [
+    ready,
+    isLoggedIn,
+    hasDevice,
+    loadGenerationSummary,
+    loadConfiguredZones,
+  ]);
 
   useEffect(() => {
     if (hasDevice !== false) return;
@@ -310,7 +336,10 @@ export default function HomeScreen() {
     try {
       if (client?.isConnected()) client.disconnect();
     } catch (error) {
-      console.warn("[dashboard] MQTT disconnect after device unlink failed", error);
+      console.warn(
+        "[dashboard] MQTT disconnect after device unlink failed",
+        error,
+      );
     }
     setBatteryPct(null);
     setLivePower(null);
@@ -321,6 +350,7 @@ export default function HomeScreen() {
     setGridEnergyKwh(null);
     setGenerationByDay([]);
     setFootsteps(0);
+    setZones([]);
     setHasLoadedGenerationSummary(true);
     setMqttStatus("Offline");
   }, [hasDevice]);
@@ -356,11 +386,7 @@ export default function HomeScreen() {
 
           const batteryPercentage = readTelemetryNumber(data.bat_pct);
           if (batteryPercentage !== null) {
-            const normalizedPercentage = Math.min(
-              100,
-              Math.max(0, batteryPercentage),
-            );
-            setBatteryPct(normalizedPercentage);
+            setBatteryPct(Math.min(100, Math.max(0, batteryPercentage)));
           }
 
           const batteryVoltage = readTelemetryNumber(data.bat_v);
@@ -371,7 +397,8 @@ export default function HomeScreen() {
           const generatedPower = readTelemetryNumber(data.dyn_w);
           const batteryPower = readTelemetryNumber(data.bat_w);
           if (generatedPower !== null) setLivePower(Math.round(generatedPower));
-          else if (batteryPower !== null) setLivePower(Math.round(batteryPower));
+          else if (batteryPower !== null)
+            setLivePower(Math.round(batteryPower));
 
           const voltage = readTelemetryNumber(data.grid_v);
           const current = readTelemetryNumber(data.grid_a);
@@ -382,32 +409,8 @@ export default function HomeScreen() {
           if (power !== null) setGridPower(power);
           if (energy !== null) setGridEnergyKwh(energy);
 
-          if (typeof data.charger_on === "boolean") {
-            const chargerOn = data.charger_on;
-            const pendingZoneState = pendingZoneStateRef.current;
-            const awaitingCommandConfirmation =
-              pendingZoneState !== null &&
-              chargerOn !== pendingZoneState.on &&
-              Date.now() < pendingZoneState.expiresAt;
-
-            if (!awaitingCommandConfirmation) {
-              pendingZoneStateRef.current = null;
-              zoneStateRef.current = chargerOn;
-              setZones((zs) =>
-                zs.map((z) =>
-                  z.id === "1" ? { ...z, on: chargerOn } : z,
-                ),
-              );
-            }
-          }
-
           if (data.event === "footstep") {
-            void loadGenerationSummary().catch((error) => {
-              console.error(
-                "[dashboard] failed to refresh device generation",
-                error,
-              );
-            });
+            void loadGenerationSummary();
           }
         } catch (error) {
           console.error("[dashboard] could not parse hub telemetry", error);
@@ -437,15 +440,16 @@ export default function HomeScreen() {
     }
 
     return client;
-  }, [user, hasDevice, loadGenerationSummary]);
+  }, [loadGenerationSummary]);
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
     connectMQTT();
+    loadConfiguredZones();
     loadGenerationSummary().catch((error) => {
       console.error("[dashboard] failed to refresh device generation", error);
     });
-  }, [connectMQTT, loadGenerationSummary]);
+  }, [connectMQTT, loadConfiguredZones, loadGenerationSummary]);
 
   useEffect(() => {
     let activeClient: Paho.Client | null = null;
@@ -485,44 +489,39 @@ export default function HomeScreen() {
     return () => clearTimeout(timer);
   }, [ready, isLoggedIn, checked, completed, welcomeSeen, openWelcome]);
 
-  const [zones, setZones] = useState([
-    {
-      id: "1",
-      name: "test appliance",
-      source: "battery",
-      detail: "connected to relay 1",
-      on: true, // Match default boot state
-    },
-  ]);
   const onZoneToggle = useCallback(async (zoneId: string) => {
-    const nextState = !zoneStateRef.current;
-    zoneStateRef.current = nextState;
-    const requestId = ++zoneCommandIdRef.current;
-    pendingZoneStateRef.current = {
-      on: nextState,
-      expiresAt: Date.now() + 6000,
-    };
+    let targetChannel: number | undefined;
+    let nextState = false;
+
     setZones((currentZones) =>
-      currentZones.map((zone) =>
-        zone.id === zoneId ? { ...zone, on: nextState } : zone,
-      ),
+      currentZones.map((zone) => {
+        if (zone.id === zoneId) {
+          targetChannel = zone.channel;
+          nextState = !zone.on;
+          return { ...zone, on: nextState };
+        }
+        return zone;
+      }),
     );
 
     try {
       const hubId = await AsyncStorage.getItem("bawatpieza_hub_id");
-      if (requestId !== zoneCommandIdRef.current) return;
       const client = mqttClientRef.current;
       if (!hubId || !client?.isConnected()) return;
 
-      const message = new Paho.Message(
-        JSON.stringify({ command: nextState ? "charger_on" : "charger_off" }),
-      );
+      const payload =
+        targetChannel !== undefined
+          ? { command: "room_relay", channel: targetChannel, state: nextState }
+          : { command: nextState ? "charger_on" : "charger_off" };
+
+      const message = new Paho.Message(JSON.stringify(payload));
       message.destinationName = `bawatpieza/devices/${hubId}/commands`;
       client.send(message);
     } catch (error) {
-      console.error("[dashboard] failed to send zone state command", error);
+      console.error("[dashboard] failed to send zone relay command", error);
     }
   }, []);
+
   const [activeTile, setActiveTile] = useState<number | null>(null);
   const [installedTileCount, setInstalledTileCount] = useState(0);
   const [tileSetupLoaded, setTileSetupLoaded] = useState(false);
@@ -549,7 +548,7 @@ export default function HomeScreen() {
           if (
             typeof data?.installed_tile_count === "number" &&
             Number.isSafeInteger(data.installed_tile_count) &&
-            data.installed_tile_count >= 6
+            data.installed_tile_count >= 1
           ) {
             if (!cancelled) {
               setInstalledTileCount(data.installed_tile_count);
@@ -568,7 +567,7 @@ export default function HomeScreen() {
         );
         if (!cancelled) {
           setInstalledTileCount(
-            Number.isSafeInteger(localCount) && localCount >= 6
+            Number.isSafeInteger(localCount) && localCount >= 1
               ? localCount
               : 0,
           );
@@ -593,27 +592,17 @@ export default function HomeScreen() {
 
   const stats = [
     { label: "Voltage", value: Number(displayVoltage), decimals: 2, unit: "V" },
-    {
-      label: "Power",
-      value: livePower ?? 0,
-      unit: "W",
-    },
-    {
-      label: "Footsteps",
-      value: footsteps.toLocaleString(),
-      unit: "Steps",
-    },
+    { label: "Power", value: livePower ?? 0, unit: "W" },
+    { label: "Footsteps", value: footsteps.toLocaleString(), unit: "Steps" },
   ];
 
   const generationTotalsByDay = new Map(
     generationByDay.map((row) => [
       row.log_day,
-      {
-        footsteps: Number(row.footsteps),
-        kwh: Number(row.generated_kwh),
-      },
+      { footsteps: Number(row.footsteps), kwh: Number(row.generated_kwh) },
     ]),
   );
+
   const totalForDateRange = (start: Date, endExclusive: Date) => {
     let footstepsTotal = 0;
     let kwhTotal = 0;
@@ -630,6 +619,7 @@ export default function HomeScreen() {
     }
     return { footsteps: footstepsTotal, kwh: kwhTotal };
   };
+
   const makeGenerationEntry = (
     label: string,
     current: { footsteps: number; kwh: number },
@@ -681,6 +671,7 @@ export default function HomeScreen() {
       new Date(now.getFullYear(), now.getMonth(), 0).getDate(),
     ) + 1,
   );
+
   const generationData = {
     today: makeGenerationEntry(
       "Today",
@@ -701,6 +692,7 @@ export default function HomeScreen() {
       "vs previous period",
     ),
   };
+
   const selectedGeneration = generationData[consumptionRange];
   const generationTrend = Array.from({ length: 7 }, (_, index) => {
     const day = new Date(todayStart);

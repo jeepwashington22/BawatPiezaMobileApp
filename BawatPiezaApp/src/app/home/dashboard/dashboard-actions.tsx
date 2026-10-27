@@ -15,6 +15,7 @@ import { useRouter, type Href } from "expo-router";
 
 const BRAND_ORANGE = "#F5A220";
 const BRAND_ORANGE_DARK = "#E6641F";
+
 function EnterView({
   delay,
   style,
@@ -150,9 +151,58 @@ function ZoneSwitch({
   );
 }
 
-export type DashboardZone = { id: string; name: string; source: string; detail: string; on: boolean };
-type Props = { c: ThemeColors; mode: Mode; usingGrid: boolean; activeOrange: string; activeOrangeDark: string; activeAccent: string; activeAccentSoft: string; gridActive: boolean; isActive: boolean; installedTileCount: number; tileSetupLoaded: boolean; router: ReturnType<typeof useRouter>; zones: DashboardZone[]; onZoneToggle: (zoneId: string) => void; activeTile: number | null; setActiveTile: React.Dispatch<React.SetStateAction<number | null>>; footsteps: number; dynamicKwhHarvested: string; accent: (alpha?: number) => string; };
-export function DashboardActions({ c, mode, usingGrid, activeOrange, activeOrangeDark, activeAccent, activeAccentSoft, gridActive, isActive, installedTileCount, tileSetupLoaded, router, zones, onZoneToggle, activeTile, setActiveTile, footsteps, dynamicKwhHarvested, accent }: Props) {
+export type DashboardZone = {
+  id: string;
+  name: string;
+  source: string;
+  detail: string;
+  on: boolean;
+  channel?: number;
+};
+
+type Props = {
+  c: ThemeColors;
+  mode: Mode;
+  usingGrid: boolean;
+  activeOrange: string;
+  activeOrangeDark: string;
+  activeAccent: string;
+  activeAccentSoft: string;
+  gridActive: boolean;
+  isActive: boolean;
+  installedTileCount: number;
+  tileSetupLoaded: boolean;
+  router: ReturnType<typeof useRouter>;
+  zones: DashboardZone[];
+  onZoneToggle: (zoneId: string) => void;
+  activeTile: number | null;
+  setActiveTile: React.Dispatch<React.SetStateAction<number | null>>;
+  footsteps: number;
+  dynamicKwhHarvested: string;
+  accent: (alpha?: number) => string;
+};
+
+export function DashboardActions({
+  c,
+  mode,
+  usingGrid,
+  activeOrange,
+  activeOrangeDark,
+  activeAccent,
+  activeAccentSoft,
+  gridActive,
+  isActive,
+  installedTileCount,
+  tileSetupLoaded,
+  router,
+  zones,
+  onZoneToggle,
+  activeTile,
+  setActiveTile,
+  footsteps,
+  dynamicKwhHarvested,
+  accent,
+}: Props) {
   const heatTiles = Array.from(
     { length: Math.min(installedTileCount, 60) },
     (_, index) => {
@@ -168,563 +218,544 @@ export function DashboardActions({ c, mode, usingGrid, activeOrange, activeOrang
     label: `Tile ${index + 1}`,
     traffic: isActive ? traffic : 0.05,
   }));
+
   return (
-  <>
-        <View style={st.quickActionsSection}>
-          <Text style={[st.quickActionsTitle, { color: c.text }]}>
-            quick actions
-          </Text>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={st.quickActions}
-          >
-            {[
-              {
-                label: "Heatmap",
-                icon: "map-outline" as const,
-                href: "/pages/heatmap",
-              },
-              {
-                label: "My zones",
-                icon: "layers-outline" as const,
-                href: "/pages/zones",
-              },
-              {
-                label: "Shared",
-                icon: "people-outline" as const,
-                href: "/pages/accounts",
-              },
-              {
-                label: "Device",
-                icon: "hardware-chip-outline" as const,
-                href: "/pages/device",
-              },
-              {
-                label: "Thresholds",
-                icon: "options-outline" as const,
-                href: "/pages/thresholds",
-              },
-            ].map((action) => (
-              <Pressable
-                key={action.label}
-                accessibilityRole="button"
-                accessibilityLabel={action.label}
-                onPress={() => router.push(action.href as Href)}
-                style={({ pressed }) => [
-                  st.quickAction,
+    <>
+      <View style={st.quickActionsSection}>
+        <Text style={[st.quickActionsTitle, { color: c.text }]}>
+          quick actions
+        </Text>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={st.quickActions}
+        >
+          {[
+            {
+              label: "Heatmap",
+              icon: "map-outline" as const,
+              href: "/pages/heatmap",
+            },
+            {
+              label: "My zones",
+              icon: "layers-outline" as const,
+              href: "/pages/zones",
+            },
+            {
+              label: "Shared",
+              icon: "people-outline" as const,
+              href: "/pages/accounts",
+            },
+            {
+              label: "Device",
+              icon: "hardware-chip-outline" as const,
+              href: "/pages/device",
+            },
+            {
+              label: "Thresholds",
+              icon: "options-outline" as const,
+              href: "/pages/thresholds",
+            },
+          ].map((action) => (
+            <Pressable
+              key={action.label}
+              accessibilityRole="button"
+              accessibilityLabel={action.label}
+              onPress={() => router.push(action.href as Href)}
+              style={({ pressed }) => [
+                st.quickAction,
+                {
+                  backgroundColor:
+                    mode === "dark"
+                      ? "rgba(255,255,255,0.06)"
+                      : "rgba(255,255,255,0.72)",
+                  borderColor: usingGrid
+                    ? "rgba(230,100,31,0.16)"
+                    : "rgba(230,100,31,0.16)",
+                },
+                pressed && st.quickActionPressed,
+              ]}
+            >
+              <View
+                style={[
+                  st.quickActionIcon,
                   {
                     backgroundColor:
                       mode === "dark"
-                        ? "rgba(255,255,255,0.06)"
-                        : "rgba(255,255,255,0.72)",
-                    borderColor: usingGrid
-                      ? "rgba(230,100,31,0.16)"
-                      : "rgba(230,100,31,0.16)",
+                        ? usingGrid
+                          ? "rgba(245,162,32,0.18)"
+                          : "rgba(245,162,32,0.18)"
+                        : usingGrid
+                          ? "rgba(245,162,32,0.12)"
+                          : "rgba(245,162,32,0.12)",
                   },
-                  pressed && st.quickActionPressed,
                 ]}
               >
-                <View
-                  style={[
-                    st.quickActionIcon,
-                    {
-                      backgroundColor:
-                        mode === "dark"
-                          ? usingGrid
-                            ? "rgba(245,162,32,0.18)"
-                            : "rgba(245,162,32,0.18)"
-                          : usingGrid
-                            ? "rgba(245,162,32,0.12)"
-                            : "rgba(245,162,32,0.12)",
-                    },
-                  ]}
-                >
-                  <Ionicons
-                    name={action.icon}
-                    size={scale(16)}
-                    color={activeAccent}
-                  />
-                </View>
-                <Text
-                  style={[st.quickActionLabel, { color: c.text }]}
-                  numberOfLines={1}
-                >
-                  {action.label}
-                </Text>
-              </Pressable>
-            ))}
-          </ScrollView>
-        </View>
+                <Ionicons
+                  name={action.icon}
+                  size={scale(16)}
+                  color={activeAccent}
+                />
+              </View>
+              <Text
+                style={[st.quickActionLabel, { color: c.text }]}
+                numberOfLines={1}
+              >
+                {action.label}
+              </Text>
+            </Pressable>
+          ))}
+        </ScrollView>
+      </View>
 
-        <EnterView delay={270} style={st.zonesSection}>
-          <TourSpot id="zones">
-            <View
-              pointerEvents={isActive ? "auto" : "none"}
-              style={[!isActive && { opacity: 0.6 }]}
-            >
-              <View style={st.zonesHeader}>
-                <View style={{ flex: 1 }}>
-                  <Text style={[st.zonesTitle, { color: c.text }]}>
-                    My zones
+      <EnterView delay={270} style={st.zonesSection}>
+        <TourSpot id="zones">
+          <View
+            pointerEvents={isActive ? "auto" : "none"}
+            style={[!isActive && { opacity: 0.6 }]}
+          >
+            <View style={st.zonesHeader}>
+              <View style={{ flex: 1 }}>
+                <Text style={[st.zonesTitle, { color: c.text }]}>My zones</Text>
+                <View style={st.zonesSubRow}>
+                  <View
+                    style={[
+                      st.zonesLiveDot,
+                      !isActive && { backgroundColor: c.muted },
+                    ]}
+                  />
+                  <Text style={[st.zonesSubText, { color: c.muted }]}>
+                    {isActive ? zones.filter((zone) => zone.on).length : 0} of{" "}
+                    {zones.length} active · {isActive ? "online" : "standby"}
                   </Text>
-                  <View style={st.zonesSubRow}>
-                    <View
-                      style={[
-                        st.zonesLiveDot,
-                        !isActive && { backgroundColor: c.muted },
-                      ]}
-                    />
-                    <Text style={[st.zonesSubText, { color: c.muted }]}>
-                      {isActive ? zones.filter((zone) => zone.on).length : 0} of{" "}
-                      {zones.length} active Â· {isActive ? "online" : "standby"}
-                    </Text>
-                  </View>
                 </View>
-                <Pressable
-                  onPress={() => router.push("/pages/zones")}
+              </View>
+              <Pressable
+                onPress={() => router.push("/pages/zones")}
+                style={[
+                  st.manageButton,
+                  {
+                    backgroundColor: c.accentSoft,
+                  },
+                ]}
+              >
+                <Text
                   style={[
-                    st.manageButton,
+                    st.manageText,
                     {
-                      backgroundColor: c.accentSoft,
+                      color: c.orange,
                     },
                   ]}
                 >
-                  <Text
+                  Manage
+                </Text>
+                <Ionicons
+                  name="arrow-forward"
+                  size={scale(13)}
+                  color={c.orange}
+                />
+              </Pressable>
+            </View>
+            {zones.length === 0 && (
+              <Text style={[st.zoneEmpty, { color: c.muted }]}>
+                No zones yet
+              </Text>
+            )}
+            <View style={st.devicesList}>
+              {zones.map((z) => {
+                const live = isActive && z.on;
+                const src = SOURCE_META[z.source] ?? SOURCE_META.Battery;
+                return (
+                  <View
+                    key={z.id}
                     style={[
-                      st.manageText,
+                      st.zoneRow,
                       {
-                        color: c.orange,
+                        backgroundColor: c.surface,
+                        borderColor: live
+                          ? mode === "dark"
+                            ? activeOrange
+                            : activeOrangeDark
+                          : c.line,
                       },
                     ]}
                   >
-                    Manage
-                  </Text>
-                  <Ionicons
-                    name="arrow-forward"
-                    size={scale(13)}
-                    color={c.orange}
-                  />
-                </Pressable>
-              </View>
-              {zones.length === 0 && (
-                <Text style={[st.zoneEmpty, { color: c.muted }]}>
-                  No zones yet
-                </Text>
-              )}
-              <View style={st.devicesList}>
-                {zones.map((z) => {
-                  const live = isActive && z.on;
-                  const src = SOURCE_META[z.source] ?? SOURCE_META.Battery;
-                  return (
-                    <View
-                      key={z.id}
-                      style={[
-                        st.zoneRow,
+                    <LinearGradient
+                      colors={
+                        live
+                          ? mode === "dark"
+                            ? ["rgba(249,115,22,0.16)", "rgba(249,115,22,0.02)"]
+                            : ["rgba(245,162,32,0.14)", "rgba(245,162,32,0.02)"]
+                          : mode === "dark"
+                            ? ["rgba(255,255,255,0.025)", "rgba(255,255,255,0)"]
+                            : ["rgba(148,163,184,0.06)", "rgba(148,163,184,0)"]
+                      }
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                      pointerEvents="none"
+                      style={st.zoneCardGlow}
+                    />
+
+                    <Pressable
+                      onPress={() =>
+                        router.push(
+                          `/pages/zones/${z.id}?name=${encodeURIComponent(z.name)}&source=${encodeURIComponent(z.source)}&detail=${encodeURIComponent(z.detail)}&on=${z.on}` as Href,
+                        )
+                      }
+                      style={({ pressed }) => [
                         {
-                          backgroundColor: c.surface,
-                          borderColor: live
-                            ? mode === "dark"
-                              ? activeOrange
-                              : activeOrangeDark
-                            : c.line,
+                          flex: 1,
+                          flexDirection: "row",
+                          alignItems: "center",
+                          gap: scale(10),
                         },
+                        pressed && { opacity: 0.6 },
                       ]}
                     >
-                      <LinearGradient
-                        colors={
-                          live
-                            ? mode === "dark"
-                              ? [
-                                  "rgba(249,115,22,0.16)",
-                                  "rgba(249,115,22,0.02)",
-                                ]
-                              : [
-                                  "rgba(245,162,32,0.14)",
-                                  "rgba(245,162,32,0.02)",
-                                ]
-                            : mode === "dark"
-                              ? [
-                                  "rgba(255,255,255,0.025)",
-                                  "rgba(255,255,255,0)",
-                                ]
-                              : [
-                                  "rgba(148,163,184,0.06)",
-                                  "rgba(148,163,184,0)",
-                                ]
-                        }
-                        start={{ x: 0, y: 0 }}
-                        end={{ x: 1, y: 1 }}
-                        pointerEvents="none"
-                        style={st.zoneCardGlow}
-                      />
+                      {live ? (
+                        <LinearGradient
+                          colors={[BRAND_ORANGE, BRAND_ORANGE_DARK]}
+                          start={{ x: 0, y: 0 }}
+                          end={{ x: 1, y: 1 }}
+                          style={st.zoneIconChip}
+                        >
+                          <Ionicons
+                            name="bulb"
+                            size={scale(16)}
+                            color="#FFFFFF"
+                          />
+                        </LinearGradient>
+                      ) : (
+                        <View
+                          style={[
+                            st.zoneIconChip,
+                            {
+                              backgroundColor:
+                                mode === "dark"
+                                  ? "rgba(255,255,255,0.08)"
+                                  : "rgba(10,42,74,0.06)",
+                            },
+                          ]}
+                        >
+                          <Ionicons
+                            name="bulb-outline"
+                            size={scale(16)}
+                            color={c.muted}
+                          />
+                        </View>
+                      )}
 
-                      <Pressable
-                        onPress={() =>
-                          router.push(
-                            `/pages/zones/${z.id}?name=${encodeURIComponent(z.name)}&source=${encodeURIComponent(z.source)}&detail=${encodeURIComponent(z.detail)}&on=${z.on}` as Href,
-                          )
-                        }
-                        style={({ pressed }) => [
-                          {
-                            flex: 1,
-                            flexDirection: "row",
-                            alignItems: "center",
-                            gap: scale(10),
-                          },
-                          pressed && { opacity: 0.6 },
-                        ]}
-                      >
-                        {live ? (
-                          <LinearGradient
-                            colors={[BRAND_ORANGE, BRAND_ORANGE_DARK]}
-                            start={{ x: 0, y: 0 }}
-                            end={{ x: 1, y: 1 }}
-                            style={st.zoneIconChip}
-                          >
-                            <Ionicons
-                              name="bulb"
-                              size={scale(16)}
-                              color="#FFFFFF"
-                            />
-                          </LinearGradient>
-                        ) : (
+                      <View style={st.zoneInfo}>
+                        <Text
+                          style={[st.zoneName, { color: c.text }]}
+                          numberOfLines={1}
+                        >
+                          {z.name}
+                        </Text>
+                        <View style={st.zoneSubRow}>
                           <View
                             style={[
-                              st.zoneIconChip,
-                              {
-                                backgroundColor:
-                                  mode === "dark"
-                                    ? "rgba(255,255,255,0.08)"
-                                    : "rgba(10,42,74,0.06)",
-                              },
+                              st.zoneSourceChip,
+                              { backgroundColor: src.tint },
                             ]}
                           >
                             <Ionicons
-                              name="bulb-outline"
-                              size={scale(16)}
-                              color={c.muted}
+                              name={src.icon}
+                              size={scale(9)}
+                              color={src.color}
                             />
+                            <Text
+                              style={[st.zoneSourceText, { color: src.color }]}
+                            >
+                              {z.source}
+                            </Text>
                           </View>
-                        )}
-
-                        <View style={st.zoneInfo}>
                           <Text
-                            style={[st.zoneName, { color: c.text }]}
+                            style={[st.zoneDetail, { color: c.muted }]}
                             numberOfLines={1}
                           >
-                            {z.name}
+                            {z.detail}
                           </Text>
-                          <View style={st.zoneSubRow}>
+                          <View
+                            style={[
+                              st.zoneState,
+                              {
+                                backgroundColor:
+                                  mode === "dark"
+                                    ? "rgba(249,115,22,0.12)"
+                                    : "rgba(245,162,32,0.08)",
+                              },
+                            ]}
+                          >
                             <View
                               style={[
-                                st.zoneSourceChip,
-                                { backgroundColor: src.tint },
+                                st.zoneStateDot,
+                                {
+                                  backgroundColor: live
+                                    ? mode === "dark"
+                                      ? activeOrange
+                                      : activeOrangeDark
+                                    : c.muted,
+                                },
                               ]}
-                            >
-                              <Ionicons
-                                name={src.icon}
-                                size={scale(9)}
-                                color={src.color}
-                              />
-                              <Text
-                                style={[
-                                  st.zoneSourceText,
-                                  { color: src.color },
-                                ]}
-                              >
-                                {z.source}
-                              </Text>
-                            </View>
+                            />
                             <Text
                               style={[
-                                st.zoneDetail,
-                                { color: c.muted },
-                              ]}
-                              numberOfLines={1}
-                            >
-                              {z.detail}
-                            </Text>
-                            <View
-                              style={[
-                                st.zoneState,
+                                st.zoneStateText,
                                 {
-                                  backgroundColor:
-                                    mode === "dark"
-                                      ? "rgba(249,115,22,0.12)"
-                                      : "rgba(245,162,32,0.08)",
+                                  color: live
+                                    ? mode === "dark"
+                                      ? activeOrange
+                                      : activeOrangeDark
+                                    : c.muted,
                                 },
                               ]}
                             >
-                              <View
-                                style={[
-                                  st.zoneStateDot,
-                                  {
-                                    backgroundColor: live
-                                      ? mode === "dark"
-                                        ? activeOrange
-                                        : activeOrangeDark
-                                      : c.muted,
-                                  },
-                                ]}
-                              />
-                              <Text
-                                style={[
-                                  st.zoneStateText,
-                                  {
-                                    color: live
-                                      ? mode === "dark"
-                                        ? activeOrange
-                                        : activeOrangeDark
-                                      : c.muted,
-                                  },
-                                ]}
-                              >
-                                {live ? "live" : "standby"}
-                              </Text>
-                            </View>
+                              {live ? "live" : "standby"}
+                            </Text>
                           </View>
                         </View>
+                      </View>
 
-                        <View style={st.zoneTrailing}>
-                          <ZoneSwitch
-                            on={live}
-                            mode={mode}
-                            onToggle={() => onZoneToggle(z.id)}
-                            gridActive={gridActive}
-                          />
-                        </View>
-                      </Pressable>
-                    </View>
-                  );
-                })}
-              </View>
+                      <View style={st.zoneTrailing}>
+                        <ZoneSwitch
+                          on={live}
+                          mode={mode}
+                          onToggle={() => onZoneToggle(z.id)}
+                          gridActive={gridActive}
+                        />
+                      </View>
+                    </Pressable>
+                  </View>
+                );
+              })}
             </View>
-          </TourSpot>
-        </EnterView>
+          </View>
+        </TourSpot>
+      </EnterView>
 
-        <TourSpot id="heatmap">
-          <EnterView delay={450}>
-            <SectionHead
-              title="Most walked-on tiles"
-              link="Full heatmap"
-              onLink={() => router.push("/pages/heatmap")}
-              mode={mode}
-              accentColor={activeOrangeDark}
-            />
-            <Card
-              mode={mode}
-              style={{ borderRadius: scale(18), padding: scale(14) }}
+      <TourSpot id="heatmap">
+        <EnterView delay={450}>
+          <SectionHead
+            title="Most walked-on tiles"
+            link="Full heatmap"
+            onLink={() => router.push("/pages/heatmap")}
+            mode={mode}
+            accentColor={activeOrangeDark}
+          />
+          <Card
+            mode={mode}
+            style={{ borderRadius: scale(18), padding: scale(14) }}
+          >
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "space-between",
+              }}
             >
-              <View
-                style={{
-                  flexDirection: "row",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                }}
-              >
-                <View style={{ flex: 1 }}>
-                  <Text
-                    style={{
-                      color: c.text,
-                      fontSize: scale(12.5),
-                      fontFamily: fonts.extrabold,
-                    }}
-                  >
-                    Gate pathway · live tile heat
-                  </Text>
-                  <Text
-                    style={{
-                      color:
-                        mode === "dark"
-                          ? "rgba(255,255,255,0.55)"
-                          : "rgba(10,42,74,0.5)",
-                      fontSize: scale(9.5),
-                      fontFamily: fonts.medium,
-                      marginTop: 1,
-                    }}
-                  >
-                    {mode === "dark"
-                      ? "Brighter white = more foot traffic"
-                      : "Brighter orange = more foot traffic"}
-                  </Text>
-                </View>
-                <View
-                  style={[
-                    st.stepsPill,
-                    isActive
-                      ? {
-                          backgroundColor: activeAccentSoft,
-                          borderColor: usingGrid
-                            ? "rgba(230,100,31,0.4)"
-                            : accent(0.4),
-                        }
-                      : {
-                          backgroundColor: "rgba(150,150,150,0.12)",
-                          borderColor: "rgba(150,150,150,0.3)",
-                        },
-                  ]}
+              <View style={{ flex: 1 }}>
+                <Text
+                  style={{
+                    color: c.text,
+                    fontSize: scale(12.5),
+                    fontFamily: fonts.extrabold,
+                  }}
                 >
-                  <Ionicons
-                    name="footsteps"
-                    size={scale(13)}
-                    color={
-                      isActive ? (mode === "dark" ? "#FFFFFF" : NAVY) : c.muted
-                    }
-                  />
-                  <Text
-                    style={[
-                      st.stepsPillText,
-                      { color: isActive ? c.text : c.muted },
-                    ]}
-                  >
-                    {footsteps.toLocaleString()}
-                  </Text>
-                </View>
+                  Gate pathway · live tile heat
+                </Text>
+                <Text
+                  style={{
+                    color:
+                      mode === "dark"
+                        ? "rgba(255,255,255,0.55)"
+                        : "rgba(10,42,74,0.5)",
+                    fontSize: scale(9.5),
+                    fontFamily: fonts.medium,
+                    marginTop: 1,
+                  }}
+                >
+                  {mode === "dark"
+                    ? "Brighter white = more foot traffic"
+                    : "Brighter orange = more foot traffic"}
+                </Text>
               </View>
-
               <View
                 style={[
-                  st.kineticRow,
+                  st.stepsPill,
                   isActive
                     ? {
+                        backgroundColor: activeAccentSoft,
                         borderColor: usingGrid
-                          ? "rgba(230,100,31,0.35)"
-                          : accent(0.35),
-                        backgroundColor: usingGrid
-                          ? "rgba(245,162,32,0.1)"
-                          : accent(0.1),
+                          ? "rgba(230,100,31,0.4)"
+                          : accent(0.4),
                       }
                     : {
-                        borderColor: "rgba(150,150,150,0.25)",
-                        backgroundColor: "rgba(150,150,150,0.08)",
+                        backgroundColor: "rgba(150,150,150,0.12)",
+                        borderColor: "rgba(150,150,150,0.3)",
                       },
                 ]}
               >
                 <Ionicons
                   name="footsteps"
-                  size={scale(14)}
+                  size={scale(13)}
                   color={
-                    isActive
-                      ? mode === "dark"
-                        ? "#FFFFFF"
-                        : usingGrid
-                          ? "BRAND_ORANGE_DARK"
-                          : "#B4771B"
-                      : c.muted
+                    isActive ? (mode === "dark" ? "#FFFFFF" : NAVY) : c.muted
                   }
                 />
                 <Text
                   style={[
-                    st.kineticText,
-                    {
-                      color:
-                        mode === "dark"
-                          ? "rgba(255,255,255,0.75)"
-                          : "rgba(10,42,74,0.7)",
-                    },
+                    st.stepsPillText,
+                    { color: isActive ? c.text : c.muted },
                   ]}
                 >
-                  Footsteps converted today
-                </Text>
-                <Text
-                  style={{
-                    color: isActive
-                      ? mode === "dark"
-                        ? "#FFFFFF"
-                        : "#4CA83E"
-                      : c.muted,
-                    fontSize: scale(11),
-                    fontFamily: fonts.extrabold,
-                  }}
-                >
-                  {isActive ? `+${dynamicKwhHarvested} kWh` : "-- kWh"}
+                  {footsteps.toLocaleString()}
                 </Text>
               </View>
+            </View>
 
-              <HeatmapTileGrid
-                tiles={isActive ? heatmapTiles : []}
-                totalCount={isActive ? installedTileCount : 0}
-                compact
-                selectedTileId={
-                  activeTile === null || activeTile >= heatTiles.length
-                    ? null
-                    : activeTile + 1
-                }
-                onSelectTile={
-                  isActive && tileSetupLoaded
-                    ? (id) =>
-                        setActiveTile((current) =>
-                          current === id - 1 ? null : id - 1,
-                        )
-                    : undefined
-                }
-                emptyLabel={
-                  !isActive
-                    ? "No device connected."
-                    : tileSetupLoaded
-                    ? "No tiles configured. Complete Device Setup to view the heatmap."
-                    : "Loading installed tile setup..."
+            <View
+              style={[
+                st.kineticRow,
+                isActive
+                  ? {
+                      borderColor: usingGrid
+                        ? "rgba(230,100,31,0.35)"
+                        : accent(0.35),
+                      backgroundColor: usingGrid
+                        ? "rgba(245,162,32,0.1)"
+                        : accent(0.1),
+                    }
+                  : {
+                      borderColor: "rgba(150,150,150,0.25)",
+                      backgroundColor: "rgba(150,150,150,0.08)",
+                    },
+              ]}
+            >
+              <Ionicons
+                name="footsteps"
+                size={scale(14)}
+                color={
+                  isActive
+                    ? mode === "dark"
+                      ? "#FFFFFF"
+                      : usingGrid
+                        ? BRAND_ORANGE_DARK
+                        : "#B4771B"
+                    : c.muted
                 }
               />
+              <Text
+                style={[
+                  st.kineticText,
+                  {
+                    color:
+                      mode === "dark"
+                        ? "rgba(255,255,255,0.75)"
+                        : "rgba(10,42,74,0.7)",
+                  },
+                ]}
+              >
+                Footsteps converted today
+              </Text>
+              <Text
+                style={{
+                  color: isActive
+                    ? mode === "dark"
+                      ? "#FFFFFF"
+                      : "#4CA83E"
+                    : c.muted,
+                  fontSize: scale(11),
+                  fontFamily: fonts.extrabold,
+                }}
+              >
+                {isActive ? `+${dynamicKwhHarvested} kWh` : "-- kWh"}
+              </Text>
+            </View>
 
+            <HeatmapTileGrid
+              tiles={isActive ? heatmapTiles : []}
+              totalCount={isActive ? installedTileCount : 0}
+              compact
+              selectedTileId={
+                activeTile === null || activeTile >= heatTiles.length
+                  ? null
+                  : activeTile + 1
+              }
+              onSelectTile={
+                isActive && tileSetupLoaded
+                  ? (id) =>
+                      setActiveTile((current) =>
+                        current === id - 1 ? null : id - 1,
+                      )
+                  : undefined
+              }
+              emptyLabel={
+                !isActive
+                  ? "No device connected."
+                  : tileSetupLoaded
+                    ? "No tiles configured. Complete Device Setup to view the heatmap."
+                    : "Loading installed tile setup..."
+              }
+            />
+
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: scale(6),
+                marginTop: scale(10),
+              }}
+            >
+              <Text
+                style={[
+                  st.legendText,
+                  {
+                    color:
+                      mode === "dark"
+                        ? "rgba(255,255,255,0.5)"
+                        : "rgba(10,42,74,0.5)",
+                  },
+                ]}
+              >
+                less
+              </Text>
               <View
                 style={{
                   flexDirection: "row",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  gap: scale(6),
-                  marginTop: scale(10),
+                  gap: scale(3),
+                  opacity: isActive ? 1 : 0.4,
                 }}
               >
-                <Text
-                  style={[
-                    st.legendText,
-                    {
-                      color:
-                        mode === "dark"
-                          ? "rgba(255,255,255,0.5)"
-                          : "rgba(10,42,74,0.5)",
-                    },
-                  ]}
-                >
-                  less
-                </Text>
-                <View
-                  style={{
-                    flexDirection: "row",
-                    gap: scale(3),
-                    opacity: isActive ? 1 : 0.4,
-                  }}
-                >
-                  {[0.1, 0.35, 0.6, 0.82, 0.98].map((v, i) => (
-                    <View
-                      key={i}
-                      style={[
-                        st.legendSwatch,
-                        { backgroundColor: getHeatmapTileColor(v) },
-                      ]}
-                    />
-                  ))}
-                </View>
-                <Text
-                  style={[
-                    st.legendText,
-                    {
-                      color:
-                        mode === "dark"
-                          ? "rgba(255,255,255,0.5)"
-                          : "rgba(10,42,74,0.5)",
-                    },
-                  ]}
-                >
-                  more
-                </Text>
+                {[0.1, 0.35, 0.6, 0.82, 0.98].map((v, i) => (
+                  <View
+                    key={i}
+                    style={[
+                      st.legendSwatch,
+                      { backgroundColor: getHeatmapTileColor(v) },
+                    ]}
+                  />
+                ))}
               </View>
+              <Text
+                style={[
+                  st.legendText,
+                  {
+                    color:
+                      mode === "dark"
+                        ? "rgba(255,255,255,0.5)"
+                        : "rgba(10,42,74,0.5)",
+                  },
+                ]}
+              >
+                more
+              </Text>
+            </View>
 
-              {activeTile !== null &&
-                isActive &&
-                activeTile < heatTiles.length && (
+            {activeTile !== null &&
+              isActive &&
+              activeTile < heatTiles.length && (
                 <Text
                   style={[
                     st.tileInfo,
@@ -736,13 +767,13 @@ export function DashboardActions({ c, mode, usingGrid, activeOrange, activeOrang
                     },
                   ]}
                 >
-                  tile #{activeTile + 1} â€”{" "}
+                  tile #{activeTile + 1} —{" "}
                   {Math.round(heatTiles[activeTile] * 480)} crossings today
                 </Text>
               )}
-            </Card>
-          </EnterView>
-        </TourSpot>
-
-  </>
-); }
+          </Card>
+        </EnterView>
+      </TourSpot>
+    </>
+  );
+}

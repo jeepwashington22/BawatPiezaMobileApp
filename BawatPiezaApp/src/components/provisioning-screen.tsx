@@ -27,11 +27,8 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { scale } from "./glass-ui";
 import { fonts, useTheme, type Mode, type ThemeColors } from "../theme";
 import type { IoniconName } from "../lib/network";
-import { ApiUnreachableError, apiFetch } from "../lib/api";
 
-// ADDED IMPORTS FOR DB PAIRING
 import { useAuth } from "../hooks/use-auth";
-import { supabase } from "../lib/supabase";
 import { deviceSetupRequiredKey } from "../lib/device-setup";
 import { notifyDeviceAccessChanged } from "./device-status-banner";
 
@@ -116,7 +113,7 @@ export function ProvisioningScreen() {
     visible: boolean;
     title: string;
     message: string;
-    type: "error" | "success" | "info" | "warning"; // Added warning type
+    type: "error" | "success" | "info" | "warning";
     onConfirm?: () => void;
   }>({
     visible: false,
@@ -172,105 +169,32 @@ export function ProvisioningScreen() {
     if (onConfirm) onConfirm();
   };
 
-  const savePairingAndContinue = async (hubId: string) => {
-    if (!user?.id) {
-      showModal(
-        "Sign-in Required",
-        "Sign in again before saving this hub to your account.",
-        "error",
-      );
-      return;
-    }
-
-    setIsConnecting(true);
+  // Safe local-only processing during offline hub connection
+  const proceedToDeviceSetup = async (hubId: string) => {
+    const cleanHubId = hubId.replace(/:/g, "").toLowerCase();
+    console.log(
+      "[provisioning] Caching hub configuration locally for hubId:",
+      cleanHubId,
+    );
     try {
-      const { data: sessionData, error: sessionError } =
-        await supabase.auth.getSession();
-      if (sessionError) throw sessionError;
-      const accessToken = sessionData.session?.access_token;
-      if (!accessToken) {
-        throw new Error("Your session expired. Sign in again before pairing the hub.");
+      await AsyncStorage.setItem("bawatpieza_hub_id", cleanHubId);
+      if (user?.id) {
+        await AsyncStorage.setItem(deviceSetupRequiredKey(user.id), "1");
       }
-
-      const savePairingDirectly = async () => {
-        const { error: pairingError } = await supabase
-          .from("device_pairings")
-          .upsert(
-            {
-              hub_id: hubId,
-              user_id: user.id,
-              last_connected: new Date().toISOString(),
-            },
-            { onConflict: "hub_id" },
-          );
-        if (pairingError) {
-          throw new Error(
-            `The backend could not save the pairing and the direct save failed: ${pairingError.message}`,
-          );
-        }
-      };
-
-      try {
-        const response = await apiFetch("/accounts/device-pairing", {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ hub_id: hubId }),
-        });
-        if (response.status === 404) {
-          console.warn(
-            "[provisioning] pairing endpoint is unavailable; saving directly through Supabase",
-          );
-          await savePairingDirectly();
-        } else {
-          const result = (await response.json().catch(() => null)) as {
-            ok?: boolean;
-            error?: string;
-          } | null;
-          if (response.status === 409) {
-            showModal(
-              "Hub Already Paired",
-              result?.error ?? "This hub is already paired with another account.",
-              "error",
-            );
-            return;
-          }
-          if (!response.ok || !result?.ok) {
-            throw new Error(
-              result?.error ?? `Could not save device pairing (${response.status}).`,
-            );
-          }
-        }
-      } catch (apiError) {
-        if (!(apiError instanceof ApiUnreachableError)) throw apiError;
-
-        console.warn(
-          "[provisioning] backend unreachable; saving pairing directly through Supabase",
-          apiError.tried,
-          apiError.lastError,
-        );
-        await savePairingDirectly();
-      }
-
       notifyDeviceAccessChanged(true);
+
+      console.log("[provisioning] Navigating to device setup screen...");
       router.replace({
         pathname: "/pages/device-setup",
-        params: { hubId },
+        params: { hubId: cleanHubId },
       });
-    } catch (pairingError) {
-      console.error("[provisioning] Could not save device pairing:", pairingError);
+    } catch (err) {
+      console.error("[provisioning] Error caching local pairing data:", err);
       showModal(
-        "Pairing Not Saved",
-        pairingError instanceof Error
-          ? `The hub connected, but the pairing could not be saved: ${pairingError.message} Reconnect your phone to Wi-Fi with internet access, then tap Retry.`
-          : "The hub connected, but the pairing could not be saved. Reconnect your phone to Wi-Fi with internet access, then tap Retry.",
+        "Setup Error",
+        "Could not store local device configuration. Please try again.",
         "error",
-        () => void savePairingAndContinue(hubId),
       );
-    } finally {
-      setIsConnecting(false);
     }
   };
 
@@ -314,11 +238,14 @@ export function ProvisioningScreen() {
 
     setIsConnecting(true);
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 8000);
+    const timeout = setTimeout(() => controller.abort(), 10000);
 
     try {
       const requestBody = `ssid=${encodeURIComponent(ssid)}&pass=${encodeURIComponent(wifiPassword)}`;
 
+      console.log(
+        "[provisioning] Sending Wi-Fi credentials to ESP32 hub (192.168.4.1)...",
+      );
       const response = await fetch("http://192.168.4.1/connect-hub", {
         method: "POST",
         headers: {
@@ -328,34 +255,71 @@ export function ProvisioningScreen() {
         signal: controller.signal,
       });
 
-      clearTimeout(timeout);
-
       if (response.ok) {
         const data = await response.json();
-        if (data.status === "success") {
-          const hubId = data.hub_id;
-          await AsyncStorage.setItem("bawatpieza_hub_id", hubId);
-          if (user?.id) {
-            await AsyncStorage.setItem(deviceSetupRequiredKey(user.id), "1");
+        console.log("[provisioning] Hub response received:", data);
+        if (data.status === "success" && data.hub_id) {
+          const rawHubId = String(data.hub_id);
+          const cleanHubId = rawHubId.replace(/:/g, "").toLowerCase();
+
+          // Fetch hardware specs locally from the hub while connected to its AP
+          try {
+            const infoController = new AbortController();
+            const infoTimeout = setTimeout(() => infoController.abort(), 4000);
+
+            const infoResponse = await fetch("http://192.168.4.1/device-info", {
+              signal: infoController.signal,
+            });
+            clearTimeout(infoTimeout);
+
+            if (infoResponse.ok) {
+              const infoData = await infoResponse.json();
+              console.log(
+                "[provisioning] Fetched hardware info locally:",
+                infoData,
+              );
+              await AsyncStorage.setItem(
+                "bawatpieza_temp_tiles",
+                String(infoData.installed_tile_count || 1),
+              );
+              await AsyncStorage.setItem(
+                "bawatpieza_temp_channels",
+                JSON.stringify(infoData.active_room_channels || [1, 2]),
+              );
+            }
+          } catch (infoError) {
+            console.warn(
+              "[provisioning] Could not fetch /device-info locally, using defaults.",
+              infoError,
+            );
+            await AsyncStorage.setItem("bawatpieza_temp_tiles", "1");
+            await AsyncStorage.setItem(
+              "bawatpieza_temp_channels",
+              JSON.stringify([1, 2]),
+            );
           }
 
+          clearTimeout(timeout);
           setIsConnecting(false);
-          // Show the warning modal to ensure they reconnect to internet
+
+          // Prompt user to switch back to internet Wi-Fi before moving to setup
           showModal(
             "Hub Configured!",
             "The hub is successfully restarting to join your network.\n\nIMPORTANT: You must open your phone's Wi-Fi settings and reconnect to a network with internet BEFORE you tap Continue.",
-            "warning", // Use the new warning style
-            () => void savePairingAndContinue(hubId),
+            "warning",
+            () => void proceedToDeviceSetup(cleanHubId),
           );
         } else {
+          clearTimeout(timeout);
           setIsConnecting(false);
           showModal(
             "Error",
-            "The hub rejected the connection. Try again.",
+            "The hub rejected the connection or returned invalid data. Try again.",
             "error",
           );
         }
       } else {
+        clearTimeout(timeout);
         setIsConnecting(false);
         showModal(
           "Error",
@@ -366,6 +330,7 @@ export function ProvisioningScreen() {
     } catch (error) {
       clearTimeout(timeout);
       setIsConnecting(false);
+      console.error("[provisioning] Connection to hub failed:", error);
       showModal(
         "Connection Failed",
         "Could not reach the hub. Ensure your phone is connected to the 'BawatPieza-Setup' network. Ignore any 'No Internet' warnings from your phone.",
@@ -816,7 +781,7 @@ export function ProvisioningScreen() {
                       modalConfig.type === "error"
                         ? "rgba(239, 68, 68, 0.1)"
                         : modalConfig.type === "warning"
-                          ? "rgba(234, 179, 8, 0.15)" // Yellow background for warning
+                          ? "rgba(234, 179, 8, 0.15)"
                           : modalConfig.type === "success"
                             ? "rgba(34, 197, 94, 0.1)"
                             : "rgba(59, 130, 246, 0.1)",
@@ -838,7 +803,7 @@ export function ProvisioningScreen() {
                     modalConfig.type === "error"
                       ? "#EF4444"
                       : modalConfig.type === "warning"
-                        ? "#EAB308" // Yellow icon for warning
+                        ? "#EAB308"
                         : modalConfig.type === "success"
                           ? "#22C55E"
                           : "#3B82F6"
@@ -853,7 +818,6 @@ export function ProvisioningScreen() {
               style={[
                 styles.modalMessage,
                 { color: c.muted },
-                // Make warning text slightly more bold/red for emphasis
                 modalConfig.type === "warning" && {
                   fontFamily: fonts.bold,
                   color: mode === "dark" ? "#FCA5A5" : "#B91C1C",
@@ -863,7 +827,6 @@ export function ProvisioningScreen() {
               {modalConfig.message}
             </Text>
 
-            {/* Added a shortcut button directly to Wi-Fi settings in the warning modal */}
             {modalConfig.type === "warning" && (
               <Pressable
                 style={({ pressed }) => [
@@ -906,7 +869,7 @@ export function ProvisioningScreen() {
                   ? "Continue to Device Setup"
                   : modalConfig.onConfirm
                     ? "Retry"
-                  : "Got it"}
+                    : "Got it"}
               </Text>
             </Pressable>
           </View>
@@ -1439,7 +1402,6 @@ const styles = StyleSheet.create({
   },
 });
 
-/** Viewfinder corner brackets, keyed so the JSX loop stays type-safe. */
 const CORNERS = {
   tl: styles.cornerTL,
   tr: styles.cornerTR,

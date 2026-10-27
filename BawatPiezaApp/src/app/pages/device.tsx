@@ -72,7 +72,7 @@ export default function DeviceScreen() {
         const user = authData.session?.user;
 
         if (!user) {
-          // If completely logged out, clear the screen
+          // If completely logged out, clear local cache
           await Promise.all([
             AsyncStorage.removeItem("bawatpieza_hub_id"),
             AsyncStorage.removeItem("bawatpieza_shared_access"),
@@ -85,30 +85,82 @@ export default function DeviceScreen() {
           return;
         }
 
-        const token = authData.session?.access_token;
-        if (!token) throw new Error("Your session expired. Please sign in again.");
+        let fetchedHubId: string | null = null;
+        let isOwner = true;
 
-        const response = await apiFetch("/accounts/device-access", {
-          headers: { Authorization: `Bearer ${token}` },
-          timeoutMs: 8_000,
-        });
-        if (!response.ok) {
-          throw new Error(`Device access check failed (${response.status}).`);
+        // Step 1: Try Primary Backend API Endpoint
+        try {
+          const token = authData.session?.access_token;
+          if (token) {
+            const response = await apiFetch("/accounts/device-access", {
+              headers: { Authorization: `Bearer ${token}` },
+              timeoutMs: 6_000,
+            });
+            if (response.ok) {
+              const access = (await response.json()) as {
+                access_granted?: boolean;
+                hub_id?: string | null;
+                can_unlink?: boolean;
+              };
+              if (access.access_granted && access.hub_id) {
+                fetchedHubId = access.hub_id;
+                isOwner = access.can_unlink !== false;
+              }
+            }
+          }
+        } catch (apiError) {
+          console.warn(
+            "[device] Backend API check failed, trying Supabase fallback...",
+            apiError,
+          );
         }
-        const access = (await response.json()) as {
-          access_granted?: boolean;
-          hub_id?: string | null;
-          can_unlink?: boolean;
-        };
-        const hasAccess = Boolean(access.access_granted && access.hub_id);
+
+        // Step 2: Fallback to Direct Supabase Query if API route failed
+        if (!fetchedHubId) {
+          try {
+            const { data: pairingData } = await supabase
+              .from("device_pairings")
+              .select("hub_id")
+              .eq("user_id", user.id)
+              .maybeSingle();
+
+            if (pairingData?.hub_id) {
+              fetchedHubId = pairingData.hub_id;
+              isOwner = true;
+            }
+          } catch (spError) {
+            console.warn(
+              "[device] Direct Supabase query failed, checking AsyncStorage...",
+              spError,
+            );
+          }
+        }
+
+        // Step 3: Offline Local Storage Fallback
+        if (!fetchedHubId) {
+          const cachedHubId = await AsyncStorage.getItem("bawatpieza_hub_id");
+          if (cachedHubId) {
+            fetchedHubId = cachedHubId;
+            const sharedAccess = await AsyncStorage.getItem(
+              "bawatpieza_shared_access",
+            );
+            isOwner = !sharedAccess;
+          }
+        }
+
         if (cancelled || refreshId !== accessRefreshIdRef.current) return;
 
-        if (hasAccess && access.hub_id) {
-          await AsyncStorage.setItem("bawatpieza_hub_id", access.hub_id);
-          if (access.can_unlink === false) {
+        if (fetchedHubId) {
+          await AsyncStorage.setItem("bawatpieza_hub_id", fetchedHubId);
+          if (!isOwner) {
             await AsyncStorage.setItem("bawatpieza_shared_access", "1");
           } else {
             await AsyncStorage.removeItem("bawatpieza_shared_access");
+          }
+          if (!cancelled) {
+            setHubId(fetchedHubId);
+            setCanUnlink(isOwner);
+            setDeviceAccessState("connected");
           }
         } else {
           await Promise.all([
@@ -116,15 +168,14 @@ export default function DeviceScreen() {
             AsyncStorage.removeItem("bawatpieza_shared_access"),
             AsyncStorage.removeItem(deviceSetupRequiredKey(user.id)),
           ]);
-        }
-
-        if (!cancelled) {
-          setHubId(hasAccess ? access.hub_id ?? null : null);
-          setCanUnlink(hasAccess && access.can_unlink !== false);
-          setDeviceAccessState(hasAccess ? "connected" : "unpaired");
+          if (!cancelled) {
+            setHubId(null);
+            setCanUnlink(false);
+            setDeviceAccessState("unpaired");
+          }
         }
       } catch (error) {
-        console.warn("[device] failed to refresh device access", error);
+        console.warn("[device] Failed to refresh device access:", error);
         if (!cancelled) setDeviceAccessState("error");
       } finally {
         checking = false;
@@ -143,17 +194,22 @@ export default function DeviceScreen() {
   useEffect(() => {
     if (!hubId) return;
 
+    // Sanitize MAC ID (strip colons, lowercase) to match ESP32 topic format
+    const cleanHubId = hubId.replace(/:/g, "").toLowerCase();
+
     const clientId =
       "app_device_" + Math.random().toString(16).substring(2, 10);
+
+    // Using WSS (Port 8884 with SSL) to bypass mobile cleartext restriction policy
     const client = new Paho.Client(
       "broker.hivemq.com",
-      8000,
+      8884,
       "/mqtt",
       clientId,
     );
 
-    const telemetryTopic = `bawatpieza/devices/${hubId}/telemetry`;
-    const statusTopic = `bawatpieza/devices/${hubId}/status`;
+    const telemetryTopic = `bawatpieza/devices/${cleanHubId}/telemetry`;
+    const statusTopic = `bawatpieza/devices/${cleanHubId}/status`;
 
     let active = true;
     let connecting = false;
@@ -184,7 +240,7 @@ export default function DeviceScreen() {
         setDeviceStatus((prev) =>
           prev === "Reconnecting..." ? prev : "Offline",
         );
-      }, 4000);
+      }, 5000);
     };
 
     connectMQTT = () => {
@@ -192,7 +248,7 @@ export default function DeviceScreen() {
       connecting = true;
 
       client.connect({
-        useSSL: false,
+        useSSL: true,
         timeout: 5,
         onSuccess: () => {
           connecting = false;
@@ -212,7 +268,10 @@ export default function DeviceScreen() {
         onFailure: (error: unknown) => {
           connecting = false;
           if (!active) return;
-          console.warn("[device] MQTT connection failed", error);
+          console.warn(
+            "[device] Secure MQTT connection failed, retrying...",
+            error,
+          );
           scheduleReconnect();
         },
       });
@@ -305,22 +364,23 @@ export default function DeviceScreen() {
   const performRestart = async () => {
     setRestarting(true);
     if (hubId) {
+      const cleanHubId = hubId.replace(/:/g, "").toLowerCase();
       try {
         const client = new Paho.Client(
           "broker.hivemq.com",
-          8000,
+          8884,
           "/mqtt",
           "app_cmd_" + Math.random().toString(16).substring(2, 10),
         );
 
         client.connect({
-          useSSL: false,
+          useSSL: true,
           timeout: 5,
           onSuccess: () => {
             const message = new Paho.Message(
               JSON.stringify({ command: "restart" }),
             );
-            message.destinationName = `bawatpieza/devices/${hubId}/commands`;
+            message.destinationName = `bawatpieza/devices/${cleanHubId}/commands`;
             client.send(message);
 
             setTimeout(() => {
@@ -367,7 +427,7 @@ export default function DeviceScreen() {
     showModal(
       canUnlink ? "Unlink Hub" : "Disconnect Shared Device",
       canUnlink
-        ? "This will remove the hub from your account, revoke access for all shared users, and force the hardware back into setup mode. Are you sure?"
+        ? "This will wipe all hub configurations, settings, and pairings from the database, revoking access for all users. Are you sure?"
         : "This will remove your shared access to this device. The owner's connection will not be affected. Are you sure?",
       "warning",
       true,
@@ -381,93 +441,159 @@ export default function DeviceScreen() {
     unlinkInProgressRef.current = true;
     accessRefreshIdRef.current += 1;
 
+    const targetHubId = hubId ? hubId.replace(/:/g, "").toLowerCase() : null;
+    console.log(
+      `[device-unlink] Starting complete wipe for hub: ${targetHubId}`,
+    );
+
     try {
       const { data } = await supabase.auth.getSession();
       const user = data.session?.user;
-      if (!user) throw new Error("Your session expired. Please sign in again.");
+      if (!user) {
+        throw new Error("Your session expired. Please sign in again.");
+      }
 
-      const token = data.session?.access_token;
-      if (!token) throw new Error("Your session expired. Please sign in again.");
+      if (targetHubId) {
+        if (canUnlink) {
+          // Owner is unlinking: Delete child tables first to satisfy foreign key constraints
+          await supabase
+            .from("device_access")
+            .delete()
+            .eq("hub_id", targetHubId);
+          await supabase
+            .from("device_setups")
+            .delete()
+            .eq("hub_id", targetHubId);
+          await supabase
+            .from("battery_level_milestones")
+            .delete()
+            .eq("hub_id", targetHubId);
+          await supabase.from("tiles").delete().eq("hub_id", targetHubId);
+          await supabase
+            .from("essential_loads")
+            .delete()
+            .eq("hub_id", targetHubId);
+          await supabase
+            .from("system_thresholds")
+            .delete()
+            .eq("hub_id", targetHubId);
+          await supabase
+            .from("system_status_checks")
+            .delete()
+            .eq("hub_id", targetHubId);
+          await supabase
+            .from("distribution_actions")
+            .delete()
+            .eq("hub_id", targetHubId);
+          await supabase
+            .from("system_health_logs")
+            .delete()
+            .eq("hub_id", targetHubId);
+          await supabase
+            .from("system_energy_logs")
+            .delete()
+            .eq("hub_id", targetHubId);
+          await supabase
+            .from("system_reports")
+            .delete()
+            .eq("hub_id", targetHubId);
+          await supabase
+            .from("ai_predictions")
+            .delete()
+            .eq("hub_id", targetHubId);
 
-      const response = await apiFetch("/accounts/device-access", {
-        method: "DELETE",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ hub_id: hubId }),
-        timeoutMs: 8_000,
-      });
-      const result = (await response.json().catch(() => null)) as {
-        ok?: boolean;
-        message?: string;
-        error?: string;
-      } | null;
-      if (!response.ok || !result?.ok) {
-        throw new Error(
-          result?.message ??
-            result?.error ??
-            `Device unlink failed (${response.status}).`,
+          // Delete parent pairing and hub records
+          await supabase
+            .from("device_pairings")
+            .delete()
+            .eq("hub_id", targetHubId);
+          await supabase.from("hubs").delete().eq("id", targetHubId);
+        } else {
+          // Shared user: only remove user's access & pairing
+          await supabase
+            .from("device_access")
+            .delete()
+            .eq("hub_id", targetHubId)
+            .eq("user_id", user.id);
+          await supabase
+            .from("device_pairings")
+            .delete()
+            .eq("hub_id", targetHubId)
+            .eq("user_id", user.id);
+        }
+      } else {
+        await supabase.from("device_pairings").delete().eq("user_id", user.id);
+      }
+
+      // API backend route deletion fallback
+      try {
+        const token = data.session?.access_token;
+        if (token && targetHubId) {
+          await apiFetch("/accounts/device-access", {
+            method: "DELETE",
+            headers: {
+              Authorization: `Bearer ${token}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ hub_id: targetHubId }),
+            timeoutMs: 6_000,
+          });
+        }
+      } catch (apiErr) {
+        console.warn(
+          "[device-unlink] API endpoint unreachable, proceeding with local clean up.",
+          apiErr,
         );
       }
 
+      // Clear local storage cache
       await Promise.all([
         AsyncStorage.removeItem("bawatpieza_hub_id"),
         AsyncStorage.removeItem("bawatpieza_shared_access"),
+        AsyncStorage.removeItem("bawatpieza_temp_tiles"),
+        AsyncStorage.removeItem("bawatpieza_temp_channels"),
         AsyncStorage.removeItem(deviceSetupRequiredKey(user.id)),
       ]);
       notifyDeviceAccessChanged(false);
+
       setHubId(null);
       setCanUnlink(false);
       setDeviceStatus("Offline");
       setWaitingForRestart(false);
       accessRefreshIdRef.current += 1;
 
-      if (hubId && canUnlink) {
+      // Reset ESP32 hardware back into AP Provisioning mode via MQTT
+      if (targetHubId && canUnlink) {
         const client = new Paho.Client(
           "broker.hivemq.com",
-          8000,
+          8884,
           "/mqtt",
           "app_cmd_" + Math.random().toString(16).substring(2, 10),
         );
-        let disconnectTimer: ReturnType<typeof setTimeout> | null = null;
-        client.onConnectionLost = () => {
-          if (disconnectTimer) {
-            clearTimeout(disconnectTimer);
-            disconnectTimer = null;
-          }
-        };
         client.connect({
-          useSSL: false,
+          useSSL: true,
           timeout: 5,
           onSuccess: () => {
             try {
               const message = new Paho.Message(
                 JSON.stringify({ command: "reset" }),
               );
-              message.destinationName = `bawatpieza/devices/${hubId}/commands`;
+              message.destinationName = `bawatpieza/devices/${targetHubId}/commands`;
               client.send(message);
-              disconnectTimer = setTimeout(() => {
-                disconnectTimer = null;
-                try {
-                  if (client.isConnected()) {
-                    client.disconnect();
-                  }
-                } catch (error) {
-                  console.warn("[device] MQTT cleanup after unlink failed", error);
-                }
+              setTimeout(() => {
+                if (client.isConnected()) client.disconnect();
               }, 500);
             } catch (error) {
-              console.warn("[device] hub reset command could not be sent", error);
+              console.warn("[device] Reset MQTT payload error", error);
             }
           },
           onFailure: (error: unknown) => {
-            console.warn("[device] hub reset after unlink failed", error);
+            console.warn("[device] Reset MQTT send failed", error);
           },
         });
       }
     } catch (error) {
-      console.error("[device] failed to unlink hub", error);
+      console.error("[device-unlink] Error during unlink:", error);
       showModal(
         "Unlink failed",
         error instanceof Error
@@ -649,7 +775,6 @@ export default function DeviceScreen() {
               {modalConfig.message}
             </Text>
 
-            {/* ROCK-SOLID BUTTON ROW PREVENTING FLEX COLLAPSE */}
             <View style={styles.modalActionRow}>
               {modalConfig.isConfirm && (
                 <Pressable

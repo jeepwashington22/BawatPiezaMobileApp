@@ -25,13 +25,11 @@
 
 // === CAPACITOR BUCKET DUMP PINS & THRESHOLDS ===
 #define PIN_CAP_VOLTS    34  
-#define PIN_DUMP_TRIGGER 26  
+#define PIN_DUMP_TRIGGER 26 
 
 // === RELAY MODULE SETTINGS ===
 #define PIN_RELAY_CH1     25  // Room Bulb 1
-#define PIN_RELAY_CH2     26  // Room Bulb 2 (Reused PIN_DUMP_TRIGGER if needed, adjust if overlapping with ESP32 pins. Assuming 26 was dump, shifted dump to 15 if needed, but keeping 26 for relay CH2 requires moving dump trigger. Let's move DUMP to 15).
-#undef PIN_DUMP_TRIGGER
-#define PIN_DUMP_TRIGGER  15 
+#define PIN_RELAY_CH2     15  // Room Bulb 2 
 
 #define PIN_RELAY_CHARGER 27 
 #define PIN_RELAY_CH7     32  // Battery Selector
@@ -72,7 +70,7 @@ const char* mqtt_broker = "broker.hivemq.com";
 const int mqtt_port     = 1883; 
 
 const char* supabase_url = "https://qbajmzjrnkxbsexzdixs.supabase.co/rest/v1/kinetic_logs";
-const char* supabase_key = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFiYWptempybmt4YnNleHpkaXhzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODgwMDM1ODUsImV4cCI6MjEwMzU3OTU4NX0.90OEN6du1xSn725B7DHijW2KrmeB4ZdyAhzbe6r1ZlU"; 
+const char* supabase_key = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFiYWptempybmt4YnNleHpkaXhzIiwicm9sZSI6InFub24iLCJpYXQiOjE3ODgwMDM1ODUsImV4cCI6MjEwMzU3OTU4NX0.90OEN6du1xSn725B7DHijW2KrmeB4ZdyAhzbe6r1ZlU"; 
 
 bool isConfigured          = false;
 bool isDumping             = false;
@@ -160,12 +158,62 @@ void updateOLED(String title, String line2, String line3 = "") {
   display.display();
 }
 
+// === WIPE ALL SUPABASE DATABASE TABLES LINKED TO MAC ID ===
+void wipeSupabaseHubData() {
+  if (WiFi.status() != WL_CONNECTED || macID.length() == 0) {
+    Serial.println("[WIPE] Skipped cloud wipe: Wi-Fi disconnected or macID missing.");
+    return;
+  }
+
+  updateOLED("CLOUD RESET", "Wiping database...", "Please wait...");
+  Serial.print("[WIPE] Deleting cloud records for MAC Hub ID: ");
+  Serial.println(macID);
+
+  const char* base_url = "https://qbajmzjrnkxbsexzdixs.supabase.co/rest/v1/";
+  
+  // Child tables deleted first, parent tables last to respect FK constraints
+  const char* deleteEndpoints[] = {
+    "device_access?hub_id=eq.",
+    "device_setups?hub_id=eq.",
+    "battery_level_milestones?hub_id=eq.",
+    "tiles?hub_id=eq.",
+    "essential_loads?hub_id=eq.",
+    "system_thresholds?hub_id=eq.",
+    "system_status_checks?hub_id=eq.",
+    "distribution_actions?hub_id=eq.",
+    "system_health_logs?hub_id=eq.",
+    "system_energy_logs?hub_id=eq.",
+    "system_reports?hub_id=eq.",
+    "ai_predictions?hub_id=eq.",
+    "device_pairings?hub_id=eq.",
+    "hubs?id=eq."
+  };
+
+  for (int i = 0; i < 14; i++) {
+    HTTPClient http;
+    String fullUrl = String(base_url) + String(deleteEndpoints[i]) + macID;
+    http.begin(fullUrl);
+    http.addHeader("apikey", supabase_key);
+    http.addHeader("Authorization", "Bearer " + String(supabase_key));
+    http.addHeader("Prefer", "return=minimal");
+    
+    int httpCode = http.sendRequest("DELETE");
+    Serial.printf("[WIPE] DELETE %s -> HTTP %d\n", deleteEndpoints[i], httpCode);
+    http.end();
+  }
+}
+
 void resetWifiSettings() {
   updateOLED("FACTORY RESET", "Erasing memory...", ""); 
   beepReset();
+  
+  // 1. Wipe database records in Supabase
+  wipeSupabaseHubData();
+
+  // 2. Erase local NVS settings
   preferences.begin("wifi-config", false); preferences.clear(); preferences.end();
   preferences.begin("battery", false); preferences.clear(); preferences.end();
-  delay(2000); 
+  delay(1500); 
   ESP.restart();
 }
 
@@ -270,9 +318,14 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
       } else if (doc["command"] == "room_relay") {
         int ch = doc["channel"].as<int>();
         bool state = doc["state"].as<bool>();
+        
         if (ch == 1) digitalWrite(PIN_RELAY_CH1, state ? RELAY_ON : RELAY_OFF);
         if (ch == 2) digitalWrite(PIN_RELAY_CH2, state ? RELAY_ON : RELAY_OFF);
-        updateOLED("ROOM RELAY", "CH" + String(ch) + (state ? " ON" : " OFF"), "");
+        if (ch == 7) digitalWrite(PIN_RELAY_CH7, state ? RELAY_ON : RELAY_OFF);
+        if (ch == 8) digitalWrite(PIN_RELAY_CH8, state ? RELAY_ON : RELAY_OFF);
+        
+        updateOLED("RELAY CTRL", "CH" + String(ch) + (state ? " ON" : " OFF"), "");
+        beepSuccess();
       } else if (doc["command"] == "force_battery" || doc["command"] == "force_grid" || doc["command"] == "force_shutdown") {
         bool grid_on = false;
         bool bat_on = false;
@@ -361,9 +414,14 @@ float getCapacitorVoltage() {
 }
 
 void configureTopics() {
+  // Turn on Wi-Fi radio mode first so the ESP hardware MAC address can be read properly
+  WiFi.mode(WIFI_MODE_STA); 
+  delay(10);
+
   macID = WiFi.macAddress();
   macID.replace(":", "");
   macID.toLowerCase(); 
+  
   telemetryTopic = "bawatpieza/devices/" + macID + "/telemetry";
   statusTopic    = "bawatpieza/devices/" + macID + "/status";
   commandTopic   = "bawatpieza/devices/" + macID + "/commands"; 
@@ -371,7 +429,13 @@ void configureTopics() {
 
 void setup() {
   Serial.begin(115200);
+  Serial2.begin(9600, SERIAL_8N1, PZEM_RX_PIN, PZEM_TX_PIN);
   Wire.begin(21, 22);
+
+  // === SANITIZE MAC & CONFIGURE MQTT TOPICS EARLY ===
+  configureTopics();
+  Serial.print("Device MAC ID: ");
+  Serial.println(macID);
 
   pinMode(PIN_DUMP_TRIGGER, OUTPUT);
   digitalWrite(PIN_DUMP_TRIGGER, LOW); 
@@ -402,6 +466,14 @@ void setup() {
   }
   delay(100);
 
+  // === TCA9548A MULTIPLEXER DIAGNOSTIC CHECK ===
+  Wire.beginTransmission(TCAADDR);
+  if (Wire.endTransmission() != 0) {
+    Serial.println("[ERROR] TCA9548A Multiplexer not found at 0x70! Check I2C wiring (SDA 21, SCL 22).");
+  } else {
+    Serial.println("[OK] TCA9548A Multiplexer detected at address 0x70.");
+  }
+
   // Initialize Battery INA219 on Channel 0
   tcaselect(0);
   if (!ina_battery.begin()) {
@@ -414,7 +486,6 @@ void setup() {
   detected_tiles = 0;
   for (uint8_t i = 1; i <= 7; i++) {
     tcaselect(i);
-    // Initialize array at index i-1 for Multiplexer Channels 1-7
     if (ina_tiles[i-1].begin()) {
       ina_tiles[i-1].setCalibration_32V_2A();
       active_tile_channels[detected_tiles] = i;
@@ -441,7 +512,7 @@ void setup() {
 
   mqtt.setServer(mqtt_broker, mqtt_port);
   mqtt.setCallback(mqttCallback); 
-  if (!mqtt.setBufferSize(768)) {
+  if (!mqtt.setBufferSize(1024)) {
     Serial.println("[MQTT] Failed to allocate telemetry buffer");
   }
 
@@ -462,15 +533,14 @@ void setup() {
 
   if (WiFi.status() == WL_CONNECTED) {
     isConfigured = true;
-    configureTopics();
     beepSuccess();
   } else {
     WiFi.mode(WIFI_AP_STA); 
     WiFi.softAP("BawatPieza-Setup");
     updateOLED("SETUP MODE", "Connect AP to", "BawatPieza-Setup");
 
-    // Existing connection endpoint
     server.on("/connect-hub", HTTP_POST, []() {
+      server.sendHeader("Access-Control-Allow-Origin", "*");
       if (server.hasArg("ssid") && server.hasArg("pass")) {
         String newSSID = server.arg("ssid");
         String newPass = server.arg("pass");
@@ -478,10 +548,8 @@ void setup() {
         preferences.putString("ssid", newSSID);
         preferences.putString("pass", newPass);
         preferences.end();
-        String mac = WiFi.macAddress();
-        mac.replace(":", "");
-        mac.toLowerCase();
-        server.send(200, "application/json", "{\"status\":\"success\", \"hub_id\":\"" + mac + "\"}");
+
+        server.send(200, "application/json", "{\"status\":\"success\", \"hub_id\":\"" + macID + "\"}");
         delay(1000);
         ESP.restart(); 
       } else {
@@ -489,9 +557,10 @@ void setup() {
       }
     });
 
-    // NEW ENDPOINT: App queries this to fetch dynamic tile count & room channels during setup
     server.on("/device-info", HTTP_GET, []() {
+      server.sendHeader("Access-Control-Allow-Origin", "*");
       StaticJsonDocument<256> infoDoc;
+      infoDoc["hub_id"] = macID;
       infoDoc["installed_tile_count"] = detected_tiles;
       JsonArray roomChs = infoDoc.createNestedArray("active_room_channels");
       for (int i = 0; i < TOTAL_ROOM_CHANNELS; i++) {
@@ -511,7 +580,6 @@ void loop() {
   checkEmergencyReset();
   unsigned long currentMillis = millis();
 
-  // === DYNAMIC FOOTSTEP SCANNING OVER ALL DETECTED TILES ===
   float sum_raw_mA = 0.0;
   float max_raw_V = 0.0;
 
@@ -570,7 +638,6 @@ void loop() {
       float average_W = average_V * average_A; 
       float step_Joules = average_W * (stepDuration / 1000.0); 
 
-      // 1. MQTT PUBLISH TO APP
       if (isConfigured && mqtt.connected()) {
         StaticJsonDocument<200> stepDoc;
         stepDoc["event"]  = "footstep";
@@ -585,7 +652,6 @@ void loop() {
         mqtt.publish(telemetryTopic.c_str(), stepPayload.c_str());
       }
       
-      // 2. HTTP POST DIRECTLY TO SUPABASE
       if (isConfigured && WiFi.status() == WL_CONNECTED) {
         HTTPClient http;
         http.begin(supabase_url);
@@ -607,7 +673,6 @@ void loop() {
     }
   }
 
-  // === 1. CAPACITOR BUCKET DUMP CONTROL ===
   float capVolts = getCapacitorVoltage();
 
   if (!isDumping && capVolts >= TARGET_DUMP_VOLTAGE) {
@@ -623,7 +688,6 @@ void loop() {
     }
   }
 
-  // === 2. COULOMB COUNTING ENGINE ===
   if (currentMillis - lastCoulombUpdate >= 1000) {
     unsigned long deltaMs = currentMillis - lastCoulombUpdate;
     lastCoulombUpdate = currentMillis;
@@ -639,7 +703,6 @@ void loop() {
     if (currentCapacity_mAh > TOTAL_CAPACITY_MAH) currentCapacity_mAh = TOTAL_CAPACITY_MAH;
   }
 
-  // === 3. FLASH MEMORY SAVER (Every 5 Minutes) ===
   if (currentMillis - lastFlashSave > 300000) {
     lastFlashSave = currentMillis;
     preferences.begin("battery", false);
@@ -647,7 +710,6 @@ void loop() {
     preferences.end();
   }
 
-  // === 4. SERIAL MONITOR OUTPUT (Every 1 Second) ===
   if (currentMillis - lastSerialPrint >= 1000) {
     lastSerialPrint = currentMillis;
 
@@ -706,7 +768,6 @@ void loop() {
     Serial.print("[RELAY STATUS]   Charger Output: "); Serial.println(isChargerOn ? "ON" : "OFF");
   }
 
-  // === 5. MQTT & TELEMETRY ENGINE ===
   if (isConfigured) {
     if (!mqtt.connected()) {
       if (WiFi.status() == WL_CONNECTED) {
@@ -773,7 +834,6 @@ void loop() {
       doc["grid_w"]     = serialized(String(pzem_w, 1));
       doc["grid_kwh"]   = serialized(String(pzem_e, 3));
 
-      // Append hardware configuration for App syncing
       doc["installed_tiles"] = detected_tiles;
       JsonArray roomChs = doc.createNestedArray("active_room_channels");
       for (int i = 0; i < TOTAL_ROOM_CHANNELS; i++) {
