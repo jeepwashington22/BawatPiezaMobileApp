@@ -4,7 +4,7 @@ Signing in (or signing up) with a Google account, from `/login` and `/signup`.
 
 | | |
 | --- | --- |
-| **Routes** | `BawatPiezaApp/src/app/login.tsx`, `BawatPiezaApp/src/app/signup.tsx` |
+| **Routes** | `BawatPiezaApp/src/app/login.tsx`, `BawatPiezaApp/src/app/oauth.tsx`, `BawatPiezaApp/src/app/google-onboarding.tsx` |
 | **Source** | `BawatPiezaApp/src/lib/supabase.ts` → `signInWithGoogle()` |
 | **Data** | 🟢 live — Supabase Auth (`google` provider) |
 | **Provider** | Supabase Auth → Google, fed by Google Cloud OAuth clients |
@@ -17,7 +17,7 @@ Signing in (or signing up) with a Google account, from `/login` and `/signup`.
 | --- | --- |
 | **Android / iOS dev or production build** | The **native Google account sheet** slides up. No browser, no redirect. |
 | **Expo Go** | Browser round trip via `signInWithBrowserGoogle()` — this repo's `.env` sets `EXPO_PUBLIC_GOOGLE_BROWSER_FALLBACK=1`. Without the flag it throws `GoogleSignInUnavailableError` with an actionable message directing to build a dev client. |
-| **Web** | Normal OAuth redirect to Google and back to the origin the app is served from. |
+| **Web** | Normal OAuth redirect to Google and back to the app's `/oauth` route. |
 
 The first row is the intended experience on a phone. The second exists because
 Expo Go cannot load `@react-native-google-signin/google-signin` (its TurboModule,
@@ -28,8 +28,8 @@ OS-level feature that cannot run without it.
 
 ```
 signInWithGoogle()
-├── Platform.OS === 'web'        → signInWithOAuth({ redirectTo: window.location.origin + '/' })
-│                                  detectSessionInUrl picks the session out of the URL
+├── Platform.OS === 'web'        → signInWithOAuth({ redirectTo: window.location.origin + '/oauth' })
+│                                  OAuthLandingScreen resumes first-time onboarding
 └── native
     ├── native module present    → signInWithNativeGoogle()
     │                              GoogleSignin.signIn() → idToken
@@ -89,9 +89,21 @@ must name the app — not `localhost`**:
 `googleRedirectUrl()` in `src/lib/supabase.ts` returns the value the app asks
 for — which is exactly what to allow-list:
 
-- web → the live `window.location.origin`, so a phone loading the web build from
-  `http://192.168.1.9:8081` comes back there instead of to `localhost`
+- web → the live `window.location.origin` plus `/oauth`, so a phone loading the
+  web build from `http://192.168.1.9:8081` returns to its OAuth landing route
 - native → `bawatpiezaapp://oauth` (the `expo.scheme` in `app.json`)
+
+For a newly created Google account, the app requires the user to read and accept
+the Terms & Conditions, then enter a six-digit code sent to the Google account's
+email before continuing to device provisioning. Existing Google accounts skip
+this first-time onboarding. The code is issued and verified by the authenticated
+`/accounts/google-onboarding` backend routes, stored as a hash in Redis, and
+expires after five minutes; resend is limited to once per minute.
+
+Google given and family names are synchronized into the account profile after
+sign-in. Native sign-in uses Google's `givenName` and `familyName`; OAuth uses
+the provider's name claims with a full-name fallback. Existing non-empty
+profile names are preserved.
 
 Deep links only resolve when the **installed binary registers the scheme**.
 `app.json` now declares the identity a build needs:

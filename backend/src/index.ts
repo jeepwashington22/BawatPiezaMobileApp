@@ -8,6 +8,7 @@ import healthRouter from './routes/health.js';
 import emailRouter from './routes/email.js';
 import accountsRouter from './routes/accounts.js';
 import twoFactorRouter from './routes/twoFactor.js';
+import googleOnboardingRouter from './routes/googleOnboarding.js';
 import notificationsRouter from './routes/notifications.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { connectRedis, disconnectRedis } from './lib/redis.js';
@@ -30,6 +31,7 @@ app.use('/email', emailRouter);
 // prefix is matched first; both are plain Express routers, so either order
 // works, but this keeps the intent explicit.
 app.use('/accounts/2fa', twoFactorRouter);
+app.use('/accounts/google-onboarding', googleOnboardingRouter);
 app.use('/accounts', accountsRouter);
 app.use('/notifications', notificationsRouter);
 

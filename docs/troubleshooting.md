@@ -3,7 +3,7 @@
 Quick fixes for the problems that actually happen in this repo.
 
 ---
-
+dawdawdawdwadawdaw
 ## The app says "Missing Supabase env vars"
 
 `BawatPiezaApp/src/lib/supabase.ts` throws at startup when
@@ -49,13 +49,13 @@ to read is the address the app actually used.
 6. Profile → **Device** runs the built-in diagnostic (`/health`) and prints the
    resolved address plus latency for Backend API, Supabase, and Redis.
 
-## Device disconnect returns HTTP 404
+## A backend route returns HTTP 404 after a code change
 
-The disconnect route is compiled into `backend/dist/`. Restarting a backend
-that runs `node dist/index.js` does not rebuild that output. Stop the backend,
-run `npm run build` from `backend/`, then start it again with `npm start`. For
-a hosted backend, ensure its deployment build runs `npm run build` before the
-start command and redeploy it.
+Backend routes, including Google onboarding OTP, are compiled into
+`backend/dist/`. Restarting a backend that runs `node dist/index.js` does not
+rebuild that output. Stop the backend, run `npm run build` from `backend/`, then
+start it again with `npm start`. For a hosted backend, ensure its deployment
+build runs `npm run build` before the start command and redeploy it.
 
 ## `npm run android` fails: "Failed to resolve the Android SDK path" / `'adb' is not recognized`
 

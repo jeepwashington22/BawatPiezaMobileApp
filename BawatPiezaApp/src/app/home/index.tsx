@@ -13,6 +13,7 @@ import { AppText as Text } from "../../components/app-text";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter, type Href } from "expo-router";
 import { ScreenShell } from "../../components/screen-shell";
+import { LoadingScreen } from "../../components/loading-screen";
 import { TourSpot } from "../../components/app-tour-overlay";
 import { useAppTour } from "../../hooks/use-app-tour";
 import { useAuth } from "../../hooks/use-auth";
@@ -23,12 +24,12 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import Paho from "paho-mqtt";
 import "text-encoding";
 import { supabase } from "../../lib/supabase";
+import { installedTileCountKey } from "../../lib/device-setup";
 import { CountUpText } from "../../components/count-up-text";
 import { DashboardStats } from "./dashboard/stats-and-battery";
 import { DashboardActions } from "./dashboard/dashboard-actions";
 import { st } from "./dashboard/home-styles";
 import {
-  NoDeviceNotice,
   useDeviceConnection,
 } from "../../components/device-status-banner";
 
@@ -166,6 +167,8 @@ export default function HomeScreen() {
   const [generationByDay, setGenerationByDay] = useState<
     GenerationSummaryDay[]
   >([]);
+  const [hasLoadedGenerationSummary, setHasLoadedGenerationSummary] =
+    useState(false);
   const [mqttStatus, setMqttStatus] = useState<
     "Connecting..." | "Live" | "Offline"
   >("Connecting...");
@@ -265,6 +268,7 @@ export default function HomeScreen() {
         generated_kwh: total.energyJ / 3_600_000,
       }),
     );
+    if ((await AsyncStorage.getItem("bawatpieza_hub_id")) !== hubId) return;
     setGenerationByDay(rows);
     const today = rows.find((row) => row.log_day === getDateKey(now));
     setFootsteps(Number(today?.footsteps ?? 0));
@@ -282,6 +286,8 @@ export default function HomeScreen() {
           "[dashboard] failed to load device generation history",
           error,
         );
+      } finally {
+        if (!cancelled) setHasLoadedGenerationSummary(true);
       }
     };
 
@@ -295,6 +301,29 @@ export default function HomeScreen() {
       clearInterval(interval);
     };
   }, [ready, isLoggedIn, hasDevice, loadGenerationSummary]);
+
+  useEffect(() => {
+    if (hasDevice !== false) return;
+
+    const client = mqttClientRef.current;
+    mqttClientRef.current = null;
+    try {
+      if (client?.isConnected()) client.disconnect();
+    } catch (error) {
+      console.warn("[dashboard] MQTT disconnect after device unlink failed", error);
+    }
+    setBatteryPct(null);
+    setLivePower(null);
+    setDisplayVoltage("--");
+    setGridVoltage(null);
+    setGridCurrent(null);
+    setGridPower(null);
+    setGridEnergyKwh(null);
+    setGenerationByDay([]);
+    setFootsteps(0);
+    setHasLoadedGenerationSummary(true);
+    setMqttStatus("Offline");
+  }, [hasDevice]);
 
   const connectMQTT = useCallback(async () => {
     setMqttStatus("Connecting...");
@@ -495,8 +524,72 @@ export default function HomeScreen() {
     }
   }, []);
   const [activeTile, setActiveTile] = useState<number | null>(null);
+  const [installedTileCount, setInstalledTileCount] = useState(0);
+  const [tileSetupLoaded, setTileSetupLoaded] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (hasDevice !== true) return;
+
+    const loadInstalledTileCount = async () => {
+      try {
+        const hubId = await AsyncStorage.getItem("bawatpieza_hub_id");
+        if (!hubId) {
+          if (!cancelled) setInstalledTileCount(0);
+          return;
+        }
+
+        try {
+          const { data, error } = await supabase
+            .from("device_setups")
+            .select("installed_tile_count")
+            .eq("hub_id", hubId)
+            .maybeSingle();
+          if (error) throw error;
+          if (
+            typeof data?.installed_tile_count === "number" &&
+            Number.isSafeInteger(data.installed_tile_count) &&
+            data.installed_tile_count >= 6
+          ) {
+            if (!cancelled) {
+              setInstalledTileCount(data.installed_tile_count);
+            }
+            return;
+          }
+        } catch (error) {
+          console.error(
+            "[dashboard] failed to load installed tile setup",
+            error,
+          );
+        }
+
+        const localCount = Number(
+          await AsyncStorage.getItem(installedTileCountKey(hubId)),
+        );
+        if (!cancelled) {
+          setInstalledTileCount(
+            Number.isSafeInteger(localCount) && localCount >= 6
+              ? localCount
+              : 0,
+          );
+        }
+      } catch (error) {
+        console.error("[dashboard] failed to read installed tile count", error);
+        if (!cancelled) setInstalledTileCount(0);
+      } finally {
+        if (!cancelled) setTileSetupLoaded(true);
+      }
+    };
+
+    void loadInstalledTileCount();
+    return () => {
+      cancelled = true;
+    };
+  }, [hasDevice]);
 
   const isActive = hasDevice === true;
+  const isLoadingDashboardData =
+    hasDevice === null || (isActive && !hasLoadedGenerationSummary);
 
   const stats = [
     { label: "Voltage", value: Number(displayVoltage), decimals: 2, unit: "V" },
@@ -616,11 +709,16 @@ export default function HomeScreen() {
   });
   const dynamicKwhHarvested = generationData.today.kwh.toFixed(4);
 
+  if (isLoadingDashboardData) {
+    return <LoadingScreen label="Loading dashboard..." size="md" />;
+  }
+
   return (
     <ScreenShell
       scroll={false}
       contentPaddingHorizontal={10}
       contentPaddingBottom={0}
+      showNoDeviceNotice
     >
       <ScrollView
         ref={(node) => {
@@ -648,17 +746,15 @@ export default function HomeScreen() {
             intensity={isActive ? 1 : mode === "dark" ? 0.4 : 0.85}
             bleedBottom={scale(76)}
           />
-          <View style={st.heroTopBar}>
-            <TopBar gutter={2} title="Dashboard" glass />
-          </View>
+          <TopBar gutter={0} title="Dashboard" glass />
         </View>
-        <NoDeviceNotice hasDevice={hasDevice} />
         <DashboardStats
           c={c}
           mode={mode}
           usingGrid={usingGrid}
           powerMode={override}
           isActive={isActive}
+          isLoading={isLoadingDashboardData}
           isSharedUser={isSharedUser}
           activeAccent={activeAccent}
           activeOrangeDark={activeOrangeDark}
@@ -695,6 +791,8 @@ export default function HomeScreen() {
           activeAccentSoft={activeAccentSoft}
           gridActive={gridActive}
           isActive={isActive}
+          installedTileCount={installedTileCount}
+          tileSetupLoaded={tileSetupLoaded}
           router={router}
           zones={zones}
           onZoneToggle={onZoneToggle}

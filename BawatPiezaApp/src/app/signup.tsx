@@ -1,6 +1,5 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
-  ActivityIndicator,
   Image,
   KeyboardAvoidingView,
   Modal,
@@ -16,11 +15,13 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { fonts } from '../theme';
-import { isEmailRegistered, supabase, termsAcceptanceMetadata } from '../lib/supabase';
+import { isEmailRegistered, termsAcceptanceMetadata } from '../lib/supabase';
 import { useAuth } from '../hooks/use-auth';
 import { TermsModal } from '../components/terms-modal';
+import { TileLoader } from '../components/tile-loader';
+import { apiFetch } from '../lib/api';
+import { describeApiFailure } from '../lib/network';
 import {
-  describeAuthError,
   PASSWORD_MIN_LENGTH,
   validateContactNumber,
   validateEmail,
@@ -29,9 +30,10 @@ import {
 } from '../lib/validation';
 
 const ORANGE = '#F97316';
-const ORANGE_DARK = '#C2410C';
-const MUTED = 'rgba(255, 255, 255, 0.68)';
-const LINE = 'rgba(255, 255, 255, 0.14)';
+const ORANGE_DARK = '#EA580C';
+const TEXT_PRIMARY = '#0F172A';
+const TEXT_SECONDARY = '#64748B';
+const BORDER = '#E2E8F0';
 
 type Step = 0 | 1 | 2;
 
@@ -59,13 +61,14 @@ export default function SignupScreen() {
   const [emailSent, setEmailSent] = useState(true);
   const [resending, setResending] = useState(false);
   const [resendMessage, setResendMessage] = useState<string | null>(null);
+  const [verificationError, setVerificationError] = useState<string | null>(null);
+  const [verifying, setVerifying] = useState(false);
+  const [verified, setVerified] = useState(false);
+  const [otpDigits, setOtpDigits] = useState<string[]>(['', '', '', '', '', '']);
+  const otpInputs = useRef<(TextInput | null)[]>([]);
+  const otpCode = otpDigits.join('');
   const [justSignedUp, setJustSignedUp] = useState(false);
 
-  // Already signed in (and NOT just finishing a fresh signup) → dashboard.
-  // The success modal suppresses this so the verification step is never
-  // skipped by a transient session right after signUp. `justSignedUp` covers
-  // the gap between signUp resolving and the modal mounting, where neither
-  // `submitting` nor `successVisible` alone is true yet.
   useEffect(() => {
     if (ready && isLoggedIn && !successVisible && !submitting && !justSignedUp) {
       router.replace('/home');
@@ -122,71 +125,44 @@ export default function SignupScreen() {
     setError(null);
     try {
       const normalizedEmail = email.trim().toLowerCase();
-      const { data, error: signupError } = await supabase.auth.signUp({
-        email: normalizedEmail,
-        password,
-        options: {
-          data: {
-            firstname: firstName.trim(),
-            middlename: middleName.trim() || null,
-            lastname: lastName.trim(),
-            full_name: [firstName, middleName, lastName].filter(Boolean).join(' ').trim(),
-            contact_number: `+639${contactDigits}`,
-            ...termsAcceptanceMetadata(termsAcceptedAt),
-          },
-        },
+      const response = await apiFetch('/accounts/signup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: normalizedEmail,
+          password,
+          firstname: firstName.trim(),
+          middlename: middleName.trim(),
+          lastname: lastName.trim(),
+          contactNumber: `+639${contactDigits}`,
+          ...termsAcceptanceMetadata(termsAcceptedAt),
+        }),
       });
-
-      if (signupError) {
-        setJustSignedUp(false);
-        setError(describeAuthError(signupError, 'signup'));
-        return;
+      const result = (await response.json()) as {
+        email?: string;
+        verificationEmailSent?: boolean;
+        error?: string;
+        message?: string;
+      };
+      if (!response.ok) {
+        throw new Error(result.error ?? result.message ?? 'Could not create your account.');
       }
 
-      // Supabase sends the confirmation email itself. Whether one was sent is
-      // observable: with "Confirm email" ON there is NO session (user must
-      // click the link first); with it OFF a session is returned immediately
-      // and no email goes out. Never trust a silent signup — record it.
-      let verificationEmailSent = !data.session;
-      if (!data.session && !data.user) {
-        // Defensive: no user and no session means nothing was created.
-        setJustSignedUp(false);
-        setError('Account creation did not complete. Please try again.');
-        return;
-      }
-
-      // "Confirm email" OFF → Supabase auto-signed the user in and sent
-      // nothing. Try to trigger the verification email explicitly; if that
-      // also yields nothing, tell the user the truth instead of claiming an
-      // email was sent.
-      if (data.session) {
-        await supabase.auth.signOut();
-        try {
-          const { error: resendError } = await supabase.auth.resend({
-            type: 'signup',
-            email: normalizedEmail,
-          });
-          verificationEmailSent = !resendError;
-        } catch {
-          verificationEmailSent = false;
-        }
-      }
-
-      // Manual email registration always requires the user to verify through
-      // the email link before signing in. Never let a fresh account land on
-      // the dashboard: any session above was cleared so the auth gate keeps
-      // the user on public routes until they sign in.
-      // Explicit success state: show the verification modal that names the
-      // exact inbox (the email box input), then send the user to sign in.
-      setCreatedEmail(normalizedEmail);
-      setEmailSent(verificationEmailSent);
-      setResendMessage(null);
+      setCreatedEmail(result.email ?? normalizedEmail);
+      setEmailSent(result.verificationEmailSent === true);
+      setResendMessage(result.verificationEmailSent ? 'Verification code sent. Check your inbox and spam folder.' : null);
+      setVerificationError(
+        result.verificationEmailSent
+          ? null
+          : result.message ?? 'Your account was created, but the verification email could not be sent. Try resending the code.',
+      );
+      setOtpDigits(['', '', '', '', '', '']);
+      setVerified(false);
+      setJustSignedUp(false);
       setSuccessVisible(true);
-      // Keep `justSignedUp` true until the user leaves for sign-in so no
-      // session blip can bounce this screen to /home mid-modal.
     } catch (signupError) {
       setJustSignedUp(false);
-      setError(describeAuthError(signupError instanceof Error ? signupError : null, 'signup'));
+      setError(describeApiFailure(signupError, 'Unable to reach the server. Check your connection and try again.'));
     } finally {
       setSubmitting(false);
     }
@@ -200,36 +176,104 @@ export default function SignupScreen() {
     }
     setResending(true);
     setResendMessage(null);
+    setVerificationError(null);
     try {
-      const { error: resendError } = await supabase.auth.resend({
-        type: 'signup',
-        email: target,
+      const response = await apiFetch('/accounts/signup/resend', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: target }),
       });
-      if (resendError) {
-        // "already confirmed" just means the inbox link already worked — the
-        // user can go straight to sign in.
-        const message = (resendError.message ?? '').toLowerCase();
-        if (message.includes('already') && message.includes('confirm')) {
-          setEmailSent(true);
-          setResendMessage('This email is already verified. Go to sign in and log in with your credentials.');
-        } else {
-          setResendMessage(describeAuthError(resendError, 'signup'));
-        }
+      const result = (await response.json()) as {
+        verificationEmailSent?: boolean;
+        alreadyVerified?: boolean;
+        error?: string;
+        message?: string;
+      };
+      if (!response.ok) {
+        throw new Error(result.error ?? result.message ?? 'Could not send a verification code.');
+      }
+      if (result.alreadyVerified) {
+        setEmailSent(false);
+        setVerified(true);
+        setJustSignedUp(false);
+        setResendMessage('This email is already verified. Continue to sign in with your credentials.');
         return;
       }
-      setEmailSent(true);
-      setResendMessage(`Verification email re-sent to ${target}. Check your inbox and spam folder.`);
+      setEmailSent(result.verificationEmailSent === true);
+      if (result.verificationEmailSent) {
+        setResendMessage(result.message ?? 'Verification email sent. Check your inbox and spam folder.');
+      } else {
+        setVerificationError(result.message ?? 'Could not send the verification code. Please try again shortly.');
+      }
     } catch (resendError) {
-      setResendMessage(describeAuthError(resendError instanceof Error ? resendError : null, 'signup'));
+      setVerificationError(describeApiFailure(resendError, 'Could not send the verification code. Check your connection and try again.'));
     } finally {
       setResending(false);
     }
   };
 
-  const handleGoToSignIn = () => {
+  const handleOtpDigitChange = (index: number, value: string) => {
+    const digits = value.replace(/\D/g, '');
+    setOtpDigits((previous) => {
+      const next = [...previous];
+      if (digits.length > 1) {
+        const pastedDigits = digits.slice(0, 6 - index).split('');
+        pastedDigits.forEach((digit, offset) => {
+          next[index + offset] = digit;
+        });
+        requestAnimationFrame(() => otpInputs.current[Math.min(index + pastedDigits.length, 5)]?.focus());
+        return next;
+      }
+      next[index] = digits;
+      return next;
+    });
+    if (digits.length === 1 && index < 5) {
+      otpInputs.current[index + 1]?.focus();
+    }
+  };
+
+  const handleOtpKeyPress = (index: number, key: string) => {
+    if (key !== 'Backspace' || otpDigits[index] || index === 0) return;
+    otpInputs.current[index - 1]?.focus();
+    setOtpDigits((previous) => {
+      const next = [...previous];
+      next[index - 1] = '';
+      return next;
+    });
+  };
+
+  const handleVerifyEmail = async () => {
+    setVerificationError(null);
+    setResendMessage(null);
+    if (!/^\d{6}$/.test(otpCode)) {
+      setVerificationError('Enter the 6-digit code sent to your email.');
+      return;
+    }
+
+    setVerifying(true);
+    try {
+      const response = await apiFetch('/accounts/signup/verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: createdEmail, otp: otpCode }),
+      });
+      const result = (await response.json()) as { error?: string; message?: string };
+      if (!response.ok) {
+        throw new Error(result.error ?? result.message ?? 'Unable to verify the code.');
+      }
+      setVerified(true);
+      setVerified(true);
+      setJustSignedUp(false);
+      setResendMessage(result.message ?? 'Email verified. You can now sign in.');
+    } catch (verifyError) {
+      setVerificationError(describeApiFailure(verifyError, 'Unable to verify the code. Check your connection and try again.'));
+    } finally {
+      setVerifying(false);
+    }
+  };
+
+  const handleContinueAfterVerification = () => {
     setSuccessVisible(false);
-    // Return to the sign-in screen with the created email prefilled via params;
-    // the account can only log in after the emailed link is confirmed.
     router.replace({ pathname: '/login', params: { email: createdEmail || email.trim().toLowerCase() } });
   };
 
@@ -272,11 +316,11 @@ export default function SignupScreen() {
     options?: Partial<React.ComponentProps<typeof TextInput>>,
   ) => (
     <View style={styles.inputBox}>
-      <Ionicons name={icon} size={17} color="rgba(255,255,255,0.45)" style={styles.inputIcon} />
+      <Ionicons name={icon} size={17} color="#94A3B8" style={styles.inputIcon} />
       <TextInput
         style={styles.input}
         placeholder={placeholder}
-        placeholderTextColor={MUTED}
+        placeholderTextColor="#94A3B8"
         value={value}
         onChangeText={onChangeText}
         {...options}
@@ -292,25 +336,25 @@ export default function SignupScreen() {
     setVisible: (value: boolean) => void,
   ) => (
     <View style={styles.inputBox}>
-      <Ionicons name="lock-closed-outline" size={17} color="rgba(255,255,255,0.45)" style={styles.inputIcon} />
+      <Ionicons name="lock-closed-outline" size={17} color="#94A3B8" style={styles.inputIcon} />
       <TextInput
         style={styles.input}
         placeholder={placeholder}
-        placeholderTextColor={MUTED}
+        placeholderTextColor="#94A3B8"
         value={value}
         onChangeText={onChangeText}
         secureTextEntry={!visible}
         autoCapitalize="none"
       />
       <Pressable onPress={() => setVisible(!visible)} hitSlop={10} accessibilityLabel={visible ? 'Hide password' : 'Show password'}>
-        <Ionicons name={visible ? 'eye-off-outline' : 'eye-outline'} size={18} color={MUTED} />
+        <Ionicons name={visible ? 'eye-off-outline' : 'eye-outline'} size={18} color="#94A3B8" />
       </Pressable>
     </View>
   );
 
   return (
     <View style={styles.container}>
-      <LinearGradient colors={['#8F350E', '#2A0D06', '#120705']} style={StyleSheet.absoluteFill} />
+      <LinearGradient colors={['#FFFFFF', '#F8FAFC', '#F1F5F9']} style={StyleSheet.absoluteFill} />
       <SafeAreaView style={styles.safeArea}>
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.flex}>
           <View style={styles.header}>
@@ -346,12 +390,12 @@ export default function SignupScreen() {
                 <Text style={styles.stepCopy}>We will use these details to secure your account.</Text>
                 {renderInput('mail-outline', 'Email address', email, setEmail, { autoCapitalize: 'none', keyboardType: 'email-address' })}
                 <View style={styles.inputBox}>
-                  <Ionicons name="call-outline" size={17} color="rgba(255,255,255,0.45)" style={styles.inputIcon} />
+                  <Ionicons name="call-outline" size={17} color="#94A3B8" style={styles.inputIcon} />
                   <Text style={styles.phonePrefix}>+639</Text>
                   <TextInput
                     style={styles.phoneInput}
                     placeholder="XXXXXXXXX"
-                    placeholderTextColor="rgba(255,255,255,0.35)"
+                    placeholderTextColor="#94A3B8"
                     value={contactDigits}
                     onChangeText={handleContactDigitsChange}
                     keyboardType="number-pad"
@@ -375,7 +419,7 @@ export default function SignupScreen() {
                       <Ionicons
                         name={check.met ? 'checkmark-circle' : 'ellipse-outline'}
                         size={14}
-                        color={check.met ? '#86EFAC' : 'rgba(255,255,255,0.48)'}
+                        color={check.met ? '#16A34A' : '#CBD5E1'}
                       />
                       <Text style={[styles.passwordCheckText, check.met && styles.passwordCheckTextMet]}>
                         {check.label}
@@ -389,7 +433,7 @@ export default function SignupScreen() {
                     <Ionicons
                       name={password === confirmPassword ? 'checkmark-circle' : 'close-circle'}
                       size={14}
-                      color={password === confirmPassword ? '#86EFAC' : '#FDBA74'}
+                      color={password === confirmPassword ? '#16A34A' : '#EA580C'}
                     />
                     <Text style={[styles.passwordCheckText, password === confirmPassword && styles.passwordCheckTextMet]}>
                       {password === confirmPassword ? 'Passwords match' : 'Passwords do not match'}
@@ -406,11 +450,11 @@ export default function SignupScreen() {
                   accessibilityRole="button"
                   accessibilityLabel="Read Terms and Conditions"
                 >
-                  <Ionicons name={termsAcceptedAt ? 'checkmark-circle' : 'document-text-outline'} size={15} color={termsAcceptedAt ? '#86EFAC' : '#F6C445'} />
+                  <Ionicons name={termsAcceptedAt ? 'checkmark-circle' : 'document-text-outline'} size={15} color={termsAcceptedAt ? '#16A34A' : ORANGE_DARK} />
                   <Text style={[styles.termsLinkText, termsAcceptedAt && styles.termsLinkAccepted]}>
                     {termsAcceptedAt ? 'Terms & Conditions accepted' : 'Read and agree to the Terms & Conditions'}
                   </Text>
-                  {!termsAcceptedAt && <Ionicons name="chevron-forward" size={14} color="#F6C445" />}
+                  {!termsAcceptedAt && <Ionicons name="chevron-forward" size={14} color={ORANGE_DARK} />}
                 </Pressable>
               </>
             )}
@@ -420,7 +464,7 @@ export default function SignupScreen() {
             <View style={styles.buttonRow}>
               {step > 0 && (
                 <Pressable style={styles.backButton} onPress={() => { setError(null); setStep((current) => (current - 1) as Step); }}>
-                  <Ionicons name="arrow-back" size={16} color={MUTED} />
+                  <Ionicons name="arrow-back" size={16} color={TEXT_SECONDARY} />
                   <Text style={styles.backButtonText}>Back</Text>
                 </Pressable>
               )}
@@ -433,7 +477,7 @@ export default function SignupScreen() {
                 disabled={submitting || checkingEmail || (step === 2 && (!termsOpened || !termsAcceptedAt))}
               >
                 <LinearGradient colors={[ORANGE, ORANGE_DARK]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.primaryButtonInner}>
-                  {submitting || checkingEmail ? <ActivityIndicator color="#FFFFFF" /> : <><Text style={styles.primaryButtonText}>{step === 2 ? 'Create account' : 'Continue'}</Text><Ionicons name="arrow-forward" size={16} color="#FFFFFF" /></>}
+                  <><Text style={styles.primaryButtonText}>{step === 2 ? 'Create account' : 'Continue'}</Text><Ionicons name="arrow-forward" size={16} color="#FFFFFF" /></>
                 </LinearGradient>
               </Pressable>
             </View>
@@ -449,7 +493,7 @@ export default function SignupScreen() {
       </SafeAreaView>
       <TermsModal
         visible={termsVisible}
-        variant="dark"
+        variant="light"
         confirmLabel="I Agree & Continue"
         onAccept={(acceptedAt) => {
           setTermsAcceptedAt(acceptedAt);
@@ -458,120 +502,162 @@ export default function SignupScreen() {
         }}
         onDecline={() => setTermsVisible(false)}
       />
-      {/* Success + verify-email gate: explicit confirmation, names the inbox
-          from the email box, then routes to sign in — never to the dashboard. */}
-      <Modal visible={successVisible} transparent animationType="fade" onRequestClose={handleGoToSignIn}>
-        <View style={styles.successOverlay}>
+      <Modal visible={submitting || checkingEmail} transparent animationType="fade">
+        <View style={styles.loadingOverlay}>
+          <View style={styles.loadingCard}>
+            <TileLoader label={checkingEmail ? 'Checking your email...' : 'Creating your account...'} size="sm" />
+          </View>
+        </View>
+      </Modal>
+      <Modal
+        visible={successVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {
+          if (verified) handleContinueAfterVerification();
+        }}
+      >
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          style={styles.successOverlay}
+        >
           <View style={styles.successCard}>
             <View style={styles.successIconWrap}>
-              <Ionicons name="checkmark-circle" size={44} color="#22C55E" />
+              <Ionicons name={verified ? 'checkmark-circle' : 'mail-unread-outline'} size={44} color={verified ? '#16A34A' : ORANGE_DARK} />
             </View>
-            <Text style={styles.successTitle}>Account created successfully</Text>
+            <Text style={styles.successTitle}>{verified ? 'Email verified successfully' : 'Account created successfully'}</Text>
             <Text style={styles.successCopy}>
-              {emailSent ? (
+              {verified ? (
                 <>
-                  We sent a verification email to{' '}
-                  <Text style={styles.successEmail}>{createdEmail || email.trim().toLowerCase()}</Text>. Open it and
-                  confirm your email address before signing in. Check your spam folder if you do not see it.
+                  Your account for <Text style={styles.successEmail}>{createdEmail}</Text> is verified.
+                  {' '}Continue to sign in with your credentials.
+                </>
+              ) : emailSent ? (
+                <>
+                  We sent a 6-digit verification code to{' '}
+                  <Text style={styles.successEmail}>{createdEmail || email.trim().toLowerCase()}</Text>. Enter it below
+                  to verify your account. Check your spam folder if you do not see it.
                 </>
               ) : (
                 <>
                   Your account for <Text style={styles.successEmail}>{createdEmail || email.trim().toLowerCase()}</Text>{' '}
-                  was created, but the verification email could not be sent (email confirmation may be off or the mail
-                  service rate-limited the send). Tap “Resend verification” below, then confirm before signing in.
+                  was created, but the verification email could not be sent. Resend the code to continue.
                 </>
               )}
             </Text>
-            <View style={styles.successSteps}>
-              <View style={styles.successStepRow}>
-                <Ionicons name="mail-open-outline" size={15} color="#F6C445" />
-                <Text style={styles.successStepText}>1. Open your inbox for the address above</Text>
+            {!verified && emailSent && (
+              <View style={styles.otpRow}>
+                {otpDigits.map((digit, index) => (
+                  <TextInput
+                    key={index}
+                    ref={(input) => {
+                      otpInputs.current[index] = input;
+                    }}
+                    style={styles.otpInput}
+                    value={digit}
+                    onChangeText={(value) => handleOtpDigitChange(index, value)}
+                    onKeyPress={({ nativeEvent }) => handleOtpKeyPress(index, nativeEvent.key)}
+                    keyboardType="number-pad"
+                    maxLength={6}
+                    selectTextOnFocus
+                    editable={!verifying && !resending}
+                    accessibilityLabel={`Verification code digit ${index + 1}`}
+                  />
+                ))}
               </View>
-              <View style={styles.successStepRow}>
-                <Ionicons name="link-outline" size={15} color="#F6C445" />
-                <Text style={styles.successStepText}>2. Tap the confirmation link to verify</Text>
-              </View>
-              <View style={styles.successStepRow}>
-                <Ionicons name="log-in-outline" size={15} color="#F6C445" />
-                <Text style={styles.successStepText}>3. Return here and sign in with your credentials</Text>
-              </View>
-            </View>
+            )}
+            {verificationError ? <Text style={styles.verificationError}>{verificationError}</Text> : null}
+            {(verifying || resending) && (
+              <TileLoader label={verifying ? 'Verifying your email...' : 'Sending a new code...'} size="sm" />
+            )}
             {resendMessage ? <Text style={styles.successResendMessage}>{resendMessage}</Text> : null}
-            <Pressable style={styles.successPrimary} onPress={handleGoToSignIn} accessibilityRole="button" accessibilityLabel="Go to sign in">
+            <Pressable
+              style={[styles.successPrimary, (verifying || resending || (!verified && !emailSent)) && styles.primaryButtonDisabled]}
+              onPress={verified ? handleContinueAfterVerification : handleVerifyEmail}
+              disabled={verifying || resending || (!verified && !emailSent)}
+              accessibilityRole="button"
+              accessibilityLabel={verified ? 'Go to sign in' : 'Verify email address'}
+            >
               <LinearGradient colors={[ORANGE, ORANGE_DARK]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.successPrimaryInner}>
-                <Text style={styles.successPrimaryText}>Go to sign in</Text>
+                <Text style={styles.successPrimaryText}>{verified ? 'Go to sign in' : 'Verify email'}</Text>
                 <Ionicons name="arrow-forward" size={16} color="#FFFFFF" />
               </LinearGradient>
             </Pressable>
-            <Pressable style={styles.successResend} onPress={handleResendVerification} disabled={resending} accessibilityRole="button" accessibilityLabel="Resend verification email">
-              {resending ? (
-                <ActivityIndicator size="small" color="#F6C445" />
-              ) : (
-                <Text style={styles.successResendText}>Didn&apos;t get the email? Resend verification</Text>
-              )}
-            </Pressable>
+            {!verified && (
+              <Pressable
+                style={styles.successResend}
+                onPress={handleResendVerification}
+                disabled={resending || verifying}
+                accessibilityRole="button"
+                accessibilityLabel="Resend verification code"
+              >
+                <Text style={styles.successResendText}>Didn&apos;t get the code? Resend verification email</Text>
+              </Pressable>
+            )}
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#120705' },
+  container: { flex: 1, backgroundColor: '#FFFFFF' },
   safeArea: { flex: 1 },
   flex: { flex: 1, alignItems: 'center', paddingHorizontal: 18, paddingTop: 24, paddingBottom: 24 },
   header: { width: '100%', alignItems: 'center', paddingBottom: 14 },
   logo: { width: 132, height: 106, marginBottom: 2 },
-  welcomeText: { color: 'rgba(255,255,255,0.62)', fontSize: 10, letterSpacing: 1.1, textTransform: 'uppercase', fontFamily: fonts.bold },
-  brandTitle: { color: '#FFFFFF', fontSize: 25, lineHeight: 30, fontFamily: fonts.extrabold, marginTop: 3 },
-  brandSubtitle: { marginTop: 4, color: MUTED, fontSize: 10, fontFamily: fonts.medium },
-  progressTrack: { width: '100%', maxWidth: 420, flexDirection: 'row', gap: 6, marginBottom: 8 },
-  progressStep: { flex: 1, height: 4, borderRadius: 99, backgroundColor: 'rgba(255,255,255,0.16)' },
+  welcomeText: { color: TEXT_SECONDARY, fontSize: 11, letterSpacing: 1.1, textTransform: 'uppercase', fontFamily: fonts.bold },
+  brandTitle: { color: TEXT_PRIMARY, fontSize: 26, lineHeight: 32, fontFamily: fonts.extrabold, marginTop: 4 },
+  brandSubtitle: { marginTop: 6, color: TEXT_SECONDARY, fontSize: 12, fontFamily: fonts.medium },
+  progressTrack: { width: '100%', maxWidth: 420, flexDirection: 'row', gap: 6, marginBottom: 12 },
+  progressStep: { flex: 1, height: 4, borderRadius: 99, backgroundColor: '#E2E8F0' },
   progressStepActive: { backgroundColor: ORANGE },
   card: { width: '100%', maxWidth: 420, paddingVertical: 14, paddingHorizontal: 4 },
-  stepTitle: { color: '#FFFFFF', fontSize: 16, fontFamily: fonts.extrabold, marginBottom: 3 },
-  stepCopy: { color: MUTED, fontSize: 10.5, lineHeight: 15, fontFamily: fonts.medium, marginBottom: 14 },
-  inputBox: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.075)', borderRadius: 7, borderWidth: 1, borderColor: LINE, paddingHorizontal: 14, paddingVertical: 12, marginBottom: 12 },
+  stepTitle: { color: TEXT_PRIMARY, fontSize: 18, fontFamily: fonts.extrabold, marginBottom: 4 },
+  stepCopy: { color: TEXT_SECONDARY, fontSize: 12, lineHeight: 17, fontFamily: fonts.medium, marginBottom: 16 },
+  inputBox: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FFFFFF', borderRadius: 8, borderWidth: 1, borderColor: BORDER, paddingHorizontal: 14, paddingVertical: 14, marginBottom: 14, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.02, shadowRadius: 3, elevation: 1 },
   inputIcon: { marginRight: 10 },
-  input: { flex: 1, fontSize: 14, color: '#FFFFFF', paddingVertical: 2 },
-  phonePrefix: { color: '#FFFFFF', fontSize: 14, fontFamily: fonts.semibold, paddingRight: 4 },
-  phoneInput: { flex: 1, fontSize: 14, color: '#FFFFFF', paddingVertical: 2 },
-  phoneHint: { color: 'rgba(255,255,255,0.52)', fontSize: 9.5, marginTop: -8, marginBottom: 10 },
-  passwordChecklist: { marginTop: -4, marginBottom: 10, padding: 10, borderRadius: 7, backgroundColor: 'rgba(255,255,255,0.045)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.09)' },
-  passwordChecklistTitle: { color: 'rgba(255,255,255,0.72)', fontSize: 10, fontFamily: fonts.semibold, marginBottom: 6 },
-  passwordCheckRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 3 },
-  passwordCheckText: { color: 'rgba(255,255,255,0.58)', fontSize: 10, fontFamily: fonts.medium },
-  passwordCheckTextMet: { color: '#BBF7D0' },
-  passwordMatchRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: -8, marginBottom: 10, marginLeft: 4 },
-  termsLink: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2, marginBottom: 8, paddingVertical: 4 },
-  termsLinkText: { flex: 1, color: '#F6C445', fontSize: 10, fontFamily: fonts.semibold },
-  termsLinkAccepted: { color: '#BBF7D0' },
-  helperText: { color: 'rgba(255,255,255,0.52)', fontSize: 9.5, lineHeight: 14, marginTop: -2, marginBottom: 4 },
-  errorText: { color: '#FDBA74', fontSize: 10.5, lineHeight: 15, fontFamily: fonts.semibold, marginBottom: 10 },
-  buttonRow: { flexDirection: 'row', gap: 8, marginTop: 8 },
-  backButton: { minWidth: 84, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, borderRadius: 7, borderWidth: 1, borderColor: LINE, paddingHorizontal: 12 },
-  backButtonText: { color: MUTED, fontSize: 12, fontFamily: fonts.bold },
-  primaryButton: { flex: 1, borderRadius: 7, overflow: 'hidden' },
-  primaryButtonDisabled: { opacity: 0.45 },
-  primaryButtonInner: { minHeight: 50, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 14 },
-  primaryButtonText: { color: '#FFFFFF', fontSize: 13, fontFamily: fonts.extrabold },
-  footerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginTop: 16 },
-  footerText: { color: MUTED, fontSize: 11 },
-  footerLink: { color: '#F6C445', fontSize: 11, fontFamily: fonts.extrabold, marginLeft: 4 },
-  successOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.68)', alignItems: 'center', justifyContent: 'center', padding: 20 },
-  successCard: { width: '100%', maxWidth: 400, borderRadius: 18, backgroundColor: '#2A0D06', borderWidth: 1, borderColor: 'rgba(249,115,22,0.4)', padding: 24, alignItems: 'center' },
-  successIconWrap: { width: 72, height: 72, borderRadius: 36, backgroundColor: 'rgba(34,197,94,0.15)', alignItems: 'center', justifyContent: 'center', marginBottom: 10 },
-  successTitle: { color: '#FFFFFF', fontSize: 19, fontFamily: fonts.extrabold, textAlign: 'center' },
-  successCopy: { color: 'rgba(255,255,255,0.74)', fontSize: 12, lineHeight: 18, fontFamily: fonts.medium, textAlign: 'center', marginTop: 10 },
-  successEmail: { color: '#F6C445', fontFamily: fonts.bold },
-  successSteps: { width: '100%', marginTop: 14, marginBottom: 6, padding: 12, borderRadius: 10, backgroundColor: 'rgba(255,255,255,0.05)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.09)' },
-  successStepRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginVertical: 3 },
-  successStepText: { flex: 1, color: 'rgba(255,255,255,0.78)', fontSize: 11, fontFamily: fonts.medium },
-  successResendMessage: { color: '#BBF7D0', fontSize: 11, lineHeight: 16, fontFamily: fonts.semibold, textAlign: 'center', marginTop: 8 },
-  successPrimary: { width: '100%', borderRadius: 9, overflow: 'hidden', marginTop: 12 },
-  successPrimaryInner: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 14 },
-  successPrimaryText: { color: '#FFFFFF', fontSize: 13, fontFamily: fonts.extrabold },
-  successResend: { marginTop: 10, paddingVertical: 8, paddingHorizontal: 6 },
-  successResendText: { color: '#F6C445', fontSize: 11.5, fontFamily: fonts.semibold, textAlign: 'center' },
+  input: { flex: 1, fontSize: 15, color: TEXT_PRIMARY, paddingVertical: 2 },
+  phonePrefix: { color: TEXT_PRIMARY, fontSize: 15, fontFamily: fonts.semibold, paddingRight: 4 },
+  phoneInput: { flex: 1, fontSize: 15, color: TEXT_PRIMARY, paddingVertical: 2 },
+  phoneHint: { color: '#94A3B8', fontSize: 11, marginTop: -6, marginBottom: 14 },
+  passwordChecklist: { marginTop: -4, marginBottom: 14, padding: 12, borderRadius: 8, backgroundColor: '#F8FAFC', borderWidth: 1, borderColor: BORDER },
+  passwordChecklistTitle: { color: TEXT_PRIMARY, fontSize: 11, fontFamily: fonts.semibold, marginBottom: 8 },
+  passwordCheckRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginVertical: 3 },
+  passwordCheckText: { color: TEXT_SECONDARY, fontSize: 11, fontFamily: fonts.medium },
+  passwordCheckTextMet: { color: '#16A34A' },
+  passwordMatchRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: -6, marginBottom: 14, marginLeft: 4 },
+  termsLink: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4, marginBottom: 12, paddingVertical: 6 },
+  termsLinkText: { flex: 1, color: ORANGE_DARK, fontSize: 12, fontFamily: fonts.semibold },
+  termsLinkAccepted: { color: '#16A34A' },
+  helperText: { color: '#94A3B8', fontSize: 11, lineHeight: 16, marginTop: -4, marginBottom: 6 },
+  errorText: { color: '#DC2626', fontSize: 12, lineHeight: 16, fontFamily: fonts.semibold, marginBottom: 12 },
+  buttonRow: { flexDirection: 'row', gap: 10, marginTop: 12 },
+  backButton: { minWidth: 90, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, borderRadius: 9, borderWidth: 1, borderColor: BORDER, backgroundColor: '#FFFFFF', paddingHorizontal: 14, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.03, shadowRadius: 3, elevation: 1 },
+  backButtonText: { color: TEXT_PRIMARY, fontSize: 13, fontFamily: fonts.bold },
+  primaryButton: { flex: 1, borderRadius: 9, overflow: 'hidden', shadowColor: ORANGE, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 8, elevation: 4 },
+  primaryButtonDisabled: { opacity: 0.5 },
+  primaryButtonInner: { minHeight: 52, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 14 },
+  primaryButtonText: { color: '#FFFFFF', fontSize: 14, fontFamily: fonts.extrabold },
+  footerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginTop: 24 },
+  footerText: { color: TEXT_SECONDARY, fontSize: 13 },
+  footerLink: { color: ORANGE_DARK, fontSize: 13, fontFamily: fonts.extrabold, marginLeft: 6 },
+  loadingOverlay: { flex: 1, backgroundColor: 'rgba(15,23,42,0.5)', alignItems: 'center', justifyContent: 'center', padding: 20 },
+  loadingCard: { width: '100%', maxWidth: 300, borderRadius: 18, backgroundColor: '#FFFFFF', padding: 16 },
+  successOverlay: { flex: 1, backgroundColor: 'rgba(15,23,42,0.5)', alignItems: 'center', justifyContent: 'center', padding: 20 },
+  successCard: { width: '100%', maxWidth: 400, borderRadius: 18, backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: BORDER, padding: 24, alignItems: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.05, shadowRadius: 12, elevation: 3 },
+  successIconWrap: { width: 72, height: 72, borderRadius: 36, backgroundColor: '#DCFCE7', alignItems: 'center', justifyContent: 'center', marginBottom: 14 },
+  successTitle: { color: TEXT_PRIMARY, fontSize: 20, fontFamily: fonts.extrabold, textAlign: 'center' },
+  successCopy: { color: TEXT_SECONDARY, fontSize: 13, lineHeight: 20, fontFamily: fonts.medium, textAlign: 'center', marginTop: 12 },
+  successEmail: { color: ORANGE_DARK, fontFamily: fonts.bold },
+  otpRow: { width: '100%', flexDirection: 'row', justifyContent: 'space-between', gap: 6, marginTop: 20 },
+  otpInput: { flex: 1, minWidth: 0, height: 48, borderRadius: 8, borderWidth: 1, borderColor: BORDER, backgroundColor: '#F8FAFC', color: TEXT_PRIMARY, fontSize: 20, fontFamily: fonts.bold, textAlign: 'center' },
+  verificationError: { color: '#DC2626', fontSize: 12, lineHeight: 18, fontFamily: fonts.semibold, textAlign: 'center', marginTop: 12 },
+  successResendMessage: { color: '#166534', fontSize: 12, lineHeight: 18, fontFamily: fonts.semibold, textAlign: 'center', marginTop: 10 },
+  successPrimary: { width: '100%', borderRadius: 9, overflow: 'hidden', marginTop: 16, shadowColor: ORANGE, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 8, elevation: 4 },
+  successPrimaryInner: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 15 },
+  successPrimaryText: { color: '#FFFFFF', fontSize: 14, fontFamily: fonts.extrabold },
+  successResend: { marginTop: 14, paddingVertical: 8, paddingHorizontal: 6 },
+  successResendText: { color: ORANGE_DARK, fontSize: 13, fontFamily: fonts.semibold, textAlign: 'center' },
 });

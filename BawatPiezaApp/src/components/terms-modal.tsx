@@ -27,7 +27,7 @@ export type TermsModalProps = {
   onAccept: (acceptedAt: string) => void;
   /** Fired when the user closes the policy without agreeing. */
   onDecline: () => void;
-  /** Light surface (signup screen) or dark surface (login screen). */
+  /** Light surface (manual signup) or dark surface (first-time Google onboarding). */
   variant?: 'light' | 'dark';
   confirmLabel?: string;
   /** Shows a spinner on the confirm button while the account request is in flight. */
@@ -37,7 +37,8 @@ export type TermsModalProps = {
 };
 
 /**
- * Terms & Conditions gate shown before an account is created.
+ * Terms & Conditions gate shown during account registration or first-time
+ * Google account onboarding.
  *
  * Account creation must not proceed until the user has read the policy to the
  * end, ticked the agreement checkbox, and confirmed. Works for every sign-up

@@ -91,11 +91,24 @@ hub. Shared users can also read and update the hub's system thresholds; they
 cannot change device-scoped records unless another policy explicitly allows
 it.
 
-Hub-keyed data is checked against `device_pairings.hub_id`. UUID-keyed
-energy-management data is associated by matching the hub's normalized MAC
-identifier to `esp_devices.mac_address`. Populate that MAC column with the
-paired device's address for energy-table access to work. The firmware's hub ID
-is the lowercase MAC address without colons.
+Hub-keyed data is checked against `device_pairings.hub_id`. Migration 018
+removes the duplicate `esp_devices` registry and migrates the legacy
+UUID-keyed energy-management tables to reference `device_pairings.hub_id`
+directly. It preserves the old device-to-zone association in
+`device_pairings.location_zone` and updates the RLS policies to use hub access.
+The firmware's hub ID is the lowercase MAC address without colons. Before
+changing any schema, migration 018 verifies every legacy `esp_devices` row has
+exactly one matching pairing by normalized MAC; if not, it aborts so missing
+data mappings can be resolved rather than discarding device data. Apply
+migrations through 018 in order.
+
+Device setup is stored in `device_setups` (migration 019), keyed by
+`device_pairings.hub_id`. Each row records the installed tile count, channel
+count, room count, and a versioned JSON payload containing the ordered
+channels, room names, and installed bulb counts. The setup screen begins with
+one channel; owners can add up to four more. Owners can create or update the
+setup, while paired owners and shared users can read it. Apply migration 019
+after migration 018 before saving setup from the app.
 
 The home dashboard reads authorized `kinetic_logs` rows and aggregates daily
 step counts and generated kWh in the app. The table's RLS policy checks the
@@ -111,10 +124,12 @@ changes their accepted invite to declined and the migration 013 trigger removes
 only their grant. The mobile app periodically revalidates access and clears
 cached hub/shared-access IDs after the backend reports that access has ended.
 
-Migration 013 is safe to re-run: it replaces its triggers and policies before
-recreating them. If migration 013 was already applied before the device-data
-policies were added, run the updated migration again to install those policies.
-Apply migration 014 after migration 013 to add and populate member emails.
+Migration 013 is safe to re-run only before migration 018. If migration 013
+was already applied before the device-data policies were added, run the updated
+migration again to install those policies before applying 018. After migration
+018, do not re-run migrations 012 or 013: both describe the retired
+`esp_devices` UUID schema. Apply migration 014 after migration 013 to add and
+populate member emails.
 
 Battery milestone history is stored in `battery_level_milestones` (migration
 015). It records only threshold readings of 20%, 50%, 95%, or 100%, along

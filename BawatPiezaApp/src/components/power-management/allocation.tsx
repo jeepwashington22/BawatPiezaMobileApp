@@ -21,17 +21,22 @@ export function Allocation({
   c,
   mode,
   batteryPct,
+  batteryV,
+  telemetryConnection,
 }: {
   c: ThemeColors;
   mode: Mode;
   batteryPct: number | null;
+  batteryV: number | null;
+  telemetryConnection: "connecting" | "live" | "offline";
 }) {
   const [activeZone, setActiveZone] = useState("1f");
   const [allocs, setAllocs] = useState({ "1f": 0, "2f": 0, "3f": 0, "4f": 0 });
 
-  // max campus pool (assume 24h absolute max for the whole campus at 100%)
-  const totalPool =
-    batteryPct !== null ? Number(((batteryPct / 100) * 24).toFixed(1)) : 24;
+  const hasBatteryReading = batteryPct !== null;
+  const totalPool = hasBatteryReading
+    ? Number(((batteryPct / 100) * 24).toFixed(1))
+    : 0;
 
   const totalAssigned = Object.values(allocs).reduce((a, b) => a + b, 0);
   const remaining = Math.max(0, totalPool - totalAssigned);
@@ -51,9 +56,7 @@ export function Allocation({
   const setAssignedHours = (val: number) => {
     setAllocs((prev) => ({ ...prev, [activeZone]: val }));
   };
-  const [selectedBattery, setSelectedBattery] = useState<"A" | "B" | null>(
-    null,
-  );
+  const [selectedBattery, setSelectedBattery] = useState(false);
   const [systemAllocated, setSystemAllocated] = useState(false);
 
   return (
@@ -86,14 +89,23 @@ export function Allocation({
               </View>
             </View>
             <Text style={[styles.poolNote, { color: c.muted }]}>
-              4S Batteries are {batteryPct ?? "--"}% full{"\n"}
-              12.8V nominal total{"\n"}
-              60,000mAh mass capacity
+              {hasBatteryReading
+                ? `Battery array is ${Math.floor(batteryPct)}% full`
+                : telemetryConnection === "offline"
+                  ? "Battery telemetry is offline"
+                  : "Fetching live battery availability..."}
+              {"\n"}
+              {batteryV !== null
+                ? `${batteryV.toFixed(1)}V live voltage`
+                : "Voltage unavailable"}
+              {"\n"}
+              60,000mAh nominal capacity
             </Text>
           </View>
 
           <Text style={[styles.poolValue, { color: c.text }]}>
-            ~{totalPool}h{"\n"}
+            {hasBatteryReading ? `~${totalPool}h` : "--h"}
+            {"\n"}
             <Text style={[styles.poolValueUnit, { color: c.muted }]}>
               Stored
             </Text>
@@ -114,71 +126,73 @@ export function Allocation({
 
         <View style={styles.progressLabels}>
           <Text style={[styles.progressText, { color: c.muted }]}>
-            {Math.floor(progressPct)}% Assigned So Far
+            {hasBatteryReading ? `${Math.floor(progressPct)}% Assigned` : "Waiting for battery"}
           </Text>
           <Text style={[styles.progressText, { color: c.muted }]}>
-            {remaining.toFixed(1)}h Still Free
+            {hasBatteryReading ? `${remaining.toFixed(1)}h Still Free` : "--h Still Free"}
           </Text>
         </View>
 
         <Text style={[styles.selectionLabel, { color: c.text }]}>
-          Choose a Battery First
+          Available Battery
         </Text>
         <Text style={[styles.selectionHint, { color: c.muted }]}>
-          The system will only allocate power from the battery you select.
+          Select the connected battery array to allocate its available power.
         </Text>
         <View style={styles.batteryChoiceRow}>
-          {[
-            { id: "A" as const, name: "BANK A", detail: "100% full" },
-            { id: "B" as const, name: "BANK B", detail: "62% full" },
-          ].map((battery) => {
-            const selected = selectedBattery === battery.id;
-            return (
-              <Pressable
-                key={battery.id}
-                onPress={() => {
-                  setSelectedBattery(battery.id);
-                  setSystemAllocated(false);
-                }}
-                style={[
-                  styles.batteryChoice,
-                  {
-                    backgroundColor: c.surfaceMuted,
-                    borderColor: selected ? c.orange : c.line,
-                  },
-                  selected && { backgroundColor: c.accentSoft },
-                ]}
-                accessibilityRole="radio"
-                accessibilityState={{ selected }}
-                accessibilityLabel={`Select ${battery.name}, ${battery.detail}`}
-              >
-                <Ionicons
-                  name={selected ? "radio-button-on" : "radio-button-off"}
-                  size={scale(18)}
-                  color={selected ? c.orange : c.muted}
-                />
-                <View style={styles.batteryChoiceCopy}>
-                  <Text style={[styles.batteryChoiceName, { color: c.text }]}>
-                    {battery.name}
-                  </Text>
-                  <Text
-                    style={[styles.batteryChoiceDetail, { color: c.muted }]}
-                  >
-                    {battery.detail}
-                  </Text>
-                </View>
-              </Pressable>
-            );
-          })}
+          <Pressable
+            onPress={() => {
+              if (!hasBatteryReading) return;
+              setSelectedBattery((selected) => !selected);
+              setSystemAllocated(false);
+            }}
+            disabled={!hasBatteryReading}
+            style={[
+              styles.batteryChoice,
+              {
+                backgroundColor: selectedBattery ? c.accentSoft : c.surfaceMuted,
+                borderColor: selectedBattery ? c.orange : c.line,
+                opacity: hasBatteryReading ? 1 : 0.65,
+              },
+            ]}
+            accessibilityRole="radio"
+            accessibilityState={{
+              selected: selectedBattery,
+              disabled: !hasBatteryReading,
+            }}
+            accessibilityLabel={
+              hasBatteryReading
+                ? `Select battery array, ${Math.floor(batteryPct)} percent full`
+                : "Battery array unavailable until live telemetry arrives"
+            }
+          >
+            <Ionicons
+              name={selectedBattery ? "radio-button-on" : "radio-button-off"}
+              size={scale(18)}
+              color={selectedBattery ? c.orange : c.muted}
+            />
+            <View style={styles.batteryChoiceCopy}>
+              <Text style={[styles.batteryChoiceName, { color: c.text }]}>
+                BATTERY ARRAY
+              </Text>
+              <Text style={[styles.batteryChoiceDetail, { color: c.muted }]}>
+                {hasBatteryReading
+                  ? `${Math.floor(batteryPct)}% available${batteryV !== null ? ` · ${batteryV.toFixed(1)}V` : ""}`
+                  : telemetryConnection === "offline"
+                    ? "Waiting for device connection"
+                    : "Waiting for live battery telemetry"}
+              </Text>
+            </View>
+          </Pressable>
         </View>
 
         <ActionButton
           label={
             selectedBattery
-              ? `Let System Allocate from Bank ${selectedBattery}`
-              : "Choose a Battery to Continue"
+              ? "Let System Allocate from Battery Array"
+              : "Select Available Battery to Continue"
           }
-          disabled={!selectedBattery}
+          disabled={!selectedBattery || !hasBatteryReading}
           onPress={() => setSystemAllocated(true)}
         />
 
@@ -186,7 +200,7 @@ export function Allocation({
           style={[styles.cardCopy, { color: c.muted, marginTop: scale(12) }]}
         >
           {systemAllocated
-            ? `System allocation is using Bank ${selectedBattery}.`
+            ? "System allocation is using the connected battery array."
             : "Gives the most important rooms their full hours first, then splits what&apos;s left after you choose a battery."}
         </Text>
       </View>
@@ -247,7 +261,7 @@ export function Allocation({
       />
       <ActionButton
         label="Confirm Allocation"
-        disabled={!selectedBattery}
+        disabled={!selectedBattery || !hasBatteryReading}
         onPress={() => setSystemAllocated(true)}
       />
     </>

@@ -179,7 +179,7 @@ export default function ZoneDetailScreen() {
     mode === "dark" ? ["#FDBA74", "#F97316"] : ["#F97316", "#C2410C"];
 
   return (
-    <ScreenShell scroll>
+    <ScreenShell scroll showNoDeviceNotice>
       <View style={styles.hero}>
         <HeroGlow mode={mode} intensity={1} bleedBottom={scale(40)} />
 

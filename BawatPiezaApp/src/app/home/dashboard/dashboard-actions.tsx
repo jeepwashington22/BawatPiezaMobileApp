@@ -1,8 +1,12 @@
 import React, { useEffect, useRef } from "react";
-import { Animated, Pressable, ScrollView, StyleSheet, View } from "react-native";
+import { Animated, Pressable, ScrollView, View } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { AppText as Text } from "../../../components/app-text";
+import {
+  getHeatmapTileColor,
+  HeatmapTileGrid,
+} from "../../../components/heatmap-tile-grid";
 import { Card, SectionHead, scale, NAVY } from "../../../components/glass-ui";
 import { TourSpot } from "../../../components/app-tour-overlay";
 import { Mode, ThemeColors, fonts } from "../../../theme";
@@ -11,29 +15,6 @@ import { useRouter, type Href } from "expo-router";
 
 const BRAND_ORANGE = "#F5A220";
 const BRAND_ORANGE_DARK = "#E6641F";
-const HEAT_ROWS = 2;
-const HEAT_COLS = 3;
-const heatTiles: number[] = Array.from(
-  { length: HEAT_ROWS * HEAT_COLS },
-  (_, i) => {
-    const wave = Math.sin(i / 2.6) * 0.3 + Math.cos(i / 5) * 0.2;
-    return Math.min(
-      1,
-      Math.max(0.06, 0.45 + wave + ((i * 2654435761) % 100) / 500),
-    );
-  },
-);
-
-const HEAT_STOPS: Record<Mode, string[]> = {
-  light: ["#8C3B12", "#B94E14", "#D85B1C", BRAND_ORANGE_DARK, BRAND_ORANGE],
-  dark: ["#5C250D", "#8C3B12", "#B94E14", "#D85B1C", BRAND_ORANGE_DARK],
-};
-const heatColor = (v: number, mode: Mode, usingGrid: boolean) => {
-  const stops = HEAT_STOPS[mode];
-  const idx = Math.min(stops.length - 1, Math.floor(v * stops.length));
-  return stops[idx];
-};
-
 function EnterView({
   delay,
   style,
@@ -170,8 +151,24 @@ function ZoneSwitch({
 }
 
 export type DashboardZone = { id: string; name: string; source: string; detail: string; on: boolean };
-type Props = { c: ThemeColors; mode: Mode; usingGrid: boolean; activeOrange: string; activeOrangeDark: string; activeAccent: string; activeAccentSoft: string; gridActive: boolean; isActive: boolean; router: ReturnType<typeof useRouter>; zones: DashboardZone[]; onZoneToggle: (zoneId: string) => void; activeTile: number | null; setActiveTile: React.Dispatch<React.SetStateAction<number | null>>; footsteps: number; dynamicKwhHarvested: string; accent: (alpha?: number) => string; };
-export function DashboardActions({ c, mode, usingGrid, activeOrange, activeOrangeDark, activeAccent, activeAccentSoft, gridActive, isActive, router, zones, onZoneToggle, activeTile, setActiveTile, footsteps, dynamicKwhHarvested, accent }: Props) { return (
+type Props = { c: ThemeColors; mode: Mode; usingGrid: boolean; activeOrange: string; activeOrangeDark: string; activeAccent: string; activeAccentSoft: string; gridActive: boolean; isActive: boolean; installedTileCount: number; tileSetupLoaded: boolean; router: ReturnType<typeof useRouter>; zones: DashboardZone[]; onZoneToggle: (zoneId: string) => void; activeTile: number | null; setActiveTile: React.Dispatch<React.SetStateAction<number | null>>; footsteps: number; dynamicKwhHarvested: string; accent: (alpha?: number) => string; };
+export function DashboardActions({ c, mode, usingGrid, activeOrange, activeOrangeDark, activeAccent, activeAccentSoft, gridActive, isActive, installedTileCount, tileSetupLoaded, router, zones, onZoneToggle, activeTile, setActiveTile, footsteps, dynamicKwhHarvested, accent }: Props) {
+  const heatTiles = Array.from(
+    { length: Math.min(installedTileCount, 60) },
+    (_, index) => {
+      const wave = Math.sin(index / 2.6) * 0.3 + Math.cos(index / 5) * 0.2;
+      return Math.min(
+        1,
+        Math.max(0.06, 0.45 + wave + ((index * 2654435761) % 100) / 500),
+      );
+    },
+  );
+  const heatmapTiles = heatTiles.map((traffic, index) => ({
+    id: index + 1,
+    label: `Tile ${index + 1}`,
+    traffic: isActive ? traffic : 0.05,
+  }));
+  return (
   <>
         <View style={st.quickActionsSection}>
           <Text style={[st.quickActionsTitle, { color: c.text }]}>
@@ -289,12 +286,7 @@ export function DashboardActions({ c, mode, usingGrid, activeOrange, activeOrang
                   style={[
                     st.manageButton,
                     {
-                      backgroundColor:
-                        mode === "dark"
-                          ? "rgba(255,255,255,0.08)"
-                          : usingGrid
-                            ? "rgba(245,162,32,0.12)"
-                            : "rgba(245,162,32,0.12)",
+                      backgroundColor: c.accentSoft,
                     },
                   ]}
                 >
@@ -302,8 +294,7 @@ export function DashboardActions({ c, mode, usingGrid, activeOrange, activeOrang
                     style={[
                       st.manageText,
                       {
-                        color:
-                          mode === "dark" ? activeOrange : activeOrangeDark,
+                        color: c.orange,
                       },
                     ]}
                   >
@@ -312,7 +303,7 @@ export function DashboardActions({ c, mode, usingGrid, activeOrange, activeOrang
                   <Ionicons
                     name="arrow-forward"
                     size={scale(13)}
-                    color={mode === "dark" ? activeOrange : activeOrangeDark}
+                    color={c.orange}
                   />
                 </Pressable>
               </View>
@@ -331,25 +322,36 @@ export function DashboardActions({ c, mode, usingGrid, activeOrange, activeOrang
                       style={[
                         st.zoneRow,
                         {
-                          backgroundColor: "#FFFFFF",
+                          backgroundColor: c.surface,
                           borderColor: live
-                            ? activeOrangeDark
-                            : usingGrid
-                              ? "rgba(230,100,31,0.3)"
-                              : "rgba(230,100,31,0.3)",
+                            ? mode === "dark"
+                              ? activeOrange
+                              : activeOrangeDark
+                            : c.line,
                         },
                       ]}
                     >
                       <LinearGradient
                         colors={
                           live
-                            ? usingGrid
-                              ? ["rgba(245,162,32,0.14)", "rgba(245,162,32,0.02)"]
+                            ? mode === "dark"
+                              ? [
+                                  "rgba(249,115,22,0.16)",
+                                  "rgba(249,115,22,0.02)",
+                                ]
                               : [
                                   "rgba(245,162,32,0.14)",
                                   "rgba(245,162,32,0.02)",
                                 ]
-                            : ["rgba(148,163,184,0.06)", "rgba(148,163,184,0)"]
+                            : mode === "dark"
+                              ? [
+                                  "rgba(255,255,255,0.025)",
+                                  "rgba(255,255,255,0)",
+                                ]
+                              : [
+                                  "rgba(148,163,184,0.06)",
+                                  "rgba(148,163,184,0)",
+                                ]
                         }
                         start={{ x: 0, y: 0 }}
                         end={{ x: 1, y: 1 }}
@@ -408,7 +410,7 @@ export function DashboardActions({ c, mode, usingGrid, activeOrange, activeOrang
 
                         <View style={st.zoneInfo}>
                           <Text
-                            style={[st.zoneName, { color: "#0A2A4A" }]}
+                            style={[st.zoneName, { color: c.text }]}
                             numberOfLines={1}
                           >
                             {z.name}
@@ -437,19 +439,31 @@ export function DashboardActions({ c, mode, usingGrid, activeOrange, activeOrang
                             <Text
                               style={[
                                 st.zoneDetail,
-                                { color: "rgba(10,42,74,0.62)" },
+                                { color: c.muted },
                               ]}
                               numberOfLines={1}
                             >
                               {z.detail}
                             </Text>
-                            <View style={st.zoneState}>
+                            <View
+                              style={[
+                                st.zoneState,
+                                {
+                                  backgroundColor:
+                                    mode === "dark"
+                                      ? "rgba(249,115,22,0.12)"
+                                      : "rgba(245,162,32,0.08)",
+                                },
+                              ]}
+                            >
                               <View
                                 style={[
                                   st.zoneStateDot,
                                   {
                                     backgroundColor: live
-                                      ? activeOrangeDark
+                                      ? mode === "dark"
+                                        ? activeOrange
+                                        : activeOrangeDark
                                       : c.muted,
                                   },
                                 ]}
@@ -457,7 +471,13 @@ export function DashboardActions({ c, mode, usingGrid, activeOrange, activeOrang
                               <Text
                                 style={[
                                   st.zoneStateText,
-                                  { color: live ? activeOrangeDark : c.muted },
+                                  {
+                                    color: live
+                                      ? mode === "dark"
+                                        ? activeOrange
+                                        : activeOrangeDark
+                                      : c.muted,
+                                  },
                                 ]}
                               >
                                 {live ? "live" : "standby"}
@@ -622,101 +642,31 @@ export function DashboardActions({ c, mode, usingGrid, activeOrange, activeOrang
                 </Text>
               </View>
 
-              <View
-                style={[
-                  st.heatGrid,
-                  {
-                    backgroundColor: "#FFF8ED",
-                  },
-                ]}
-              >
-                {Array.from({ length: HEAT_ROWS }, (_, r) => (
-                  <View key={r} style={st.heatRow}>
-                    {Array.from({ length: HEAT_COLS }, (_, col) => {
-                      const i = r * HEAT_COLS + col;
-                      const v = isActive ? heatTiles[i] : 0.05;
-                      const active = activeTile === i;
-                      return (
-                        <Pressable
-                          key={col}
-                          onPress={() => {
-                            if (isActive) setActiveTile(active ? null : i);
-                          }}
-                          style={[
-                            st.heatTile,
-                            {
-                              backgroundColor: heatColor(v, mode, usingGrid),
-                              shadowColor: activeOrangeDark,
-                              shadowOpacity: isActive ? v * 0.9 : 0,
-                              shadowRadius: scale(9),
-                              borderWidth: 1,
-                              borderColor:
-                                active && isActive
-                                  ? activeOrange
-                                  : usingGrid
-                                    ? "rgba(230,100,31,0.3)"
-                                    : "rgba(230,100,31,0.3)",
-                            },
-                            active &&
-                              isActive && [
-                                st.heatTileActive,
-                                {
-                                  borderColor: activeOrange,
-                                },
-                              ],
-                          ]}
-                        >
-                          <View
-                            pointerEvents="none"
-                            style={[
-                              st.heatTileDepth,
-                              {
-                                backgroundColor:
-                                  v > 0.75 ? activeOrangeDark : "#8C3B12",
-                              },
-                            ]}
-                          />
-                          <LinearGradient
-                            pointerEvents="none"
-                            colors={[
-                              "rgba(255,255,255,0.34)",
-                              "rgba(255,255,255,0.08)",
-                              usingGrid
-                                ? "rgba(6,78,59,0.24)"
-                                : "rgba(122,54,12,0.24)",
-                            ]}
-                            locations={[0, 0.34, 1]}
-                            style={StyleSheet.absoluteFill}
-                          />
-                          <View
-                            pointerEvents="none"
-                            style={st.heatTileHighlight}
-                          />
-                          <View
-                            pointerEvents="none"
-                            style={st.heatTileDiagonal}
-                          />
-                          <View
-                            pointerEvents="none"
-                            style={st.heatTileBevelTop}
-                          />
-                          <View
-                            pointerEvents="none"
-                            style={st.heatTileBevelBottom}
-                          />
-                          {active && isActive && (
-                            <Ionicons
-                              name="footsteps"
-                              size={scale(11)}
-                              color="#FFFFFF"
-                            />
-                          )}
-                        </Pressable>
-                      );
-                    })}
-                  </View>
-                ))}
-              </View>
+              <HeatmapTileGrid
+                tiles={isActive ? heatmapTiles : []}
+                totalCount={isActive ? installedTileCount : 0}
+                compact
+                selectedTileId={
+                  activeTile === null || activeTile >= heatTiles.length
+                    ? null
+                    : activeTile + 1
+                }
+                onSelectTile={
+                  isActive && tileSetupLoaded
+                    ? (id) =>
+                        setActiveTile((current) =>
+                          current === id - 1 ? null : id - 1,
+                        )
+                    : undefined
+                }
+                emptyLabel={
+                  !isActive
+                    ? "No device connected."
+                    : tileSetupLoaded
+                    ? "No tiles configured. Complete Device Setup to view the heatmap."
+                    : "Loading installed tile setup..."
+                }
+              />
 
               <View
                 style={{
@@ -752,7 +702,7 @@ export function DashboardActions({ c, mode, usingGrid, activeOrange, activeOrang
                       key={i}
                       style={[
                         st.legendSwatch,
-                        { backgroundColor: heatColor(v, mode, usingGrid) },
+                        { backgroundColor: getHeatmapTileColor(v) },
                       ]}
                     />
                   ))}
@@ -772,7 +722,9 @@ export function DashboardActions({ c, mode, usingGrid, activeOrange, activeOrang
                 </Text>
               </View>
 
-              {activeTile !== null && isActive && (
+              {activeTile !== null &&
+                isActive &&
+                activeTile < heatTiles.length && (
                 <Text
                   style={[
                     st.tileInfo,

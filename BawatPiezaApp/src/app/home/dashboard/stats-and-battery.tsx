@@ -3,9 +3,10 @@ import { Animated, Pressable, View } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { AppText as Text } from "../../../components/app-text";
-import { Glass, Card, LiveDot, scale } from "../../../components/glass-ui";
+import { Card, LiveDot, scale } from "../../../components/glass-ui";
 import { CountUpText } from "../../../components/count-up-text";
 import { TourSpot } from "../../../components/app-tour-overlay";
+import { TileLoader } from "../../../components/tile-loader";
 import Svg, {
   Defs,
   LinearGradient as SvgGradient,
@@ -52,6 +53,7 @@ type Props = {
   usingGrid: boolean;
   powerMode: PowerOverride;
   isActive: boolean;
+  isLoading: boolean;
   isSharedUser: boolean;
   activeAccent: string;
   activeOrangeDark: string;
@@ -84,6 +86,7 @@ export function DashboardStats({
   usingGrid,
   powerMode,
   isActive,
+  isLoading,
   isSharedUser,
   activeAccent,
   activeOrangeDark,
@@ -222,7 +225,7 @@ export function DashboardStats({
           >
             <LinearGradient
               colors={
-                isActive
+                isActive || isLoading
                   ? ["#F5A220", "#E6641F"]
                   : ["#475569", "#64748B", "#94A3B8"]
               }
@@ -230,6 +233,10 @@ export function DashboardStats({
               end={{ x: 1, y: 1 }}
               style={st.scCard}
             >
+              {isLoading ? (
+                <TileLoader label="Loading dashboard data..." size="sm" />
+              ) : (
+                <>
               <View style={st.scTop}>
                 <View style={st.scTopData}>
                   <Text style={st.scEyebrow}>
@@ -254,7 +261,7 @@ export function DashboardStats({
                     </Text>
                   </View>
                 </View>
-                {isBatteryMode && (
+                {(isBatteryMode || usingGrid || isShutdown) && (
                   <View style={[st.scDelta, !isActive && { opacity: 0.5 }]}>
                     <Ionicons
                       name="battery-charging"
@@ -304,6 +311,8 @@ export function DashboardStats({
                   );
                 })}
               </View>
+                </>
+              )}
             </LinearGradient>
           </Animated.View>
         </TourSpot>
@@ -319,11 +328,13 @@ export function DashboardStats({
               pressed && { opacity: 0.96, transform: [{ scale: 0.995 }] },
             ]}
           >
-            <Glass
+            <Card
               mode={mode}
               style={[
                 st.batteryCard,
                 {
+                  backgroundColor:
+                    mode === "dark" ? "#21160F" : "#FFF8EA",
                   borderColor: isShutdown
                     ? "#DC2626"
                     : usingGrid
@@ -528,7 +539,7 @@ export function DashboardStats({
                   />
                 </View>
               )}
-            </Glass>
+            </Card>
           </Pressable>
         </EnterView>
       </TourSpot>
@@ -659,7 +670,7 @@ export function DashboardStats({
         <View style={st.sectionTitleRow}>
           <Ionicons name="analytics" size={scale(15)} color={activeAccent} />
           <Text style={[st.sectionTitle, { color: c.text }]}>
-            energy generation
+            Energy Generation
           </Text>
         </View>
         <Card
@@ -676,7 +687,7 @@ export function DashboardStats({
           <View style={st.balanceChartHeader}>
             <View>
               <Text style={[st.balanceChartEyebrow, { color: c.muted }]}>
-                generation trend
+                Generation Trend
               </Text>
               <View style={st.balanceChartValueRow}>
                 <CountUpText

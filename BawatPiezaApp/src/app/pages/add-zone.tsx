@@ -57,7 +57,7 @@ export default function AddZoneScreen() {
   };
 
   return (
-    <ScreenShell scroll title="Add New Zone" showBack>
+    <ScreenShell scroll title="Add New Zone" showBack showNoDeviceNotice>
       <View style={styles.hero}>
         <View style={styles.heroIcon}>
           <Ionicons name="layers-outline" size={scale(24)} color="#F97316" />

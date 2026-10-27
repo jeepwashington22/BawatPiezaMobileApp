@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
-import { View } from "react-native";
-import { Stack, usePathname, useRouter } from "expo-router";
+import { useEffect, useRef, useState } from "react";
+import { DeviceEventEmitter, View } from "react-native";
+import { Stack, usePathname } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import {
   useFonts,
@@ -23,6 +23,7 @@ import { AppTourOverlay } from "../components/app-tour-overlay";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { supabase } from "../lib/supabase";
 import { apiFetch } from "../lib/api";
+import { DEVICE_ACCESS_CHANGED_EVENT } from "../components/device-status-banner";
 
 /** AsyncStorage key written once a hub is successfully paired (provisioning). */
 const DEVICE_STORAGE_KEY = "bawatpieza_hub_id";
@@ -61,53 +62,34 @@ export default function RootLayout() {
 function AuthedShell({ fontsLoaded }: { fontsLoaded: boolean }) {
   const { ready, isLoggedIn } = useAuth();
   const pathname = usePathname();
-  const router = useRouter();
 
   const currentRoute = pathname.toLowerCase();
-  const isHomeScreen = currentRoute === "/home" || currentRoute === "/";
   const isSetupScreen =
     currentRoute.includes("provisioning") ||
     currentRoute.includes("device") ||
     currentRoute.includes("setup");
 
-  // Routes exempt from the "connect a device first" requirement: authentication
-  // screens plus the device/provisioning/setup flow itself (needed to pair),
-  // AND /pages/accounts so shared users can accept an invite before pairing.
-  const AUTH_ROUTES = new Set([
-    "/",
-    "/index",
-    "/login",
-    "/signup",
-    "/forgot-password",
-    "/onboarding",
-    "/oauth",
-    "/pages/accounts",
-    "/accounts",
-  ]);
-
-  function isDeviceRoute(route: string): boolean {
-    return (
-      route === "/pages/device" ||
-      route === "/pages/accounts" ||
-      route === "/accounts" ||
-      route.includes("provisioning") ||
-      route.includes("setup")
-    );
-  }
-
-  // ---- Device-access gate ------------------------------------------------
+  // ---- Device-access cache refresh --------------------------------------
   const [gateReady, setGateReady] = useState(false);
-  const [hasAccess, setHasAccess] = useState(false);
+  const accessVersionRef = useRef(0);
+
+  useEffect(() => {
+    const subscription = DeviceEventEmitter.addListener(
+      DEVICE_ACCESS_CHANGED_EVENT,
+      () => {
+        accessVersionRef.current += 1;
+      },
+    );
+    return () => subscription.remove();
+  }, []);
 
   useEffect(() => {
     if (!ready) {
       setGateReady(false);
-      setHasAccess(false);
       return;
     }
     if (!isLoggedIn) {
       setGateReady(true);
-      setHasAccess(false);
       return;
     }
 
@@ -116,15 +98,16 @@ function AuthedShell({ fontsLoaded }: { fontsLoaded: boolean }) {
     const refreshAccess = async () => {
       if (checking) return;
       checking = true;
+      const accessVersion = accessVersionRef.current;
       try {
         const { data } = await supabase.auth.getSession();
         const token = data.session?.access_token ?? null;
         if (!token) {
+          if (cancelled || accessVersion !== accessVersionRef.current) return;
           await Promise.all([
             AsyncStorage.removeItem(DEVICE_STORAGE_KEY),
             AsyncStorage.removeItem(SHARED_ACCESS_KEY),
           ]);
-          if (!cancelled) setHasAccess(false);
           return;
         }
 
@@ -141,8 +124,8 @@ function AuthedShell({ fontsLoaded }: { fontsLoaded: boolean }) {
           can_unlink?: boolean;
         };
         const apiHubId = json.hub_id ?? null;
-        const access = Boolean(json.access_granted && apiHubId);
-        if (access && apiHubId) {
+        if (cancelled || accessVersion !== accessVersionRef.current) return;
+        if (json.access_granted && apiHubId) {
           await AsyncStorage.setItem(DEVICE_STORAGE_KEY, apiHubId);
           if (json.can_unlink === false) {
             await AsyncStorage.setItem(SHARED_ACCESS_KEY, "1");
@@ -155,15 +138,8 @@ function AuthedShell({ fontsLoaded }: { fontsLoaded: boolean }) {
             AsyncStorage.removeItem(SHARED_ACCESS_KEY),
           ]);
         }
-        if (!cancelled) setHasAccess(access);
       } catch (error) {
         console.warn("[device-access] failed to refresh access", error);
-        try {
-          const cachedHubId = await AsyncStorage.getItem(DEVICE_STORAGE_KEY);
-          if (!cancelled) setHasAccess(Boolean(cachedHubId));
-        } catch (storageError) {
-          console.warn("[device-access] failed to read cached access", storageError);
-        }
       } finally {
         if (!cancelled) setGateReady(true);
         checking = false;
@@ -178,22 +154,7 @@ function AuthedShell({ fontsLoaded }: { fontsLoaded: boolean }) {
     };
   }, [ready, isLoggedIn]);
 
-  // ---- Send accounts without a device (and without shared access) ---------
-  // to the device page so they can pair a hub before reaching the UI.
-  useEffect(() => {
-    if (!gateReady || !isLoggedIn) return;
-    const route = currentRoute.replace(/\/+$/, "") || "/";
-    if (
-      !hasAccess &&
-      !isDeviceRoute(route) &&
-      !AUTH_ROUTES.has(route)
-    ) {
-      router.replace("/pages/device");
-    }
-  }, [gateReady, hasAccess, isLoggedIn, currentRoute, router]);
-
-  // Hold the splash until fonts + session + device gate resolve so the UI
-  // never flashes before we know whether the account may enter.
+  // Hold the splash until fonts, auth, and the initial device-cache refresh resolve.
   const splashReady = fontsLoaded && ready && gateReady;
   useEffect(() => {
     if (splashReady) SplashScreen.hideAsync().catch(() => {});
@@ -235,7 +196,9 @@ function AuthedShell({ fontsLoaded }: { fontsLoaded: boolean }) {
         />
       </Stack>
       <GlobalOverridesSheet />
-      {isLoggedIn && isHomeScreen && <AppTourOverlay />}
+      {isLoggedIn && (currentRoute === "/home" || currentRoute === "/") && (
+        <AppTourOverlay />
+      )}
     </View>
   );
 }

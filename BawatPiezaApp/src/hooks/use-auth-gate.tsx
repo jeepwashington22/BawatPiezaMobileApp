@@ -3,6 +3,10 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { usePathname, useRouter } from 'expo-router';
 import { useAuth } from './use-auth';
 import { deviceSetupRequiredKey } from '../lib/device-setup';
+import {
+  isGoogleOnboardingRequired,
+  isGoogleSignInInProgress,
+} from '../lib/supabase';
 
 /**
  * Routes anyone can visit without a session (login gate + recovery).
@@ -15,6 +19,7 @@ const PUBLIC_ROUTES = new Set([
   '/signup',
   '/forgot-password',
   '/oauth',
+  '/google-onboarding',
   '/onboarding',
 ]);
 
@@ -50,20 +55,52 @@ export function AuthGate({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!ready) return;
-    const route = pathname.toLowerCase();
+    if (isGoogleSignInInProgress()) return;
+    const route = pathname.toLowerCase().replace(/\/$/, '') || '/';
+    if (route === '/google-onboarding' && !isLoggedIn) {
+      router.replace('/login');
+      return;
+    }
     if (!isLoggedIn && !isPublicRoute(route)) {
       router.replace('/login');
       return;
     }
     if (!isLoggedIn || !user?.id) return;
 
+    const googleOnboardingRequired = isGoogleOnboardingRequired(user);
+    if (
+      googleOnboardingRequired &&
+      route !== '/google-onboarding' &&
+      route !== '/oauth'
+    ) {
+      router.replace('/google-onboarding');
+      return;
+    }
+    if (googleOnboardingRequired) return;
+
     let active = true;
     const isDeviceSetup = route === '/pages/device-setup';
-    AsyncStorage.getItem(deviceSetupRequiredKey(user.id))
-      .then((required) => {
+    Promise.all([
+      AsyncStorage.getItem(deviceSetupRequiredKey(user.id)),
+      AsyncStorage.getItem('bawatpieza_hub_id'),
+    ])
+      .then(async ([required, hubId]) => {
         if (!active) return;
-        if (required === '1' && !isDeviceSetup) {
+        if (required === '1' && hubId && !isDeviceSetup) {
+          const [latestRequired, latestHubId] = await Promise.all([
+            AsyncStorage.getItem(deviceSetupRequiredKey(user.id)),
+            AsyncStorage.getItem('bawatpieza_hub_id'),
+          ]);
+          if (!active) return;
+          if (latestRequired !== '1' || !latestHubId) {
+            if (!latestHubId) {
+              await AsyncStorage.removeItem(deviceSetupRequiredKey(user.id));
+            }
+            return;
+          }
           router.replace('/pages/device-setup');
+        } else if (required === '1' && !hubId) {
+          await AsyncStorage.removeItem(deviceSetupRequiredKey(user.id));
         } else if (
           required !== '1' &&
           (route === '/' || route === '/index' || route === '/login' || route === '/onboarding')
@@ -84,7 +121,13 @@ export function AuthGate({ children }: { children: ReactNode }) {
     return () => {
       active = false;
     };
-  }, [ready, isLoggedIn, pathname, router, user?.id]);
+  }, [
+    ready,
+    isLoggedIn,
+    pathname,
+    router,
+    user,
+  ]);
 
   return <>{children}</>;
 }

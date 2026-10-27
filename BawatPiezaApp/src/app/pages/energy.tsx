@@ -44,7 +44,7 @@ export default function EnergyScreen() {
 
   if (loading) {
     return (
-      <ScreenShell title="Energy" showBack>
+      <ScreenShell title="Energy" showBack showNoDeviceNotice>
         <View style={styles.loaderWrap}>
           <TileLoader label="Loading energy data" size="lg" />
         </View>
@@ -53,7 +53,7 @@ export default function EnergyScreen() {
   }
 
   return (
-    <ScreenShell title="Energy" showBack>
+    <ScreenShell title="Energy" showBack showNoDeviceNotice>
       {STATS.map((s) => (
         <View key={s.label} style={[styles.statCard, { backgroundColor: s.bg }]}>
           <Text style={[styles.statValue, s.bg === BUTTER ? { color: PRUSSIAN } : null]}>
@@ -145,7 +145,6 @@ const makeStyles = (c: ThemeColors) => {
   flowValue: { color: PRUSSIAN, fontSize: 15, fontWeight: '800', fontFamily: fonts.extrabold },
   });
 };
-
 
 
 

@@ -62,7 +62,7 @@ export function ZoneManagementScreen() {
   };
 
   return (
-    <ScreenShell scroll title="Manage Zone" showBack>
+    <ScreenShell scroll title="Manage Zone" showBack showNoDeviceNotice>
       <View style={styles.content}>
         <Text style={[styles.eyebrow, { color: c.muted }]}>ZONE</Text>
         <Text style={[styles.heading, { color: c.text }]}>Manage Zone</Text>

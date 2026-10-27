@@ -27,11 +27,13 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { scale } from "./glass-ui";
 import { fonts, useTheme, type Mode, type ThemeColors } from "../theme";
 import type { IoniconName } from "../lib/network";
+import { ApiUnreachableError, apiFetch } from "../lib/api";
 
 // ADDED IMPORTS FOR DB PAIRING
 import { useAuth } from "../hooks/use-auth";
 import { supabase } from "../lib/supabase";
 import { deviceSetupRequiredKey } from "../lib/device-setup";
+import { notifyDeviceAccessChanged } from "./device-status-banner";
 
 /* ---------------------------------- model --------------------------------- */
 
@@ -182,18 +184,77 @@ export function ProvisioningScreen() {
 
     setIsConnecting(true);
     try {
-      const { error: pairingError } = await supabase
-        .from("device_pairings")
-        .upsert(
-          {
-            hub_id: hubId,
-            user_id: user.id,
-            last_connected: new Date().toISOString(),
-          },
-          { onConflict: "hub_id" },
-        );
-      if (pairingError) throw pairingError;
+      const { data: sessionData, error: sessionError } =
+        await supabase.auth.getSession();
+      if (sessionError) throw sessionError;
+      const accessToken = sessionData.session?.access_token;
+      if (!accessToken) {
+        throw new Error("Your session expired. Sign in again before pairing the hub.");
+      }
 
+      const savePairingDirectly = async () => {
+        const { error: pairingError } = await supabase
+          .from("device_pairings")
+          .upsert(
+            {
+              hub_id: hubId,
+              user_id: user.id,
+              last_connected: new Date().toISOString(),
+            },
+            { onConflict: "hub_id" },
+          );
+        if (pairingError) {
+          throw new Error(
+            `The backend could not save the pairing and the direct save failed: ${pairingError.message}`,
+          );
+        }
+      };
+
+      try {
+        const response = await apiFetch("/accounts/device-pairing", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ hub_id: hubId }),
+        });
+        if (response.status === 404) {
+          console.warn(
+            "[provisioning] pairing endpoint is unavailable; saving directly through Supabase",
+          );
+          await savePairingDirectly();
+        } else {
+          const result = (await response.json().catch(() => null)) as {
+            ok?: boolean;
+            error?: string;
+          } | null;
+          if (response.status === 409) {
+            showModal(
+              "Hub Already Paired",
+              result?.error ?? "This hub is already paired with another account.",
+              "error",
+            );
+            return;
+          }
+          if (!response.ok || !result?.ok) {
+            throw new Error(
+              result?.error ?? `Could not save device pairing (${response.status}).`,
+            );
+          }
+        }
+      } catch (apiError) {
+        if (!(apiError instanceof ApiUnreachableError)) throw apiError;
+
+        console.warn(
+          "[provisioning] backend unreachable; saving pairing directly through Supabase",
+          apiError.tried,
+          apiError.lastError,
+        );
+        await savePairingDirectly();
+      }
+
+      notifyDeviceAccessChanged(true);
       router.replace({
         pathname: "/pages/device-setup",
         params: { hubId },
@@ -202,7 +263,9 @@ export function ProvisioningScreen() {
       console.error("[provisioning] Could not save device pairing:", pairingError);
       showModal(
         "Pairing Not Saved",
-        "The hub is configured, but your account could not save the pairing. Reconnect your phone to Wi-Fi with internet access, then tap Retry.",
+        pairingError instanceof Error
+          ? `The hub connected, but the pairing could not be saved: ${pairingError.message} Reconnect your phone to Wi-Fi with internet access, then tap Retry.`
+          : "The hub connected, but the pairing could not be saved. Reconnect your phone to Wi-Fi with internet access, then tap Retry.",
         "error",
         () => void savePairingAndContinue(hubId),
       );
@@ -219,13 +282,24 @@ export function ProvisioningScreen() {
     void open.catch(() => Linking.openSettings().catch(() => undefined));
   };
 
-  const simulatePair = () => {
-    void (async () => {
-      if (user?.id) {
-        await AsyncStorage.setItem(deviceSetupRequiredKey(user.id), "1");
-      }
-      router.replace("/pages/device-setup");
-    })();
+  const skipProvisioning = async () => {
+    try {
+      const cacheKeys = [
+        "bawatpieza_hub_id",
+        "bawatpieza_shared_access",
+        ...(user?.id ? [deviceSetupRequiredKey(user.id)] : []),
+      ];
+      await AsyncStorage.multiRemove(cacheKeys);
+      notifyDeviceAccessChanged(false);
+      router.replace("/home");
+    } catch (error) {
+      console.error("[provisioning] Could not skip device setup:", error);
+      showModal(
+        "Could Not Skip Setup",
+        "The device setup state could not be cleared. Please try again.",
+        "error",
+      );
+    }
   };
 
   const connectToHub = async () => {
@@ -387,7 +461,7 @@ export function ProvisioningScreen() {
                 </Text>
               </View>
               <Pressable
-                onPress={simulatePair}
+                onPress={() => void skipProvisioning()}
                 accessibilityRole="button"
                 accessibilityLabel="Skip device setup"
                 style={({ pressed }) => [

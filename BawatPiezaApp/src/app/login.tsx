@@ -17,19 +17,27 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { fonts } from '../theme';
 import { Ionicons } from '@expo/vector-icons';
-import { isGoogleSignInCancelled, sendWelcomeEmailIfNew, signInWithGoogle, supabase } from '../lib/supabase';
+import {
+  isGoogleOnboardingRequired,
+  isGoogleSignInCancelled,
+  isGoogleSignInInProgress,
+  sendWelcomeEmailIfNew,
+  signInWithGoogle,
+  supabase,
+} from '../lib/supabase';
 import { useAuth } from '../hooks/use-auth';
 import { apiFetch } from '../lib/api';
 
 const ORANGE = '#F97316';
-const ORANGE_DARK = '#C2410C';
-const BUTTER = '#F6C445';
-const MUTED = 'rgba(255, 255, 255, 0.72)';
-const LINE = 'rgba(255, 255, 255, 0.12)';
+const ORANGE_DARK = '#EA580C';
+const ACCENT = '#F59E0B';
+const TEXT_PRIMARY = '#0F172A';
+const TEXT_SECONDARY = '#64748B';
+const BORDER = '#E2E8F0';
 
 export default function LoginScreen() {
   const router = useRouter();
-  const { ready, isLoggedIn } = useAuth();
+  const { ready, isLoggedIn, user } = useAuth();
   const { email: emailParam } = useLocalSearchParams<{ email?: string | string[] }>();
   const [email, setEmail] = useState('');
   const [prefilledEmail, setPrefilledEmail] = useState('');
@@ -46,15 +54,11 @@ export default function LoginScreen() {
   const [twoFactorBusy, setTwoFactorBusy] = useState(false);
   const [twoFactorMessage, setTwoFactorMessage] = useState('');
 
-  // Session-based: a logged-in user landing on /login (e.g. via a link)
-  // goes straight to /home instead of seeing the sign-in form.
   useEffect(() => {
-    if (ready && isLoggedIn) router.replace('/home');
-  }, [ready, isLoggedIn, router]);
+    if (!ready || !isLoggedIn || isGoogleSignInInProgress()) return;
+    router.replace(isGoogleOnboardingRequired(user) ? '/google-onboarding' : '/home');
+  }, [ready, isLoggedIn, router, user]);
 
-  // Fresh signups land here with ?email= so the user logs in with the same
-  // credentials — and sees the verify-first reminder from the success modal.
-  // The timeout defers setState out of the effect body (react-hooks/set-state-in-effect).
   useEffect(() => {
     const incoming = Array.isArray(emailParam) ? emailParam[0] : emailParam;
     const value = (incoming ?? '').trim().toLowerCase();
@@ -66,7 +70,7 @@ export default function LoginScreen() {
     return () => clearTimeout(timer);
   }, [emailParam, prefilledEmail]);
   const notice = prefilledEmail
-    ? `Account created for ${prefilledEmail}. Open the verification email we sent, confirm your address, then sign in with your credentials.`
+    ? `Your email for ${prefilledEmail} is verified. Sign in with your credentials.`
     : null;
 
   const handleLogin = async () => {
@@ -208,8 +212,8 @@ export default function LoginScreen() {
     setGoogleSubmitting(true);
     setError(null);
     try {
-      await signInWithGoogle();
-      router.replace('/provisioning');
+      const result = await signInWithGoogle();
+      router.replace(result.isNewUser ? '/google-onboarding' : '/home');
     } catch (authError) {
       if (!isGoogleSignInCancelled(authError)) {
         const message = authError instanceof Error ? authError.message : 'Unable to sign in with Google right now.';
@@ -223,7 +227,7 @@ export default function LoginScreen() {
 
   return (
     <View style={styles.container}>
-      <LinearGradient colors={['#8F350E', '#2A0D06', '#120705']} style={StyleSheet.absoluteFill} />
+      <LinearGradient colors={['#FFFFFF', '#F8FAFC', '#F1F5F9']} style={StyleSheet.absoluteFill} />
 
       <SafeAreaView style={styles.safeArea}>
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.flex}>
@@ -237,11 +241,11 @@ export default function LoginScreen() {
           <View style={styles.card}>
             <Text style={styles.label}>Email</Text>
             <View style={styles.inputBox}>
-              <Ionicons name="mail-outline" size={18} color="rgba(255,255,255,0.45)" style={styles.inputIcon} />
+              <Ionicons name="mail-outline" size={18} color="#94A3B8" style={styles.inputIcon} />
               <TextInput
                 style={styles.input}
                 placeholder="you@example.com"
-                placeholderTextColor="rgba(255,255,255,0.45)"
+                placeholderTextColor="#94A3B8"
                 value={email}
                 onChangeText={setEmail}
                 autoCapitalize="none"
@@ -251,18 +255,18 @@ export default function LoginScreen() {
 
             <Text style={styles.label}>Password</Text>
             <View style={styles.inputBox}>
-              <Ionicons name="lock-closed-outline" size={18} color="rgba(255,255,255,0.45)" style={styles.inputIcon} />
+              <Ionicons name="lock-closed-outline" size={18} color="#94A3B8" style={styles.inputIcon} />
               <TextInput
                 style={styles.input}
                 placeholder="Password"
-                placeholderTextColor="rgba(255,255,255,0.45)"
+                placeholderTextColor="#94A3B8"
                 value={password}
                 onChangeText={setPassword}
                 secureTextEntry={!showPassword}
                 autoCapitalize="none"
               />
               <TouchableOpacity onPress={() => setShowPassword((v) => !v)} hitSlop={8}>
-                <Ionicons name={showPassword ? 'eye-outline' : 'eye-off-outline'} size={18} color="rgba(255,255,255,0.45)" />
+                <Ionicons name={showPassword ? 'eye-outline' : 'eye-off-outline'} size={18} color="#94A3B8" />
               </TouchableOpacity>
             </View>
 
@@ -335,7 +339,7 @@ export default function LoginScreen() {
                   onChangeText={(value) => handleTwoFactorDigit(index, value)}
                   onKeyPress={({ nativeEvent }) => handleTwoFactorKeyPress(index, nativeEvent.key)}
                   placeholder="•"
-                  placeholderTextColor="rgba(255,255,255,0.35)"
+                  placeholderTextColor="#94A3B8"
                   keyboardType="number-pad"
                   maxLength={index === 0 ? 6 : 1}
                   autoFocus={index === 0}
@@ -365,18 +369,18 @@ export default function LoginScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#050A15',
+    backgroundColor: '#FFFFFF',
   },
-  twoFactorOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.68)', alignItems: 'center', justifyContent: 'center', padding: 20 },
-  twoFactorCard: { width: '100%', maxWidth: 390, borderRadius: 18, backgroundColor: '#2A0D06', borderWidth: 1, borderColor: 'rgba(249,115,22,0.35)', padding: 24, alignItems: 'center' },
-  twoFactorTitle: { color: '#FFFFFF', fontSize: 20, fontFamily: fonts.extrabold, marginTop: 10 },
-  twoFactorMessage: { color: 'rgba(255,255,255,0.72)', fontSize: 12, fontFamily: fonts.medium, lineHeight: 18, textAlign: 'center', marginTop: 8, marginBottom: 16 },
+  twoFactorOverlay: { flex: 1, backgroundColor: 'rgba(15,23,42,0.5)', alignItems: 'center', justifyContent: 'center', padding: 20 },
+  twoFactorCard: { width: '100%', maxWidth: 390, borderRadius: 18, backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#E2E8F0', padding: 24, alignItems: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.05, shadowRadius: 12, elevation: 3 },
+  twoFactorTitle: { color: TEXT_PRIMARY, fontSize: 20, fontFamily: fonts.extrabold, marginTop: 10 },
+  twoFactorMessage: { color: TEXT_SECONDARY, fontSize: 13, fontFamily: fonts.medium, lineHeight: 18, textAlign: 'center', marginTop: 8, marginBottom: 16 },
   twoFactorOtpRow: { flexDirection: 'row', justifyContent: 'center', gap: 8, marginBottom: 10 },
-  twoFactorInput: { width: 42, height: 50, borderRadius: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.18)', backgroundColor: 'rgba(255,255,255,0.08)', color: '#FFFFFF', fontSize: 24, fontFamily: fonts.extrabold, paddingVertical: 0 },
-  twoFactorError: { color: '#FDBA74', fontSize: 11, textAlign: 'center', marginBottom: 10 },
-  twoFactorButton: { width: '100%', borderRadius: 9, backgroundColor: '#F5A220', alignItems: 'center', paddingVertical: 14, marginBottom: 12 },
-  twoFactorButtonText: { color: '#FFFFFF', fontSize: 13, fontFamily: fonts.extrabold },
-  twoFactorCancel: { color: '#FDBA74', fontSize: 12, fontFamily: fonts.semibold, padding: 6 },
+  twoFactorInput: { width: 42, height: 50, borderRadius: 10, borderWidth: 1, borderColor: '#E2E8F0', backgroundColor: '#F8FAFC', color: TEXT_PRIMARY, fontSize: 24, fontFamily: fonts.extrabold, paddingVertical: 0 },
+  twoFactorError: { color: '#DC2626', fontSize: 12, textAlign: 'center', marginBottom: 10 },
+  twoFactorButton: { width: '100%', borderRadius: 9, backgroundColor: ORANGE, alignItems: 'center', paddingVertical: 14, marginBottom: 12 },
+  twoFactorButtonText: { color: '#FFFFFF', fontSize: 14, fontFamily: fonts.extrabold },
+  twoFactorCancel: { color: TEXT_SECONDARY, fontSize: 13, fontFamily: fonts.semibold, padding: 6 },
   safeArea: {
     flex: 1,
   },
@@ -396,9 +400,9 @@ const styles = StyleSheet.create({
     zIndex: 1,
   },
   logo: { width: 190, height: 170, marginBottom: 1 },
-  welcomeText: { color: 'rgba(255,255,255,0.62)', fontSize: 10, letterSpacing: 1.1, textTransform: 'uppercase', fontFamily: fonts.bold, marginTop: 1 },
-  heroTitle: { color: '#FFFFFF', fontSize: 25, lineHeight: 30, fontFamily: fonts.extrabold, marginTop: 2 },
-  heroSubtitle: { color: 'rgba(255,255,255,0.68)', fontSize: 10, fontFamily: fonts.medium, marginTop: 4 },
+  welcomeText: { color: TEXT_SECONDARY, fontSize: 11, letterSpacing: 1.1, textTransform: 'uppercase', fontFamily: fonts.bold, marginTop: 1 },
+  heroTitle: { color: TEXT_PRIMARY, fontSize: 28, lineHeight: 34, fontFamily: fonts.extrabold, marginTop: 4 },
+  heroSubtitle: { color: TEXT_SECONDARY, fontSize: 12, fontFamily: fonts.medium, marginTop: 4 },
   card: {
     width: '100%',
     maxWidth: 420,
@@ -408,93 +412,95 @@ const styles = StyleSheet.create({
     zIndex: 1,
   },
   label: {
-    color: 'rgba(255,255,255,0.82)',
-    fontSize: 11,
+    color: '#334155',
+    fontSize: 12,
     fontWeight: '600', fontFamily: fonts.semibold,
     marginBottom: 6,
   },
   inputBox: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.075)',
-    borderRadius: 5,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 8,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
+    borderColor: BORDER,
     paddingHorizontal: 14,
-    paddingVertical: 12,
-    marginBottom: 14,
+    paddingVertical: 14,
+    marginBottom: 16,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.02, shadowRadius: 3, elevation: 1,
   },
   inputIcon: { marginRight: 10 },
   input: {
     flex: 1,
-    fontSize: 14,
-    color: '#FFFFFF',
+    fontSize: 15,
+    color: TEXT_PRIMARY,
     paddingVertical: 2,
   },
   linkText: {
-    color: BUTTER,
-    fontSize: 10,
+    color: ORANGE_DARK,
+    fontSize: 12,
     fontWeight: '700', fontFamily: fonts.bold,
   },
   rememberRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginTop: 1,
-    marginBottom: 16,
+    marginTop: 2,
+    marginBottom: 20,
   },
   checkboxWrap: {
     flexDirection: 'row',
     alignItems: 'center',
   },
   checkbox: {
-    width: 18,
-    height: 18,
-    borderRadius: 5,
-    borderWidth: 1,
-    borderColor: LINE,
+    width: 20,
+    height: 20,
+    borderRadius: 6,
+    borderWidth: 1.5,
+    borderColor: '#CBD5E1',
     backgroundColor: '#FFFFFF',
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 8,
+    marginRight: 10,
   },
   checkboxChecked: {
-    backgroundColor: '#FFFFFF',
-    borderColor: '#FFFFFF',
+    backgroundColor: ORANGE,
+    borderColor: ORANGE,
   },
   rememberText: {
-    color: 'rgba(255,255,255,0.75)',
-    fontSize: 11,
+    color: TEXT_SECONDARY,
+    fontSize: 13,
     fontWeight: '500', fontFamily: fonts.medium,
   },
   noticeText: {
-    backgroundColor: 'rgba(34, 197, 94, 0.12)',
-    borderRadius: 12,
+    backgroundColor: '#DCFCE7',
+    borderRadius: 10,
     borderWidth: 1,
-    borderColor: 'rgba(34,197,94,0.35)',
-    color: '#BBF7D0',
-    fontSize: 12,
+    borderColor: '#86EFAC',
+    color: '#166534',
+    fontSize: 13,
     fontWeight: '600', fontFamily: fonts.semibold,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    marginBottom: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    marginBottom: 18,
   },
   errorText: {
-    backgroundColor: 'rgba(239, 68, 68, 0.12)',
-    borderRadius: 12,
+    backgroundColor: '#FEE2E2',
+    borderRadius: 10,
     borderWidth: 1,
-    borderColor: 'rgba(239,68,68,0.35)',
-    color: '#FCA5A5',
-    fontSize: 12,
+    borderColor: '#FCA5A5',
+    color: '#991B1B',
+    fontSize: 13,
     fontWeight: '600', fontFamily: fonts.semibold,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    marginBottom: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    marginBottom: 18,
   },
   primaryButton: {
-    borderRadius: 7,
+    borderRadius: 9,
     overflow: 'hidden',
-    marginBottom: 18,
+    marginBottom: 20,
+    shadowColor: ORANGE, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 8, elevation: 4,
   },
   primaryButtonInner: {
     flexDirection: 'row',
@@ -504,7 +510,7 @@ const styles = StyleSheet.create({
   },
   primaryButtonText: {
     color: '#FFFFFF',
-    fontSize: 13,
+    fontSize: 15,
     fontWeight: '800', fontFamily: fonts.extrabold,
     marginRight: 8,
   },
@@ -514,13 +520,13 @@ const styles = StyleSheet.create({
   dividerRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 18,
+    marginBottom: 20,
   },
-  divider: { flex: 1, height: 1, backgroundColor: 'rgba(255,255,255,0.12)' },
+  divider: { flex: 1, height: 1, backgroundColor: BORDER },
   dividerText: {
-    color: 'rgba(255,255,255,0.42)',
-    fontSize: 11,
-    marginHorizontal: 12,
+    color: '#94A3B8',
+    fontSize: 12,
+    marginHorizontal: 14,
     textTransform: 'uppercase',
     letterSpacing: 1.2,
     fontWeight: '700', fontFamily: fonts.bold,
@@ -529,24 +535,25 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: 7,
+    borderRadius: 9,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.16)',
-    backgroundColor: 'rgba(255,255,255,0.075)',
-    paddingVertical: 14,
+    borderColor: BORDER,
+    backgroundColor: '#FFFFFF',
+    paddingVertical: 15,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.03, shadowRadius: 3, elevation: 1,
   },
   googleButtonText: {
-    color: '#FFFFFF',
-    fontSize: 12,
+    color: TEXT_PRIMARY,
+    fontSize: 14,
     fontWeight: '700', fontFamily: fonts.bold,
-    marginLeft: 10,
+    marginLeft: 12,
   },
   footerRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: 20,
+    marginTop: 24,
   },
-  footerText: { color: MUTED, fontSize: 11 },
-  footerLink: { color: BUTTER, fontSize: 11, fontWeight: '800', fontFamily: fonts.extrabold, marginLeft: 4 },
+  footerText: { color: TEXT_SECONDARY, fontSize: 13 },
+  footerLink: { color: ORANGE_DARK, fontSize: 13, fontWeight: '800', fontFamily: fonts.extrabold, marginLeft: 6 },
 });

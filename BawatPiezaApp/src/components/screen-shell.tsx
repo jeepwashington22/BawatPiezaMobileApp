@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { ScrollView, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { BottomNav } from './bottom-nav';
@@ -25,6 +25,7 @@ export type ScreenShellProps = {
   contentPaddingBottom?: number;
   title?: string;
   showBack?: boolean;
+  header?: ReactNode;
   showNoDeviceNotice?: boolean;
 };
 
@@ -36,13 +37,26 @@ export function ScreenShell({
   contentPaddingBottom = 110,
   title,
   showBack = false,
+  header,
   showNoDeviceNotice = false,
 }: ScreenShellProps) {
   const { colors: c } = useTheme();
   const { scrollContainerRef, setScrollOffsetY } = useAppTour();
   const hasDevice = useDeviceConnection();
+  const showEmptyState = showNoDeviceNotice && hasDevice === false;
+  const checkingDeviceAccess = showNoDeviceNotice && hasDevice === null;
+  const pageHeader =
+    title || showBack ? <TopBar gutter={0} title={title} showBack={showBack} /> : null;
 
-  const content = scroll ? (
+  const content = checkingDeviceAccess ? (
+    <View style={styles.emptyStateContent}>
+      <ActivityIndicator color={c.orange} />
+    </View>
+  ) : showEmptyState ? (
+    <View style={styles.emptyStateContent}>
+      <NoDeviceNotice hasDevice={hasDevice} />
+    </View>
+  ) : scroll ? (
     <ScrollView
       ref={(node) => {
         if (tourScroll) scrollContainerRef.current = node;
@@ -52,8 +66,6 @@ export function ScreenShell({
       contentContainerStyle={[styles.scrollContent, { paddingBottom: 150 }]}
       showsVerticalScrollIndicator={false}
     >
-      {title || showBack ? <TopBar gutter={0} title={title} showBack={showBack} /> : null}
-      {showNoDeviceNotice && <NoDeviceNotice hasDevice={hasDevice} />}
       {children}
     </ScrollView>
   ) : (
@@ -66,16 +78,15 @@ export function ScreenShell({
         },
       ]}
     >
-      {title || showBack ? <TopBar gutter={0} title={title} showBack={showBack} /> : null}
-      {showNoDeviceNotice && <NoDeviceNotice hasDevice={hasDevice} />}
       {children}
     </View>
   );
 
   return (
     <SafeAreaView style={[styles.safeArea, { backgroundColor: c.bg }]}>
+      {header ?? (pageHeader ? <View style={styles.fixedHeader}>{pageHeader}</View> : null)}
       {content}
-      <BottomNav />
+      <BottomNav hasDevice={hasDevice} />
     </SafeAreaView>
   );
 }
@@ -84,10 +95,17 @@ const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
   },
+  fixedHeader: {
+    paddingHorizontal: 18,
+  },
   scrollContent: {
     paddingHorizontal: 18,
   },
   flexContent: {
+    flex: 1,
+    paddingHorizontal: 18,
+  },
+  emptyStateContent: {
     flex: 1,
     paddingHorizontal: 18,
   },

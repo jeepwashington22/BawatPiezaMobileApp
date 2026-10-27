@@ -6,7 +6,6 @@ import { LinearGradient } from 'expo-linear-gradient';
 import Svg, { Defs, Line, LinearGradient as SvgGradient, Path, Stop } from 'react-native-svg';
 
 import { ScreenShell } from './screen-shell';
-import { NoDeviceNotice, useDeviceConnection } from './device-status-banner';
 import { TopBar } from './top-bar';
 import { HeroGlow } from './hero-glow';
 import { Card, scale } from './glass-ui';
@@ -53,7 +52,6 @@ const METRICS: HeroMetric[] = [
 
 export function ReportsRedesign() {
   const { colors: c, mode } = useTheme();
-  const hasDevice = useDeviceConnection();
   const [range, setRange] = useState<ReportRange>('today');
   // Default to the billing impact slide; the left arrow reveals kWh harvested.
   const [metricIndex, setMetricIndex] = useState(1);
@@ -71,15 +69,11 @@ export function ReportsRedesign() {
   const heroBtnBorder = mode === 'dark' ? 'rgba(255,255,255,0.22)' : 'rgba(255,255,255,0.85)';
 
   return (
-    <ScreenShell>
+    <ScreenShell showNoDeviceNotice>
       {/* ============ HERO: GLASS TOP BAR + BILLING IMPACT ON A GLOW ============ */}
       <View style={styles.hero}>
         <HeroGlow mode={mode} intensity={1} bleedBottom={scale(40)} />
-
-        <View style={styles.heroTopBar}>
-          <TopBar gutter={0} title="Reports" glass />
-        </View>
-        <NoDeviceNotice hasDevice={hasDevice} />
+        <TopBar gutter={0} title="Reports" glass />
 
         {/* Period selector — kept at the top, above the metric it controls */}
         <View style={styles.heroPeriodRow}>
@@ -248,7 +242,6 @@ const styles = StyleSheet.create({
     position: 'relative',
     zIndex: 10,
   },
-  heroTopBar: { zIndex: 5 },
   heroBody: { zIndex: 1, marginTop: scale(6) },
   heroCarousel: { flexDirection: 'row', alignItems: 'center', alignSelf: 'stretch' },
   heroArrow: {

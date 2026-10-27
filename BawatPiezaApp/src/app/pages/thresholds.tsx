@@ -141,7 +141,7 @@ export default function ThresholdsScreen() {
   };
 
   return (
-    <ScreenShell scroll>
+    <ScreenShell scroll showNoDeviceNotice>
       <View style={styles.hero}>
         <HeroGlow mode={mode} intensity={0.9} bleedBottom={scale(34)} />
         <TopBar gutter={0} title="System Thresholds" showBack glass />

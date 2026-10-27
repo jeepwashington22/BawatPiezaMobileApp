@@ -97,8 +97,8 @@ export default function AccountsScreen() {
   const [sentInvites, setSentInvites] = useState<Invite[]>([]);
   const [canInvite, setCanInvite] = useState(false);
 
-  // Inline invite state — no modal. `invitable` is loaded once with the
-  // screen and realtime-filtered by the top search bar as you type.
+  // User-search results are loaded once and filtered locally as the user types.
+  // Only device owners can invite; searching is available to every account.
   const [invitable, setInvitable] = useState<Account[]>([]);
   const [invitableLoading, setInvitableLoading] = useState(false);
   const [invitingId, setInvitingId] = useState<string | null>(null);
@@ -106,8 +106,8 @@ export default function AccountsScreen() {
   // Accept / decline busy state (invite id currently in flight).
   const [respondingId, setRespondingId] = useState<string | null>(null);
 
-  // Single realtime search — filters the shared list AND the invitable
-  // email results below it, client-side on every keystroke.
+  // Single realtime search — filters the shared list AND user-search results
+  // below it, client-side on every keystroke.
   const [query, setQuery] = useState('');
   // Role tab under the list: 'owner' (admin role) or 'shared' (staff role).
   const [roleTab, setRoleTab] = useState<RoleTab>('shared');
@@ -342,13 +342,13 @@ export default function AccountsScreen() {
             <TextInput
               value={query}
               onChangeText={setQuery}
-              placeholder={canInvite ? "Search user by name or email..." : "Search shared users..."}
+              placeholder="Search users by name or email..."
               placeholderTextColor={MUTED}
               style={styles.searchInput}
               autoCapitalize="none"
               autoCorrect={false}
               keyboardType="email-address"
-              accessibilityLabel={canInvite ? "Search users by name or email to filter or invite" : "Search shared users"}
+              accessibilityLabel="Search users by name or email"
             />
             {query.length > 0 && (
               <Pressable onPress={() => setQuery('')} hitSlop={8} accessibilityLabel="Clear search">
@@ -358,20 +358,27 @@ export default function AccountsScreen() {
           </View>
         </View>
       )}
-      {/* Inline invite results: the search bar above realtime-filters
-          invitable emails as you type — tap Invite on a row to send.
-          No modal, no extra tap. */}
-      {!error && canInvite && query.trim().length > 0 && (
+      {/* User search is available to everyone; only device owners can invite. */}
+      {!error && query.trim().length > 0 && (
         <ContentCard
-          eyebrow="Invite user"
+          eyebrow={canInvite ? "Invite user" : "Search users"}
           title={
             invitableLoading
               ? 'Searching users...'
               : inviteResults.length > 0
-                ? `${inviteResults.length} user${inviteResults.length === 1 ? '' : 's'} found — tap Invite`
+                ? canInvite
+                  ? `${inviteResults.length} user${inviteResults.length === 1 ? '' : 's'} found — tap Invite`
+                  : `${inviteResults.length} matching user${inviteResults.length === 1 ? '' : 's'} found`
                 : `No user matches "${query.trim()}"`
           }
         >
+          {!canInvite && (
+            <View style={styles.inlineStateWrap}>
+              <Text style={[styles.inlineStateText, { color: MUTED }]}>
+                You can search users here. Only users with a paired device can send invites.
+              </Text>
+            </View>
+          )}
           {invitableLoading ? (
             <View style={styles.inlineStateWrap}>
               <ActivityIndicator size="small" color={PRUSSIAN} />
@@ -399,22 +406,24 @@ export default function AccountsScreen() {
                     <Text style={styles.rowName}>{displayName}</Text>
                     {u.email ? <Text style={styles.rowSub}>{u.email}</Text> : null}
                   </View>
-                  <Pressable
-                    disabled={invitingId !== null}
-                    onPress={() => inviteUser(u)}
-                    style={({ pressed }) => [
-                      styles.actionBtn,
-                      { backgroundColor: PRUSSIAN },
-                      pressed && { opacity: 0.7 },
-                    ]}
-                    accessibilityLabel={`Invite ${u.email ?? displayName}`}
-                  >
-                    {busy ? (
-                      <ActivityIndicator size="small" color={WHITE} />
-                    ) : (
-                      <Text style={styles.actionBtnText}>Invite</Text>
-                    )}
-                  </Pressable>
+                  {canInvite && (
+                    <Pressable
+                      disabled={invitingId !== null}
+                      onPress={() => inviteUser(u)}
+                      style={({ pressed }) => [
+                        styles.actionBtn,
+                        { backgroundColor: PRUSSIAN },
+                        pressed && { opacity: 0.7 },
+                      ]}
+                      accessibilityLabel={`Invite ${u.email ?? displayName}`}
+                    >
+                      {busy ? (
+                        <ActivityIndicator size="small" color={WHITE} />
+                      ) : (
+                        <Text style={styles.actionBtnText}>Invite</Text>
+                      )}
+                    </Pressable>
+                  )}
                 </View>
               );
             })

@@ -39,7 +39,7 @@ const ORANGE_DEEP = '#EA580C';
 const GRID_GREEN = '#16A34A';
 const GRID_GREEN_DARK = '#15803D';
 
-export function BottomNav() {
+export function BottomNav({ hasDevice }: { hasDevice: boolean | null }) {
   const router = useRouter();
   const pathname = usePathname();
   const { colors: c, fonts: f } = useTheme();
@@ -103,26 +103,30 @@ export function BottomNav() {
     >
       {LEFT.map(renderItem)}
 
-      {/* Raised center Quick Overrides button — no active navigation tab */}
-      <Pressable
-        onPress={() => setShowOverrides(true)}
-        style={({ pressed }) => [
-          styles.centerBtn,
-          {
-            borderColor: c.tabBar,
-            backgroundColor: activeColor,
-            shadowColor: centerShadow,
-          },
-          pressed && styles.centerBtnPressed,
-        ]}
-        accessibilityRole="button"
-        accessibilityLabel={CENTER.label}
-      >
-        <Ionicons name="flash" size={26} color="#FFFFFF" />
-      </Pressable>
+      {hasDevice !== false && (
+        <Pressable
+          onPress={() => setShowOverrides(true)}
+          style={({ pressed }) => [
+            styles.centerBtn,
+            {
+              borderColor: c.tabBar,
+              backgroundColor: activeColor,
+              shadowColor: centerShadow,
+            },
+            pressed && styles.centerBtnPressed,
+          ]}
+          accessibilityRole="button"
+          accessibilityLabel={CENTER.label}
+        >
+          <Ionicons name="flash" size={26} color="#FFFFFF" />
+        </Pressable>
+      )}
 
       {RIGHT.map(renderItem)}
-      <QuickOverridesModal visible={showOverrides} onClose={() => setShowOverrides(false)} />
+      <QuickOverridesModal
+        visible={showOverrides && hasDevice !== false}
+        onClose={() => setShowOverrides(false)}
+      />
     </View>
   );
 }

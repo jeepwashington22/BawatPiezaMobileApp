@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import {
+  ActivityIndicator,
+  Modal,
   Pressable,
   StyleSheet,
   TextInput,
@@ -17,21 +19,19 @@ import {
   deviceSetupRequiredKey,
   installedTileCountKey,
 } from "../../lib/device-setup";
+import { supabase } from "../../lib/supabase";
 import { fonts, useTheme } from "../../theme";
 
-const MAX_CHANNELS = 5;
-const MAX_ROOMS_PER_CHANNEL = 5;
 const MAX_BULBS_PER_ROOM = 5;
-const MIN_TRIANGULAR_TILES = 6;
-const TILE_COUNT_ACCOUNT_KEY = "bawatpieza_installed_tile_count";
 
 type RoomSetup = {
   name: string;
   bulbs: number;
 };
 
-type ChannelSetup = {
-  rooms: RoomSetup[];
+type ActiveChannelSetup = {
+  channelNumber: number; // Actual physical channel ID from ESP
+  room: RoomSetup;
 };
 
 type StoredZone = {
@@ -48,386 +48,290 @@ export default function DeviceSetupScreen() {
   const router = useRouter();
   const { user } = useAuth();
   const { colors: c } = useTheme();
-  const [setupStep, setSetupStep] = useState<"tiles" | "rooms">("tiles");
-  const [installedTileCountInput, setInstalledTileCountInput] =
-    useState(String(MIN_TRIANGULAR_TILES));
-  const [channels, setChannels] = useState<ChannelSetup[]>(
-    Array.from({ length: MAX_CHANNELS }, () => ({ rooms: [] })),
-  );
+
+  const [activeChannels, setActiveChannels] = useState<ActiveChannelSetup[]>([]);
+  const [detectedTiles, setDetectedTiles] = useState<number>(0);
+  const [loadingSetup, setLoadingSetup] = useState(true);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+  const [setupComplete, setSetupComplete] = useState(false);
 
   useEffect(() => {
-    let active = true;
-    void (async () => {
-      try {
-        const hubId = await AsyncStorage.getItem("bawatpieza_hub_id");
-        const key = hubId
-          ? installedTileCountKey(hubId)
-          : user?.id
-            ? `${TILE_COUNT_ACCOUNT_KEY}:${user.id}`
-            : null;
-        if (!key) return;
-        const savedCount = Number(await AsyncStorage.getItem(key));
-        if (active && Number.isSafeInteger(savedCount) && savedCount >= MIN_TRIANGULAR_TILES) {
-          setInstalledTileCountInput(String(savedCount));
+    if (!setupComplete) return;
+    const redirectTimer = setTimeout(() => {
+      void (async () => {
+        try {
+          if (user?.id) {
+            await AsyncStorage.removeItem(deviceSetupRequiredKey(user.id));
+          }
+          router.replace("/home");
+        } catch (redirectError) {
+          console.error("[device-setup] Redirect error:", redirectError);
+          setError("Setup was saved, but the dashboard could not be opened.");
         }
-      } catch (loadError) {
-        console.error("[device-setup] Could not load installed tile count:", loadError);
-      }
-    })();
-    return () => {
-      active = false;
-    };
-  }, [user?.id]);
+      })();
+    }, 2500);
+    return () => clearTimeout(redirectTimer);
+  }, [router, setupComplete, user]);
 
-  const setRoomCount = (channelIndex: number, count: number) => {
-    setChannels((current) =>
-      current.map((channel, index) => {
-        if (index !== channelIndex) return channel;
-        const rooms = channel.rooms.slice(0, count);
-        while (rooms.length < count) {
-          rooms.push({
-            name: `Channel ${channelIndex + 1} Room ${rooms.length + 1}`,
-            bulbs: 1,
-          });
-        }
-        return { rooms };
-      }),
-    );
+  useEffect(() => {
+    void fetchHardwareConfiguration();
+  }, []);
+
+  // Fetch hardware active channels and installed tiles from Supabase
+  const fetchHardwareConfiguration = async () => {
+    setLoadingSetup(true);
+    setError("");
+    try {
+      const hubId = await AsyncStorage.getItem("bawatpieza_hub_id");
+      if (!hubId) throw new Error("No paired hub found.");
+
+      const { data, error: hubError } = await supabase
+        .from("hubs")
+        .select("active_room_channels, installed_tiles")
+        .eq("id", hubId)
+        .single();
+
+      if (hubError) throw hubError;
+
+      const detectedChannels: number[] = data?.active_room_channels ?? [1, 2];
+      const tilesCount: number = data?.installed_tiles ?? 0;
+
+      const mappedChannels: ActiveChannelSetup[] = detectedChannels.map((chNum) => ({
+        channelNumber: chNum,
+        room: {
+          name: chNum === 1 ? "Living Room" : `Room ${chNum}`,
+          bulbs: 1,
+        },
+      }));
+
+      setActiveChannels(mappedChannels);
+      setDetectedTiles(tilesCount);
+    } catch (err: any) {
+      console.error("[device-setup] Hardware fetch failed:", err);
+      setError("Could not auto-detect hardware configuration. Check hub connection.");
+      // Fallback
+      setActiveChannels([
+        { channelNumber: 1, room: { name: "Living Room", bulbs: 1 } },
+        { channelNumber: 2, room: { name: "Bedroom", bulbs: 1 } },
+      ]);
+      setDetectedTiles(0);
+    } finally {
+      setLoadingSetup(false);
+    }
   };
 
-  const updateRoom = (
-    channelIndex: number,
-    roomIndex: number,
-    updates: Partial<RoomSetup>,
-  ) => {
-    setChannels((current) =>
-      current.map((channel, index) =>
-        index === channelIndex
-          ? {
-              rooms: channel.rooms.map((room, index) =>
-                index === roomIndex ? { ...room, ...updates } : room,
-              ),
-            }
-          : channel,
-      ),
+  const updateChannelRoom = (index: number, updates: Partial<RoomSetup>) => {
+    setActiveChannels((prev) =>
+      prev.map((item, i) => (i === index ? { ...item, room: { ...item.room, ...updates } } : item))
     );
   };
 
   const finishSetup = async () => {
-    const installedTileCount = Number(installedTileCountInput);
-    if (
-      !Number.isSafeInteger(installedTileCount) ||
-      installedTileCount < MIN_TRIANGULAR_TILES
-    ) {
-      setError(`Enter at least ${MIN_TRIANGULAR_TILES} triangular tiles.`);
-      setSetupStep("tiles");
-      return;
-    }
+    if (!user?.id) return;
 
-    const configuredRooms = channels.flatMap((channel, channelIndex) =>
-      channel.rooms.map((room, roomIndex) => ({
-        ...room,
-        channel: channelIndex + 1,
-        roomIndex,
-      })),
-    );
-    if (configuredRooms.length === 0) {
-      setError("Set up at least one room before continuing.");
-      return;
-    }
-    if (configuredRooms.some((room) => !room.name.trim())) {
-      setError("Enter a name for each room.");
-      return;
-    }
-    if (!user?.id) {
-      setError("Your account could not be verified. Please sign in again.");
+    if (activeChannels.some((item) => !item.room.name.trim())) {
+      setError("Please assign a valid name for each detected channel.");
       return;
     }
 
     setSaving(true);
     setError("");
     try {
+      const hubId = await AsyncStorage.getItem("bawatpieza_hub_id");
+      if (!hubId) throw new Error("No paired hub available.");
+
+      const setupPayload = {
+        version: 1,
+        channels: activeChannels.map((ch) => ({
+          channel: ch.channelNumber,
+          rooms: [{ name: ch.room.name.trim(), bulbs: ch.room.bulbs }],
+        })),
+      };
+
+      const { error: saveError } = await supabase.from("device_setups").upsert(
+        {
+          hub_id: hubId,
+          installed_tile_count: detectedTiles,
+          channel_count: activeChannels.length,
+          room_count: activeChannels.length,
+          setup_payload: setupPayload,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: "hub_id" }
+      );
+
+      if (saveError) throw saveError;
+
+      // Save zones locally for instant UI access
       const stored = await AsyncStorage.getItem(ZONES_STORAGE_KEY);
-      const existingZones = stored
-        ? (JSON.parse(stored) as StoredZone[])
-        : [];
-      const newZones: StoredZone[] = configuredRooms.map((room) => ({
-        id: `setup-${user.id}-${room.channel}-${room.roomIndex + 1}`,
-        name: room.name.trim(),
+      const existingZones = stored ? (JSON.parse(stored) as StoredZone[]) : [];
+
+      const newZones: StoredZone[] = activeChannels.map((ch) => ({
+        id: `setup-${user.id}-${ch.channelNumber}`,
+        name: ch.room.name.trim(),
         priority: "Standard",
-        watts: room.bulbs * 15,
-        channel: room.channel,
-        installedBulbs: room.bulbs,
+        watts: ch.room.bulbs * 15,
+        channel: ch.channelNumber,
+        installedBulbs: ch.room.bulbs,
         roomType: "Room",
       }));
-      const newZoneIds = new Set(newZones.map((zone) => zone.id));
-      const retainedZones = existingZones.filter((zone) => !newZoneIds.has(zone.id));
-      const hubId = await AsyncStorage.getItem("bawatpieza_hub_id");
-      const tileCountKey = hubId
-        ? installedTileCountKey(hubId)
-        : `${TILE_COUNT_ACCOUNT_KEY}:${user.id}`;
-      await AsyncStorage.setItem(tileCountKey, String(installedTileCount));
-      await AsyncStorage.setItem(
-        ZONES_STORAGE_KEY,
-        JSON.stringify([...retainedZones, ...newZones]),
-      );
-      await AsyncStorage.removeItem(deviceSetupRequiredKey(user.id));
-      router.replace("/home");
-    } catch (saveError) {
-      console.error("[device-setup] Could not save device rooms:", saveError);
-      setError("Room setup could not be saved. Please try again.");
+
+      const retained = existingZones.filter((z) => !z.id.startsWith(`setup-${user.id}-`));
+      await AsyncStorage.setItem(installedTileCountKey(hubId), String(detectedTiles));
+      await AsyncStorage.setItem(ZONES_STORAGE_KEY, JSON.stringify([...retained, ...newZones]));
+
+      setSetupComplete(true);
+    } catch (err) {
+      console.error("[device-setup] Error saving setup:", err);
+      setError("Setup could not be saved. Please try again.");
     } finally {
       setSaving(false);
     }
   };
 
-  const continueToRooms = () => {
-    const installedTileCount = Number(installedTileCountInput);
-    if (
-      !Number.isSafeInteger(installedTileCount) ||
-      installedTileCount < MIN_TRIANGULAR_TILES
-    ) {
-      setError(`Enter at least ${MIN_TRIANGULAR_TILES} triangular tiles.`);
-      return;
-    }
-    setError("");
-    setSetupStep("rooms");
-  };
-
-  const adjustTileCount = (amount: number) => {
-    const current = Number(installedTileCountInput);
-    const safeCurrent =
-      Number.isSafeInteger(current) && current >= MIN_TRIANGULAR_TILES
-        ? current
-        : MIN_TRIANGULAR_TILES;
-    setInstalledTileCountInput(
-      String(
-        Math.min(
-          Number.MAX_SAFE_INTEGER,
-          Math.max(MIN_TRIANGULAR_TILES, safeCurrent + amount),
-        ),
-      ),
-    );
-  };
-
   return (
-    <ScreenShell scroll title="Device Setup">
-      <View style={styles.header}>
-        <View style={styles.headerIcon}>
-          <Ionicons name="grid-outline" size={scale(23)} color="#F97316" />
+    <>
+      <ScreenShell scroll title="Device Setup" showNoDeviceNotice={false}>
+        <View style={styles.header}>
+          <View style={styles.headerIcon}>
+            <Ionicons name="hardware-chip-outline" size={scale(23)} color="#F97316" />
+          </View>
+          <View style={styles.headerCopy}>
+            <Text style={[styles.eyebrow, { color: c.muted }]}>
+              HARDWARE AUTO-DETECTION
+            </Text>
+            <Text style={[styles.heading, { color: c.text }]}>
+              Configure Detected Rooms
+            </Text>
+            <Text style={[styles.subtitle, { color: c.muted }]}>
+              Your installed tiles and relay channels have been automatically identified.
+            </Text>
+          </View>
         </View>
-        <View style={styles.headerCopy}>
-          <Text style={[styles.eyebrow, { color: c.muted }]}>
-            DEVICE SETUP · STEP {setupStep === "tiles" ? "1" : "2"} OF 2
-          </Text>
-          <Text style={[styles.heading, { color: c.text }]}>
-            {setupStep === "tiles"
-              ? "How many tiles are installed?"
-              : "Configure your rooms"}
-          </Text>
-          <Text style={[styles.subtitle, { color: c.muted }]}>
-            {setupStep === "tiles"
-              ? "Count the triangular energy-harvesting tiles installed at your site."
-              : "Choose how many rooms are connected to each channel, then enter the installed bulb count for every room."}
-          </Text>
-        </View>
-      </View>
 
-      {setupStep === "tiles" ? (
-        <>
-          <View style={[styles.tileCountCard, { backgroundColor: c.surface, borderColor: c.line }]}>
-            <View style={styles.tileCountIcon}>
-              <Ionicons name="triangle" size={scale(26)} color="#F97316" />
-            </View>
-            <Text style={[styles.tileCountLabel, { color: c.muted }]}>
-              INSTALLED TRIANGULAR TILES
-            </Text>
-            <View style={styles.tileCountStepper}>
-              <Pressable
-                onPress={() =>
-                  adjustTileCount(-1)
-                }
-                disabled={Number(installedTileCountInput) <= MIN_TRIANGULAR_TILES}
-                style={[
-                  styles.tileCountButton,
-                  Number(installedTileCountInput) <= MIN_TRIANGULAR_TILES && styles.disabledButton,
-                ]}
-                accessibilityRole="button"
-                accessibilityLabel="Remove one installed tile"
-              >
-                <Ionicons name="remove" size={scale(22)} color="#F97316" />
-              </Pressable>
-              <TextInput
-                value={installedTileCountInput}
-                onChangeText={(value) => {
-                  if (/^\d*$/.test(value)) setInstalledTileCountInput(value);
-                }}
-                onBlur={() => {
-                  const count = Number(installedTileCountInput);
-                  if (!Number.isSafeInteger(count) || count < MIN_TRIANGULAR_TILES) {
-                    setInstalledTileCountInput(String(MIN_TRIANGULAR_TILES));
-                  }
-                }}
-                keyboardType="number-pad"
-                selectTextOnFocus
-                style={[styles.tileCountValue, { color: c.text }]}
-                accessibilityLabel="Number of installed triangular tiles"
-              />
-              <Pressable
-                onPress={() => adjustTileCount(1)}
-                style={styles.tileCountButton}
-                accessibilityRole="button"
-                accessibilityLabel="Add one installed tile"
-              >
-                <Ionicons name="add" size={scale(22)} color="#F97316" />
-              </Pressable>
-            </View>
-            <Text style={[styles.tileCountHint, { color: c.muted }]}>
-              Minimum 6 tiles. You can enter your full installed count.
+        {loadingSetup ? (
+          <View style={{ padding: scale(20), alignItems: "center", marginTop: scale(40) }}>
+            <ActivityIndicator size="large" color="#F97316" />
+            <Text style={{ marginTop: 10, color: c.muted, fontFamily: fonts.medium }}>
+              Scanning hub hardware configuration...
             </Text>
           </View>
-          <Pressable
-            onPress={continueToRooms}
-            style={styles.continueButton}
-            accessibilityRole="button"
-          >
-            <Text style={styles.continueText}>Continue to Room Setup</Text>
-            <Ionicons name="arrow-forward" size={scale(17)} color="#FFFFFF" />
-          </Pressable>
-        </>
-      ) : (
-        <>
-          <View style={[styles.limitNote, { backgroundColor: c.surface }]}>
-            <Ionicons name="information-circle-outline" size={scale(17)} color="#F97316" />
-            <Text style={[styles.limitText, { color: c.muted }]}>
-              {Number(installedTileCountInput)} tiles recorded. Up to 5 rooms per channel and 5 bulbs per room.
-            </Text>
-          </View>
-
-          {channels.map((channel, channelIndex) => (
-        <View
-          key={`channel-${channelIndex + 1}`}
-          style={[styles.channelCard, { backgroundColor: c.surface, borderColor: c.line }]}
-        >
-          <View style={styles.channelHeader}>
-            <View>
-              <Text style={[styles.channelLabel, { color: c.muted }]}>CHANNEL</Text>
-              <Text style={[styles.channelTitle, { color: c.text }]}>
-                Channel {channelIndex + 1}
-              </Text>
-            </View>
-            <View style={styles.countSelector}>
-              <Pressable
-                onPress={() => setRoomCount(channelIndex, Math.max(0, channel.rooms.length - 1))}
-                disabled={channel.rooms.length === 0}
-                style={styles.countButton}
-                accessibilityLabel={`Remove a room from channel ${channelIndex + 1}`}
-              >
-                <Ionicons name="remove" size={scale(17)} color="#F97316" />
-              </Pressable>
-              <Text style={[styles.countValue, { color: c.text }]}>{channel.rooms.length}</Text>
-              <Pressable
-                onPress={() =>
-                  setRoomCount(
-                    channelIndex,
-                    Math.min(MAX_ROOMS_PER_CHANNEL, channel.rooms.length + 1),
-                  )
-                }
-                disabled={channel.rooms.length >= MAX_ROOMS_PER_CHANNEL}
-                style={styles.countButton}
-                accessibilityLabel={`Add a room to channel ${channelIndex + 1}`}
-              >
-                <Ionicons name="add" size={scale(17)} color="#F97316" />
-              </Pressable>
-            </View>
-          </View>
-          <Text style={[styles.roomCountLabel, { color: c.muted }]}>
-            Rooms on this channel (maximum {MAX_ROOMS_PER_CHANNEL})
-          </Text>
-
-          {channel.rooms.map((room, roomIndex) => (
-            <View
-              key={`${channelIndex}-${roomIndex}`}
-              style={[styles.roomCard, { borderColor: c.line }]}
-            >
-              <Text style={[styles.roomTitle, { color: c.text }]}>
-                Room {roomIndex + 1}
-              </Text>
-              <TextInput
-                value={room.name}
-                onChangeText={(name) => updateRoom(channelIndex, roomIndex, { name })}
-                placeholder="Room name"
-                placeholderTextColor={c.muted}
-                style={[
-                  styles.roomNameInput,
-                  { color: c.text, borderColor: c.line, backgroundColor: c.surfaceMuted },
-                ]}
-                accessibilityLabel={`Name for channel ${channelIndex + 1}, room ${roomIndex + 1}`}
-              />
-              <View style={styles.bulbRow}>
-                <Text style={[styles.bulbLabel, { color: c.muted }]}>Installed bulbs</Text>
-                <View style={styles.bulbStepper}>
-                  <Pressable
-                    onPress={() =>
-                      updateRoom(channelIndex, roomIndex, {
-                        bulbs: Math.max(1, room.bulbs - 1),
-                      })
-                    }
-                    disabled={room.bulbs <= 1}
-                    style={styles.bulbButton}
-                    accessibilityLabel="Remove one bulb"
-                  >
-                    <Ionicons name="remove" size={scale(16)} color="#F97316" />
-                  </Pressable>
-                  <Text style={[styles.bulbValue, { color: c.text }]}>{room.bulbs}</Text>
-                  <Pressable
-                    onPress={() =>
-                      updateRoom(channelIndex, roomIndex, {
-                        bulbs: Math.min(MAX_BULBS_PER_ROOM, room.bulbs + 1),
-                      })
-                    }
-                    disabled={room.bulbs >= MAX_BULBS_PER_ROOM}
-                    style={styles.bulbButton}
-                    accessibilityLabel="Add one bulb"
-                  >
-                    <Ionicons name="add" size={scale(16)} color="#F97316" />
-                  </Pressable>
+        ) : (
+          <>
+            <View style={[styles.statusCard, { backgroundColor: c.surface, borderColor: c.line }]}>
+              <View style={styles.statusRow}>
+                <View style={styles.statusItem}>
+                  <Ionicons name="triangle" size={scale(20)} color="#FDBA74" />
+                  <View style={styles.statusTextCol}>
+                    <Text style={[styles.statusLabel, { color: c.muted }]}>DETECTED TILES</Text>
+                    <Text style={[styles.statusValue, { color: c.text }]}>{detectedTiles}</Text>
+                  </View>
+                </View>
+                <View style={styles.statusDivider} />
+                <View style={styles.statusItem}>
+                  <Ionicons name="flash-outline" size={scale(20)} color="#FDBA74" />
+                  <View style={styles.statusTextCol}>
+                    <Text style={[styles.statusLabel, { color: c.muted }]}>ACTIVE RELAYS</Text>
+                    <Text style={[styles.statusValue, { color: c.text }]}>{activeChannels.length}</Text>
+                  </View>
                 </View>
               </View>
+              <Pressable
+                onPress={fetchHardwareConfiguration}
+                style={styles.refreshButton}
+              >
+                <Ionicons name="refresh" size={scale(14)} color="#F97316" />
+                <Text style={styles.refreshText}>Rescan Hardware</Text>
+              </Pressable>
             </View>
-          ))}
-        </View>
-          ))}
 
-          {error ? <Text style={styles.error}>{error}</Text> : null}
-          <View style={styles.roomActions}>
-            <Pressable
-              onPress={() => {
-                setError("");
-                setSetupStep("tiles");
-              }}
-              style={[styles.backButton, { borderColor: c.line }]}
-              accessibilityRole="button"
-            >
-              <Ionicons name="arrow-back" size={scale(17)} color={c.text} />
-              <Text style={[styles.backText, { color: c.text }]}>Tiles</Text>
-            </Pressable>
-            <Pressable
-              onPress={() => void finishSetup()}
-              disabled={saving}
-              style={[styles.continueButton, styles.saveButton, saving && { opacity: 0.65 }]}
-              accessibilityRole="button"
-            >
-              <Text style={styles.continueText}>{saving ? "Saving..." : "Save and Continue"}</Text>
-              <Ionicons name="arrow-forward" size={scale(17)} color="#FFFFFF" />
-            </Pressable>
+            {activeChannels.map((item, index) => (
+              <View
+                key={`ch-${item.channelNumber}`}
+                style={[styles.channelCard, { backgroundColor: c.surface, borderColor: c.line }]}
+              >
+                <View style={styles.channelHeader}>
+                  <View>
+                    <Text style={[styles.channelLabel, { color: c.muted }]}>
+                      ACTIVE RELAY PIN
+                    </Text>
+                    <Text style={[styles.channelTitle, { color: c.text }]}>
+                      Channel {item.channelNumber}
+                    </Text>
+                  </View>
+                </View>
+
+                <View style={[styles.roomCard, { borderColor: c.line }]}>
+                  <Text style={[styles.roomTitle, { color: c.text }]}>Assigned Location Name</Text>
+                  <TextInput
+                    value={item.room.name}
+                    onChangeText={(name) => updateChannelRoom(index, { name })}
+                    placeholder="e.g. Living Room, Hallway, Kitchen"
+                    placeholderTextColor={c.muted}
+                    style={[
+                      styles.roomNameInput,
+                      { color: c.text, borderColor: c.line, backgroundColor: c.surfaceMuted },
+                    ]}
+                  />
+                  <View style={styles.bulbRow}>
+                    <Text style={[styles.bulbLabel, { color: c.muted }]}>Connected Bulbs</Text>
+                    <View style={styles.bulbStepper}>
+                      <Pressable
+                        onPress={() =>
+                          updateChannelRoom(index, { bulbs: Math.max(1, item.room.bulbs - 1) })
+                        }
+                        disabled={item.room.bulbs <= 1}
+                        style={styles.bulbButton}
+                      >
+                        <Ionicons name="remove" size={scale(16)} color="#F97316" />
+                      </Pressable>
+                      <Text style={[styles.bulbValue, { color: c.text }]}>{item.room.bulbs}</Text>
+                      <Pressable
+                        onPress={() =>
+                          updateChannelRoom(index, {
+                            bulbs: Math.min(MAX_BULBS_PER_ROOM, item.room.bulbs + 1),
+                          })
+                        }
+                        disabled={item.room.bulbs >= MAX_BULBS_PER_ROOM}
+                        style={styles.bulbButton}
+                      >
+                        <Ionicons name="add" size={scale(16)} color="#F97316" />
+                      </Pressable>
+                    </View>
+                  </View>
+                </View>
+              </View>
+            ))}
+
+            {error ? <Text style={styles.error}>{error}</Text> : null}
+
+            <View style={styles.roomActions}>
+              <Pressable
+                onPress={() => void finishSetup()}
+                disabled={saving}
+                style={[styles.continueButton, styles.saveButton, saving && { opacity: 0.65 }]}
+              >
+                <Text style={styles.continueText}>{saving ? "Saving..." : "Complete Setup"}</Text>
+                <Ionicons name="checkmark-circle" size={scale(17)} color="#FFFFFF" />
+              </Pressable>
+            </View>
+          </>
+        )}
+      </ScreenShell>
+
+      <Modal visible={setupComplete} transparent animationType="fade">
+        <View style={styles.successOverlay}>
+          <View style={[styles.successCard, { backgroundColor: c.surface, borderColor: c.line }]}>
+            <Ionicons name="checkmark-circle" size={scale(46)} color="#16A34A" style={styles.successIcon} />
+            <Text style={[styles.successTitle, { color: c.text }]}>Setup Complete</Text>
+            <Text style={[styles.successCopy, { color: c.muted }]}>
+              Hardware configuration saved successfully. Redirecting to your dashboard...
+            </Text>
           </View>
-        </>
-      )}
-      {setupStep === "tiles" && error ? <Text style={styles.error}>{error}</Text> : null}
-    </ScreenShell>
+        </View>
+      </Modal>
+    </>
   );
 }
 
@@ -438,27 +342,21 @@ const styles = StyleSheet.create({
   eyebrow: { fontSize: scale(8), letterSpacing: 1.2, fontFamily: fonts.extrabold },
   heading: { fontSize: scale(20), fontFamily: fonts.extrabold, marginTop: scale(2) },
   subtitle: { fontSize: scale(9), fontFamily: fonts.medium, lineHeight: scale(14), marginTop: scale(3) },
-  limitNote: { flexDirection: "row", alignItems: "center", gap: scale(7), padding: scale(11), borderRadius: scale(12), marginBottom: scale(12) },
-  tileCountCard: { alignItems: "center", borderWidth: 1, borderRadius: scale(18), padding: scale(22), marginTop: scale(8), marginBottom: scale(14) },
-  tileCountIcon: { width: scale(58), height: scale(58), borderRadius: scale(18), backgroundColor: "rgba(249,115,22,0.14)", alignItems: "center", justifyContent: "center", marginBottom: scale(14) },
-  tileCountLabel: { fontSize: scale(9), letterSpacing: 1.1, fontFamily: fonts.extrabold, textAlign: "center" },
-  tileCountStepper: { flexDirection: "row", alignItems: "center", gap: scale(28), marginTop: scale(14), marginBottom: scale(10) },
-  tileCountButton: { width: scale(44), height: scale(44), borderRadius: scale(14), backgroundColor: "rgba(249,115,22,0.14)", alignItems: "center", justifyContent: "center" },
-  disabledButton: { opacity: 0.45 },
-  tileCountValue: { minWidth: scale(74), textAlign: "center", fontSize: scale(38), fontFamily: fonts.extrabold, padding: 0 },
-  tileCountHint: { fontSize: scale(9), fontFamily: fonts.medium, textAlign: "center" },
-  roomActions: { flexDirection: "row", alignItems: "center", gap: scale(9), marginTop: scale(5), marginBottom: scale(24) },
-  backButton: { minHeight: scale(49), borderWidth: 1, borderRadius: scale(15), paddingHorizontal: scale(13), flexDirection: "row", alignItems: "center", justifyContent: "center", gap: scale(6) },
-  backText: { fontSize: scale(10), fontFamily: fonts.bold },
-  limitText: { flex: 1, fontSize: scale(9), fontFamily: fonts.medium },
+  
+  statusCard: { borderWidth: 1, borderRadius: scale(16), padding: scale(16), marginBottom: scale(16) },
+  statusRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-around" },
+  statusItem: { flexDirection: "row", alignItems: "center", gap: scale(10) },
+  statusTextCol: { alignItems: "flex-start" },
+  statusLabel: { fontSize: scale(8), fontFamily: fonts.bold, letterSpacing: 0.8 },
+  statusValue: { fontSize: scale(16), fontFamily: fonts.extrabold },
+  statusDivider: { width: 1, height: scale(24), backgroundColor: "rgba(150,150,150,0.3)" },
+  refreshButton: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: scale(6), marginTop: scale(14), paddingTop: scale(12), borderTopWidth: 1, borderTopColor: "rgba(150,150,150,0.2)" },
+  refreshText: { color: "#F97316", fontSize: scale(10), fontFamily: fonts.bold },
+
   channelCard: { borderWidth: 1, borderRadius: scale(16), padding: scale(12), marginBottom: scale(10) },
   channelHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   channelLabel: { fontSize: scale(8), letterSpacing: 1, fontFamily: fonts.extrabold },
   channelTitle: { fontSize: scale(14), fontFamily: fonts.extrabold, marginTop: scale(2) },
-  roomCountLabel: { fontSize: scale(9), fontFamily: fonts.medium, marginTop: scale(8), marginBottom: scale(7) },
-  countSelector: { flexDirection: "row", alignItems: "center", gap: scale(11), borderWidth: 1, borderColor: "#F6C9A7", borderRadius: scale(12), padding: scale(4) },
-  countButton: { width: scale(30), height: scale(30), borderRadius: scale(9), backgroundColor: "rgba(249,115,22,0.14)", alignItems: "center", justifyContent: "center" },
-  countValue: { minWidth: scale(18), textAlign: "center", fontSize: scale(13), fontFamily: fonts.extrabold },
   roomCard: { borderTopWidth: 1, paddingTop: scale(9), marginTop: scale(7) },
   roomTitle: { fontSize: scale(10), fontFamily: fonts.extrabold, marginBottom: scale(6) },
   roomNameInput: { minHeight: scale(40), borderWidth: 1, borderRadius: scale(11), paddingHorizontal: scale(11), fontSize: scale(10), fontFamily: fonts.medium },
@@ -468,7 +366,13 @@ const styles = StyleSheet.create({
   bulbButton: { width: scale(28), height: scale(28), borderRadius: scale(8), backgroundColor: "rgba(249,115,22,0.14)", alignItems: "center", justifyContent: "center" },
   bulbValue: { minWidth: scale(16), textAlign: "center", fontSize: scale(12), fontFamily: fonts.extrabold },
   error: { color: "#C2410C", fontSize: scale(9), fontFamily: fonts.bold, marginBottom: scale(9) },
-  continueButton: { minHeight: scale(49), borderRadius: scale(15), backgroundColor: "#F97316", flexDirection: "row", alignItems: "center", justifyContent: "center", gap: scale(8), marginTop: scale(5), marginBottom: scale(24), paddingHorizontal: scale(16) },
+  roomActions: { flexDirection: "row", alignItems: "center", gap: scale(9), marginTop: scale(5), marginBottom: scale(24) },
+  continueButton: { minHeight: scale(49), borderRadius: scale(15), backgroundColor: "#F97316", flexDirection: "row", alignItems: "center", justifyContent: "center", gap: scale(8), paddingHorizontal: scale(16) },
   saveButton: { flex: 1, marginBottom: 0 },
   continueText: { color: "#FFFFFF", fontSize: scale(12), fontFamily: fonts.extrabold },
+  successOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.55)", alignItems: "center", justifyContent: "center", padding: scale(24) },
+  successCard: { width: "100%", maxWidth: scale(380), alignItems: "center", borderWidth: 1, borderRadius: scale(22), padding: scale(24) },
+  successIcon: { marginBottom: scale(10) },
+  successTitle: { fontSize: scale(17), fontFamily: fonts.extrabold, textAlign: "center" },
+  successCopy: { fontSize: scale(11), fontFamily: fonts.medium, lineHeight: scale(17), textAlign: "center", marginTop: scale(8) },
 });
