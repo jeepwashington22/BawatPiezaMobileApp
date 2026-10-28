@@ -105,10 +105,23 @@ migrations through 018 in order.
 Device setup is stored in `device_setups` (migration 019), keyed by
 `device_pairings.hub_id`. Each row records the installed tile count, channel
 count, room count, and a versioned JSON payload containing the ordered
-channels, room names, and installed bulb counts. The setup screen begins with
-one channel; owners can add up to four more. Owners can create or update the
-setup, while paired owners and shared users can read it. Apply migration 019
-after migration 018 before saving setup from the app.
+channels, room names, installed bulb counts, and each channel's
+`priority_status` (`low`, `medium`, or `high`). Migration 020 defaults existing
+channels to `medium` and validates the priority values. The setup screen begins
+with one channel; owners can add up to four more. Owners can create or update
+the setup, while paired owners and shared users can read it. Apply migrations
+019 and 020 after migration 018 before saving setup from the app.
+
+In the Allocation tab, channel priority percentages (Low 15, Medium 25, High
+40) are weights rather than fixed portions. The app normalizes the configured
+channels' weights across an 80% usable battery pool; the remaining 20% is
+reserved and excluded from channel allocations. The automatic allocation
+distributes each channel's proportional share of that usable pool.
+
+When the user starts system allocation, the app sends each channel's
+normalized allocation percentage and corresponding runtime in minutes to the
+hub. The firmware powers the room relay for that runtime and turns it off
+after the channel's dedicated allocation is consumed.
 
 The home dashboard reads authorized `kinetic_logs` rows and aggregates daily
 step counts and generated kWh in the app. The table's RLS policy checks the

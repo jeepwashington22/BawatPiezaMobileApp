@@ -77,7 +77,7 @@ export const styles = StyleSheet.create({
     gap: scale(9),
   },
   overrideOption: {
-    minHeight: scale(52),
+    minHeight: scale(62),
     borderRadius: scale(14),
     borderWidth: 1,
     flexDirection: "row",
@@ -572,6 +572,23 @@ export const styles = StyleSheet.create({
     fontFamily: fonts.medium,
     marginTop: scale(4),
   },
+  scheduleChoiceRow: {
+    gap: scale(7),
+    marginTop: scale(10),
+    marginBottom: scale(12),
+  },
+  scheduleChoice: {
+    minHeight: scale(36),
+    borderRadius: scale(11),
+    borderWidth: 1,
+    paddingHorizontal: scale(12),
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  scheduleChoiceText: {
+    fontSize: scale(9),
+    fontFamily: fonts.bold,
+  },
   batteryChoiceRow: {
     flexDirection: "row",
     gap: scale(8),
@@ -624,16 +641,30 @@ export const styles = StyleSheet.create({
     marginBottom: scale(14),
   },
   zonePill: {
-    width: scale(48),
-    height: scale(42),
-    borderRadius: scale(21),
+    minWidth: scale(112),
+    maxWidth: scale(170),
+    minHeight: scale(52),
+    borderRadius: scale(14),
     alignItems: "center",
     justifyContent: "center",
     borderWidth: 1,
+    paddingHorizontal: scale(10),
+    paddingVertical: scale(7),
   },
   zoneText: {
-    fontSize: scale(11),
+    fontSize: scale(9),
     fontFamily: fonts.bold,
+    maxWidth: "100%",
+  },
+  zoneSubText: {
+    fontSize: scale(7.5),
+    fontFamily: fonts.medium,
+    marginTop: scale(2),
+  },
+  zonePriorityText: {
+    fontSize: scale(7.5),
+    fontFamily: fonts.bold,
+    marginTop: scale(2),
   },
   zoneCard: {
     padding: scale(14),

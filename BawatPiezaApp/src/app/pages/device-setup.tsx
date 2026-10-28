@@ -19,6 +19,10 @@ import {
   deviceSetupRequiredKey,
   installedTileCountKey,
 } from "../../lib/device-setup";
+import {
+  CHANNEL_PRIORITIES,
+  type ChannelPriority,
+} from "../../lib/device-priority";
 import { supabase } from "../../lib/supabase";
 import { notifyDeviceAccessChanged } from "../../components/device-status-banner";
 import { fonts, useTheme } from "../../theme";
@@ -33,12 +37,13 @@ type RoomSetup = {
 type ActiveChannelSetup = {
   channelNumber: number;
   room: RoomSetup;
+  priority: ChannelPriority;
 };
 
 type StoredZone = {
   id: string;
   name: string;
-  priority: "Standard";
+  priority: ChannelPriority;
   watts: number;
   channel: number;
   installedBulbs: number;
@@ -134,6 +139,7 @@ export default function DeviceSetupScreen() {
             name: schoolNames[idx] ?? `F1 Room 10${chNum}`,
             bulbs: 1,
           },
+          priority: "medium",
         }),
       );
 
@@ -143,8 +149,16 @@ export default function DeviceSetupScreen() {
       console.error("[device-setup] Local configuration load failed:", err);
       setError("Could not load local hardware configuration. Using defaults.");
       setActiveChannels([
-        { channelNumber: 1, room: { name: "F1 Hallway", bulbs: 1 } },
-        { channelNumber: 2, room: { name: "F1 Room 101", bulbs: 1 } },
+        {
+          channelNumber: 1,
+          room: { name: "F1 Hallway", bulbs: 1 },
+          priority: "medium",
+        },
+        {
+          channelNumber: 2,
+          room: { name: "F1 Room 101", bulbs: 1 },
+          priority: "medium",
+        },
       ]);
       setDetectedTiles(1);
     } finally {
@@ -157,6 +171,12 @@ export default function DeviceSetupScreen() {
       prev.map((item, i) =>
         i === index ? { ...item, room: { ...item.room, ...updates } } : item,
       ),
+    );
+  };
+
+  const updateChannelPriority = (index: number, priority: ChannelPriority) => {
+    setActiveChannels((prev) =>
+      prev.map((item, i) => (i === index ? { ...item, priority } : item)),
     );
   };
 
@@ -231,6 +251,7 @@ export default function DeviceSetupScreen() {
         version: 1,
         channels: activeChannels.map((ch) => ({
           channel: ch.channelNumber,
+          priority_status: ch.priority,
           rooms: [{ name: ch.room.name.trim(), bulbs: ch.room.bulbs }],
         })),
       };
@@ -257,7 +278,7 @@ export default function DeviceSetupScreen() {
       const newZones: StoredZone[] = activeChannels.map((ch) => ({
         id: `setup-${user.id}-${ch.channelNumber}`,
         name: ch.room.name.trim(),
-        priority: "Standard",
+        priority: ch.priority,
         watts: ch.room.bulbs * 15,
         channel: ch.channelNumber,
         installedBulbs: ch.room.bulbs,
@@ -457,6 +478,51 @@ export default function DeviceSetupScreen() {
                       </Pressable>
                     </View>
                   </View>
+                  <Text style={[styles.roomTitle, styles.priorityTitle, { color: c.text }]}>
+                    CHANNEL PRIORITY STATUS
+                  </Text>
+                  <View style={styles.priorityOptions}>
+                    {CHANNEL_PRIORITIES.map((option) => {
+                      const selected = item.priority === option.value;
+                      return (
+                        <Pressable
+                          key={option.value}
+                          accessibilityRole="button"
+                          accessibilityState={{ selected }}
+                          accessibilityLabel={`${option.label} priority, ${option.percentage}%`}
+                          onPress={() =>
+                            updateChannelPriority(index, option.value)
+                          }
+                          style={[
+                            styles.priorityOption,
+                            {
+                              backgroundColor: selected
+                                ? "#F97316"
+                                : c.surfaceMuted,
+                              borderColor: selected ? "#F97316" : c.line,
+                            },
+                          ]}
+                        >
+                          <Text
+                            style={[
+                              styles.priorityLabel,
+                              { color: selected ? "#FFFFFF" : c.text },
+                            ]}
+                          >
+                            {option.label}
+                          </Text>
+                          <Text
+                            style={[
+                              styles.priorityPercent,
+                              { color: selected ? "#FFFFFF" : c.muted },
+                            ]}
+                          >
+                            {option.percentage}%
+                          </Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
                 </View>
               </View>
             ))}
@@ -646,6 +712,18 @@ const styles = StyleSheet.create({
     fontSize: scale(12),
     fontFamily: fonts.extrabold,
   },
+  priorityTitle: { marginTop: scale(13) },
+  priorityOptions: { flexDirection: "row", gap: scale(7) },
+  priorityOption: {
+    flex: 1,
+    minHeight: scale(42),
+    borderWidth: 1,
+    borderRadius: scale(10),
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  priorityLabel: { fontSize: scale(9), fontFamily: fonts.extrabold },
+  priorityPercent: { fontSize: scale(8), fontFamily: fonts.medium, marginTop: 1 },
   error: {
     color: "#C2410C",
     fontSize: scale(9),

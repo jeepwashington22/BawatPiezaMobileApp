@@ -2,8 +2,12 @@ import { Pressable, StyleSheet, View } from "react-native";
 import { AppText as Text } from "../app-text";
 import { Ionicons } from "@expo/vector-icons";
 import { Card, scale } from "../glass-ui";
-import { fonts, type Mode, type ThemeColors } from "../../theme";
+import { type Mode, type ThemeColors } from "../../theme";
 import { styles } from "./styles";
+import {
+  getChannelPriorityOption,
+  type ChannelPriority,
+} from "../../lib/device-priority";
 
 export function SectionLabel({
   label,
@@ -175,6 +179,9 @@ export function ZoneCard({
   c,
   mode,
   zone,
+  channel,
+  priority,
+  allocationPct,
   wantedHours,
   assignedHours,
   setAssignedHours,
@@ -183,27 +190,40 @@ export function ZoneCard({
   c: ThemeColors;
   mode: Mode;
   zone: string;
+  channel: number;
+  priority: ChannelPriority;
+  allocationPct: number;
   wantedHours: number;
   assignedHours: number;
   setAssignedHours: (val: number) => void;
   remainingPool: number;
 }) {
-  const progress = Math.min(1, assignedHours / wantedHours);
+  const progress =
+    wantedHours > 0 ? Math.min(1, assignedHours / wantedHours) : 0;
 
   return (
     <Card mode={mode} style={styles.zoneCard}>
       <Text style={[styles.zoneHeader, { color: c.text }]}>
-        {zone} room mapping
+        {zone}
       </Text>
 
       <View style={styles.chips}>
+        <Text
+          style={[
+            styles.batteryChip,
+            { color: c.accent, backgroundColor: c.surfaceMuted },
+          ]}
+        >
+          Channel {channel}
+        </Text>
         <Text
           style={[
             styles.priority,
             { color: c.orange, backgroundColor: c.accentSoft },
           ]}
         >
-          {zone === "1f" ? "highest priority" : "standard priority"}
+          {getChannelPriorityOption(priority).label} priority ·{" "}
+          {Number(allocationPct.toFixed(1))}% allocation
         </Text>
         <Text
           style={[
@@ -216,7 +236,7 @@ export function ZoneCard({
       </View>
 
       <Text style={[styles.cardCopy, { color: c.muted }]}>
-        wants to run {wantedHours}h/day · mon-fri · 6:00 pm-6:00 am
+        Receives up to {wantedHours.toFixed(1)}h/day from the battery pool.
       </Text>
 
       <View style={styles.allocationControlRow}>
@@ -227,7 +247,9 @@ export function ZoneCard({
           ]}
         >
           <Pressable
-            onPress={() => setAssignedHours(Math.max(0, assignedHours - 1))}
+            onPress={() =>
+              setAssignedHours(Math.max(0, assignedHours - 0.5))
+            }
             style={styles.stepperButton}
             accessibilityRole="button"
             accessibilityLabel="decrease assigned hours"
@@ -239,8 +261,10 @@ export function ZoneCard({
           </Text>
           <Pressable
             onPress={() => {
-              if (remainingPool >= 1 && assignedHours < wantedHours) {
-                setAssignedHours(assignedHours + 1);
+              if (remainingPool > 0 && assignedHours < wantedHours) {
+                setAssignedHours(
+                  Math.min(wantedHours, assignedHours + 0.5),
+                );
               }
             }}
             style={styles.stepperButton}

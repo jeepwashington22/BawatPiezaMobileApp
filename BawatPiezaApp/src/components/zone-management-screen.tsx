@@ -7,11 +7,12 @@ import { AppText as Text } from "./app-text";
 import { ScreenShell } from "./screen-shell";
 import { scale } from "./glass-ui";
 import { fonts, useTheme } from "../theme";
+import { formatZonePriority, type ZonePriority } from "../lib/device-priority";
 
 type Zone = {
   id: string;
   name: string;
-  priority: "High" | "Standard";
+  priority: ZonePriority;
   watts: number;
 };
 
@@ -141,7 +142,9 @@ export function ZoneManagementScreen() {
                   <Text style={[styles.zoneName, { color: c.text }]}>
                     {zone.name}
                   </Text>
-                  <Text style={styles.priority}>{zone.priority} priority</Text>
+                  <Text style={styles.priority}>
+                    {formatZonePriority(zone.priority)}
+                  </Text>
                 </View>
                 <Pressable
                   onPress={() => router.push(`/pages/zones/${zone.id}`)}

@@ -77,6 +77,7 @@ bool isDumping             = false;
 bool isChargerOn           = false; 
 String currentPowerMode    = "shutdown";
 unsigned long dumpStartTime = 0;
+unsigned long roomRelayOffAt[9] = {0};
 
 int detected_tiles = 0;
 uint8_t active_tile_channels[7];
@@ -323,8 +324,22 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
         if (ch == 2) digitalWrite(PIN_RELAY_CH2, state ? RELAY_ON : RELAY_OFF);
         if (ch == 7) digitalWrite(PIN_RELAY_CH7, state ? RELAY_ON : RELAY_OFF);
         if (ch == 8) digitalWrite(PIN_RELAY_CH8, state ? RELAY_ON : RELAY_OFF);
+
+        if (ch >= 1 && ch <= 2) {
+          if (state && doc.containsKey("duration_minutes")) {
+            unsigned long durationMs =
+              (unsigned long)doc["duration_minutes"].as<unsigned long>() * 60000UL;
+            roomRelayOffAt[ch] = millis() + durationMs;
+          } else if (!state) {
+            roomRelayOffAt[ch] = 0;
+          }
+        }
         
-        updateOLED("RELAY CTRL", "CH" + String(ch) + (state ? " ON" : " OFF"), "");
+        String allocationText = "";
+        if (doc.containsKey("allocation_pct")) {
+          allocationText = " " + String(doc["allocation_pct"].as<float>(), 1) + "%";
+        }
+        updateOLED("RELAY CTRL", "CH" + String(ch) + (state ? " ON" : " OFF"), allocationText);
         beepSuccess();
       } else if (doc["command"] == "force_battery" || doc["command"] == "force_grid" || doc["command"] == "force_shutdown") {
         bool grid_on = false;
@@ -780,6 +795,18 @@ void loop() {
       }
     }
     mqtt.loop();
+
+    for (int ch = 1; ch <= 2; ch++) {
+      if (roomRelayOffAt[ch] != 0 &&
+          (long)(currentMillis - roomRelayOffAt[ch]) >= 0) {
+        if (ch == 1) digitalWrite(PIN_RELAY_CH1, RELAY_OFF);
+        if (ch == 2) digitalWrite(PIN_RELAY_CH2, RELAY_OFF);
+        if (ch == 7) digitalWrite(PIN_RELAY_CH7, RELAY_OFF);
+        if (ch == 8) digitalWrite(PIN_RELAY_CH8, RELAY_OFF);
+        roomRelayOffAt[ch] = 0;
+        updateOLED("RELAY CTRL", "CH" + String(ch) + " OFF", "Allocation done");
+      }
+    }
 
     if (currentMillis - lastTelemetryPublish >= 1500) {
       lastTelemetryPublish = currentMillis;
