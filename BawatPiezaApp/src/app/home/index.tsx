@@ -162,6 +162,144 @@ export default function HomeScreen() {
           ? user.user_metadata.full_name.split(" ")[0]
           : "";
 
+  // === LOAD TODAY'S FOOTSTEPS FROM ASYNCSTORAGE ON MOUNT ===
+  useEffect(() => {
+    const loadTodaySteps = async () => {
+      try {
+        const todayKey = getTodayDateKey();
+        const storedTodaySteps = await AsyncStorage.getItem(todayKey);
+
+        if (storedTodaySteps !== null) {
+          setFootsteps(Number(storedTodaySteps));
+        } else {
+          setFootsteps(0);
+          await AsyncStorage.setItem(todayKey, "0");
+        }
+      } catch (error) {
+        console.error("Failed to load today's footstep count", error);
+      }
+    };
+    loadTodaySteps();
+  }, []);
+
+  // === LIVE MQTT HARDWARE DETECTOR (WITH AUTO-RECONNECT) ===
+  const connectMQTT = useCallback(async () => {
+    setMqttStatus("Connecting...");
+    let client: Paho.Client | null = null;
+
+    try {
+      const hubId = await AsyncStorage.getItem("bawatpieza_hub_id");
+      if (!hubId) {
+        setMqttStatus("Offline");
+        setRefreshing(false);
+        return;
+      }
+
+      // ---> NEW: CLOUD PAIRING REGISTRATION <---
+      // Because we are on the Home Screen, we know we have internet!
+      if (user?.id) {
+        try {
+          await supabase.from("device_pairings").upsert({
+            hub_id: hubId,
+            user_id: user.id,
+            last_connected: new Date().toISOString(),
+          });
+          console.log("Hub pairing successfully registered to cloud");
+        } catch (dbErr) {
+          console.log("Could not save pairing to cloud:", dbErr);
+        }
+      }
+      // ---> END CLOUD PAIRING <---
+
+      const clientId = `app-home-${Math.random().toString(16).substring(2, 8)}`;
+      client = new Paho.Client("broker.hivemq.com", 8884, clientId);
+      mqttClientRef.current = client;
+
+      // Handle accidental disconnects and auto-reconnect
+      client.onConnectionLost = (responseObject) => {
+        setMqttStatus("Offline");
+        if (responseObject.errorCode !== 0) {
+          // Wait 4 seconds, then silently attempt to reconnect
+          setTimeout(() => {
+            connectMQTT();
+          }, 4000);
+        }
+      };
+
+      client.onMessageArrived = (message: Paho.Message) => {
+        try {
+          const data = JSON.parse(message.payloadString);
+
+          if (data.bat_pct !== undefined) setBatteryPct(Number(data.bat_pct));
+          if (data.bat_v !== undefined)
+            setDisplayVoltage(Number(data.bat_v).toFixed(2));
+          else if (data.dyn_v !== undefined)
+            setDisplayVoltage(Number(data.dyn_v).toFixed(2));
+
+          if (data.dyn_w !== undefined)
+            setLivePower(Math.round(Number(data.dyn_w)));
+          else if (data.bat_w !== undefined)
+            setLivePower(Math.round(Number(data.bat_w)));
+
+          if (data.event === "footstep") {
+            const todayKey = getTodayDateKey();
+            setFootsteps((prev) => {
+              const nextCount = prev + 1;
+              AsyncStorage.setItem(todayKey, nextCount.toString()).catch(
+                () => {},
+              );
+              return nextCount;
+            });
+          }
+        } catch (error) {
+          // Ignore non-JSON messages
+        }
+      };
+
+      client.connect({
+        onSuccess: () => {
+          setMqttStatus("Live");
+          setRefreshing(false);
+          client?.subscribe(`bawatpieza/devices/${hubId}/telemetry`);
+        },
+        onFailure: () => {
+          setMqttStatus("Offline");
+          setRefreshing(false);
+          // Auto-retry if the initial connection fails
+          setTimeout(() => {
+            connectMQTT();
+          }, 4000);
+        },
+        useSSL: true,
+        keepAliveInterval: 20, // Sends heartbeat to prevent public broker from kicking you
+        timeout: 10,
+      });
+    } catch (error) {
+      setMqttStatus("Offline");
+      setRefreshing(false);
+    }
+
+    return client;
+  }, [user]);
+
+  const onRefresh = useCallback(() => {
+    setRefreshing(true);
+    connectMQTT();
+  }, [connectMQTT]);
+
+  useEffect(() => {
+    let activeClient: Paho.Client | null = null;
+    connectMQTT().then((client) => {
+      if (client) activeClient = client;
+    });
+
+    return () => {
+      if (activeClient && activeClient.isConnected()) {
+        activeClient.disconnect();
+      }
+    };
+  }, [connectMQTT]);
+
   useEffect(() => {
     let cancelled = false;
     AsyncStorage.getItem("bawatpieza_shared_access")
