@@ -36,7 +36,7 @@ export default function ScheduleScreen() {
   };
 
   return (
-    <ScreenShell scroll>
+    <ScreenShell scroll showNoDeviceNotice>
       <View style={styles.hero}>
         <HeroGlow mode={mode} intensity={1} bleedBottom={scale(30)} />
         <TopBar gutter={0} title="Scheduling" showBack glass />

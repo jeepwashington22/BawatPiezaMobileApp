@@ -18,7 +18,10 @@ a clear offline message shows.
 The app then calls `POST /accounts/2fa/login` with an `X-Device-Info` header
 (device model/OS, used by the fraud-alert e-mail). The backend verifies the
 password with Supabase, **parks the session in Redis**, and returns only a
-`challengeId`. A 6-digit code arrives by e-mail (5 min validity).
+`challengeId` for accounts with sign-in 2FA enabled. A 6-digit code arrives by
+e-mail (5 min validity). This sign-in security code is separate from the
+one-time email verification performed when creating an account. Signing in
+does not display or require Terms & Conditions acceptance.
 
 **Step 2 — OTP.** The user types the code; the app calls
 `POST /accounts/2fa/verify { challengeId, otp }`. On success the parked session

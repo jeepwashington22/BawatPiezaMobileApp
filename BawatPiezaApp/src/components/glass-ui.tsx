@@ -3,6 +3,7 @@ import { View, StyleSheet, Pressable, Platform, Dimensions } from 'react-native'
 import { AppText as Text } from './app-text';
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
+import { Ionicons } from '@expo/vector-icons';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -147,7 +148,7 @@ export function Glass({ mode, style, children }: { mode: Mode; style?: any; chil
         <BlurView
           intensity={mode === 'dark' ? 36 : 60}
           tint={mode === 'dark' ? 'dark' : 'light'}
-          experimentalBlurMethod="dimezisBlurView"
+          blurMethod="none"
           style={StyleSheet.absoluteFill}
         />
       )}
@@ -212,12 +213,15 @@ export function SectionHead({
   link,
   onLink,
   mode,
+  accentColor,
 }: {
   title: string;
   link?: string;
   onLink?: () => void;
   mode: Mode;
+  accentColor?: string;
 }) {
+  const accent = accentColor ?? brandAccent(mode);
   return (
     <View
       style={{
@@ -230,7 +234,7 @@ export function SectionHead({
       }}
     >
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: scale(7) }}>
-        <View style={{ width: scale(3), height: scale(12), borderRadius: 2, backgroundColor: brandAccent(mode) }} />
+        <View style={{ width: scale(3), height: scale(12), borderRadius: 2, backgroundColor: accent }} />
         <Text
           style={{
             color: mode === 'dark' ? 'rgba(255,255,255,0.75)' : 'rgba(10,42,74,0.62)',
@@ -243,13 +247,24 @@ export function SectionHead({
         </Text>
       </View>
       {link && (
-        <Pressable onPress={onLink} hitSlop={6}>
-          <Text style={{ color: brandAccent(mode), fontSize: scale(10.5), fontFamily: fonts.bold }}>{link}</Text>
+        <Pressable
+          onPress={onLink}
+          hitSlop={6}
+          style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: scale(4),
+            paddingHorizontal: scale(9),
+            paddingVertical: scale(6),
+            borderRadius: 99,
+            backgroundColor:
+              mode === 'dark' ? 'rgba(255,255,255,0.08)' : 'rgba(245,162,32,0.12)',
+          }}
+        >
+          <Text style={{ color: accent, fontSize: scale(9.5), fontFamily: fonts.bold }}>{link}</Text>
+          <Ionicons name="arrow-forward" size={scale(13)} color={accent} />
         </Pressable>
       )}
     </View>
   );
 }
-
-
-

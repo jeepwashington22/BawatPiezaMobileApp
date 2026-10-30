@@ -20,7 +20,7 @@ export type TermsSection = {
 };
 
 export const TERMS_INTRO =
-  'Welcome to BawatPieza. These Terms & Conditions ("Terms") govern your access to and use of the BawatPieza mobile application, dashboard, and related services (the "Service"). Please read them carefully before creating an account. By registering an account - whether by email and password, by Google Sign-In, or by any other sign-in method we support - you confirm that you have read, understood, and agreed to be bound by these Terms and by our Privacy Policy.';
+  'Welcome to BawatPieza. These Terms & Conditions ("Terms") govern your access to and use of the BawatPieza mobile application, dashboard, and related services (the "Service"). Please read them carefully during registration or before completing your first Google Sign-In. By registering an account - whether by email and password, by Google Sign-In, or by any other sign-in method we support - you confirm that you have read, understood, and agreed to be bound by these Terms and by our Privacy Policy.';
 
 export const TERMS_SECTIONS: TermsSection[] = [
   {

@@ -141,7 +141,7 @@ export default function ThresholdsScreen() {
   };
 
   return (
-    <ScreenShell scroll>
+    <ScreenShell scroll showNoDeviceNotice>
       <View style={styles.hero}>
         <HeroGlow mode={mode} intensity={0.9} bleedBottom={scale(34)} />
         <TopBar gutter={0} title="System Thresholds" showBack glass />
@@ -178,18 +178,6 @@ export default function ThresholdsScreen() {
         </View>
       </View>
 
-      <View style={styles.statusCard}>
-        <View style={styles.statusIcon}>
-          <Ionicons name="pulse-outline" size={scale(18)} color={c.ok} />
-        </View>
-        <View style={styles.statusCopy}>
-          <Text style={styles.statusTitle}>Rules are active</Text>
-          <Text style={styles.statusText}>
-            Applied across every monitored tile
-          </Text>
-        </View>
-        <View style={styles.activeDot} />
-      </View>
 
       <Text style={styles.sectionLabel}>MONITORING RULES</Text>
       <View style={styles.rulesCard}>

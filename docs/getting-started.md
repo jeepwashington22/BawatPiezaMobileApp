@@ -150,7 +150,7 @@ running, `npm run android` also installs Expo Go into it automatically.
 | --- | --- | --- |
 | `backend/` | `npm run dev` | build + watch + restart |
 | `backend/` | `npm run build` | compile TypeScript to `dist/` |
-| `backend/` | `npm run start` | run compiled `dist/index.js` |
+| `backend/` | `npm run start` | run compiled `dist/index.js` (run `npm run build` after source changes first) |
 | `backend/` | `npm run typecheck` | `tsc --noEmit` |
 | `BawatPiezaApp/` | `npm start` | expo dev server (scan the QR with Expo Go) |
 | `BawatPiezaApp/` | `npm run expo-go` | preflight checks + expo dev server for Expo Go |

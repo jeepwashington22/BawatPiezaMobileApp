@@ -3,7 +3,7 @@ import { Platform, TurboModuleRegistry } from "react-native";
 import * as WebBrowser from "expo-web-browser";
 import * as Linking from "expo-linking";
 import { createClient } from "@supabase/supabase-js";
-import type { SupportedStorage } from "@supabase/supabase-js";
+import type { SupportedStorage, User } from "@supabase/supabase-js";
 import { TERMS_VERSION } from "../constants/terms";
 import { apiFetch } from "./api";
 
@@ -108,6 +108,160 @@ const GOOGLE_IOS_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID;
 const GOOGLE_ANDROID_CLIENT_ID =
   "890013660689-449tii667m5c0ks7ncvmahvg6mu6t86c.apps.googleusercontent.com";
 
+export const GOOGLE_ONBOARDING_STATUS_KEY = "google_onboarding_status";
+
+type GoogleProfileName = {
+  givenName?: string | null;
+  familyName?: string | null;
+  fullName?: string | null;
+};
+
+let googleSignInInProgress = false;
+
+export function isGoogleSignInInProgress(): boolean {
+  return googleSignInInProgress;
+}
+
+function isNewGoogleAccount(user: User): boolean {
+  const createdAt = new Date(user.created_at).getTime();
+  if (!Number.isFinite(createdAt)) return false;
+
+  const googleIdentity = user.identities?.find(
+    (identity) => identity.provider === "google",
+  );
+  const identityCreatedAt = googleIdentity?.created_at
+    ? new Date(googleIdentity.created_at).getTime()
+    : Number.NaN;
+
+  if (Number.isFinite(identityCreatedAt)) {
+    return Math.abs(createdAt - identityCreatedAt) <= 5 * 60 * 1000;
+  }
+
+  const provider = (user.app_metadata as { provider?: string } | undefined)
+    ?.provider;
+  return (
+    provider === "google" &&
+    Date.now() - createdAt >= -60 * 1000 &&
+    Date.now() - createdAt <= 5 * 60 * 1000
+  );
+}
+
+export function isGoogleOnboardingRequired(user: User | null): boolean {
+  if (!user) return false;
+  const appMetadata = user.app_metadata as
+    | { provider?: string; google_onboarding_completed?: boolean }
+    | undefined;
+  const isGoogleUser =
+    appMetadata?.provider === "google" ||
+    user.identities?.some((identity) => identity.provider === "google") === true;
+  const metadata = user.user_metadata as Record<string, unknown> | undefined;
+  return (
+    isGoogleUser &&
+    appMetadata?.google_onboarding_completed !== true &&
+    (metadata?.[GOOGLE_ONBOARDING_STATUS_KEY] === "pending" ||
+      isNewGoogleAccount(user))
+  );
+}
+
+/** Detects a first-time Google account from its server-issued identity timestamps. */
+export async function prepareGoogleOnboarding(
+  providerName: GoogleProfileName = {},
+): Promise<boolean> {
+  const {
+    data: { user },
+    error,
+  } = await supabase.auth.getUser();
+  if (error) throw error;
+  if (!user) return false;
+
+  const provider = (user.app_metadata as { provider?: string } | undefined)
+    ?.provider;
+  const isGoogleUser =
+    provider === "google" ||
+    user.identities?.some((identity) => identity.provider === "google") === true;
+  if (!isGoogleUser) return false;
+
+  const metadata = (user.user_metadata as Record<string, unknown> | undefined) ?? {};
+  const fullName =
+    providerName.fullName?.trim() ||
+    (typeof metadata.full_name === "string" ? metadata.full_name : "") ||
+    (typeof metadata.name === "string" ? metadata.name : "");
+  const nameParts = fullName.trim().split(/\s+/).filter(Boolean);
+  const givenName =
+    providerName.givenName?.trim() ||
+    (typeof metadata.given_name === "string" ? metadata.given_name : "") ||
+    (typeof metadata.firstname === "string" ? metadata.firstname : "") ||
+    nameParts[0] ||
+    "";
+  const familyName =
+    providerName.familyName?.trim() ||
+    (typeof metadata.family_name === "string" ? metadata.family_name : "") ||
+    (typeof metadata.last_name === "string" ? metadata.last_name : "") ||
+    (typeof metadata.lastname === "string" ? metadata.lastname : "") ||
+    (nameParts.length > 1 ? nameParts.slice(1).join(" ") : "");
+
+  const missingName = (value: unknown) =>
+    typeof value !== "string" || !value.trim() || value.trim().toLowerCase() === "unknown";
+  const metadataUpdates: Record<string, string> = {};
+  if (missingName(metadata.firstname) && givenName) {
+    metadataUpdates.firstname = givenName;
+  }
+  if (missingName(metadata.lastname) && familyName) {
+    metadataUpdates.lastname = familyName;
+  }
+  if (Object.keys(metadataUpdates).length > 0) {
+    const { error: metadataError } = await supabase.auth.updateUser({
+      data: { ...metadata, ...metadataUpdates },
+    });
+    if (metadataError) {
+      console.warn("[auth] Could not update Google profile name metadata:", metadataError.message);
+    }
+  }
+
+  if (givenName || familyName) {
+    const { data: profile, error: profileError } = await supabase
+      .from("user_accounts")
+      .select("firstname, lastname")
+      .eq("id", user.id)
+      .maybeSingle();
+    if (profileError) {
+      console.warn("[auth] Could not load Google profile name:", profileError.message);
+    } else if (profile) {
+      const profileUpdates: Record<string, string> = {};
+      if (missingName(profile.firstname) && givenName) {
+        profileUpdates.firstname = givenName;
+      }
+      if (missingName(profile.lastname) && familyName) {
+        profileUpdates.lastname = familyName;
+      }
+      if (Object.keys(profileUpdates).length > 0) {
+        const { error: profileUpdateError } = await supabase
+          .from("user_accounts")
+          .update(profileUpdates)
+          .eq("id", user.id);
+        if (profileUpdateError) {
+          console.warn("[auth] Could not save Google profile name:", profileUpdateError.message);
+        }
+      }
+    }
+  }
+
+  if (!isGoogleOnboardingRequired(user)) return false;
+
+  const appMetadata = user.app_metadata as
+    | { google_onboarding_completed?: boolean }
+    | undefined;
+  if (appMetadata?.google_onboarding_completed === true) return false;
+
+  if (metadata?.[GOOGLE_ONBOARDING_STATUS_KEY] === "pending") return true;
+
+  const { error: updateError } = await supabase.auth.updateUser({
+    data: { ...metadata, [GOOGLE_ONBOARDING_STATUS_KEY]: "pending" },
+  });
+  if (updateError) throw updateError;
+  return true;
+}
+
 /** Raised when the user dismisses the Google sheet — not a failure to report. */
 export class GoogleSignInCancelledError extends Error {
   constructor(message = "Google sign-in was cancelled.") {
@@ -168,7 +322,7 @@ export function googleRedirectUrl(): string {
       typeof window !== "undefined" && window.location?.origin
         ? window.location.origin
         : Linking.createURL("/");
-    return `${origin.replace(/\/+$/, "")}/`;
+    return `${origin.replace(/\/+$/, "")}/${GOOGLE_OAUTH_PATH}`;
   }
   return `${GOOGLE_URL_SCHEME}://${GOOGLE_OAUTH_PATH}`;
 }
@@ -242,29 +396,37 @@ function configureGoogleSignin(mod: GoogleSigninModule): void {
  * Resolves only once the session exists, so callers can navigate immediately.
  * Throws {@link GoogleSignInCancelledError} when the user backs out.
  */
-export async function signInWithGoogle(): Promise<true> {
-  if (Platform.OS === "web") {
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider: "google",
-      options: {
-        scopes: "profile email",
-        redirectTo: googleRedirectUrl(),
-        queryParams: { prompt: "select_account" },
-      },
-    });
-    if (error) throw error;
-    return true;
-  }
+export async function signInWithGoogle(): Promise<{ isNewUser: boolean }> {
+  googleSignInInProgress = true;
+  try {
+    if (Platform.OS === "web") {
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: "google",
+        options: {
+          scopes: "profile email",
+          redirectTo: googleRedirectUrl(),
+          queryParams: { prompt: "select_account" },
+        },
+      });
+      if (error) throw error;
+      return { isNewUser: false };
+    }
 
-  if (!hasGoogleSigninModule()) {
-    // Expo Go. Deliberately not a silent browser redirect: the app's own scheme is
-    // unregistered there, so Supabase's redirect would land on a dead page.
-    if (GOOGLE_BROWSER_FALLBACK_ENABLED) return signInWithBrowserGoogle();
-    throw new GoogleSignInUnavailableError();
-  }
+    if (!hasGoogleSigninModule()) {
+      // Expo Go. Deliberately not a silent browser redirect: the app's own scheme is
+      // unregistered there, so Supabase's redirect would land on a dead page.
+      if (GOOGLE_BROWSER_FALLBACK_ENABLED) {
+        await signInWithBrowserGoogle();
+        return { isNewUser: await prepareGoogleOnboarding() };
+      }
+      throw new GoogleSignInUnavailableError();
+    }
 
-  // The native sheet — no browser and no redirect.
-  return signInWithNativeGoogle(requireGoogleSignin());
+    const providerName = await signInWithNativeGoogle(requireGoogleSignin());
+    return { isNewUser: await prepareGoogleOnboarding(providerName) };
+  } finally {
+    googleSignInInProgress = false;
+  }
 }
 
 /**
@@ -274,7 +436,7 @@ export async function signInWithGoogle(): Promise<true> {
  * Google provider enabled in Supabase, and this app's package name plus signing
  * SHA-1 registered on an Android OAuth client in Google Cloud Console.
  */
-async function signInWithNativeGoogle(mod: GoogleSigninModule): Promise<true> {
+async function signInWithNativeGoogle(mod: GoogleSigninModule): Promise<GoogleProfileName> {
   if (!GOOGLE_WEB_CLIENT_ID) {
     throw new Error(
       "Google sign-in is not configured: EXPO_PUBLIC_GOOGLE_CLIENT_ID is missing from BawatPiezaApp/.env.",
@@ -319,7 +481,11 @@ async function signInWithNativeGoogle(mod: GoogleSigninModule): Promise<true> {
   if (error) throw error;
   if (!data.session)
     throw new Error("Google sign-in did not create a session.");
-  return true;
+  return {
+    givenName: response.data.user.givenName,
+    familyName: response.data.user.familyName,
+    fullName: response.data.user.name,
+  };
 }
 
 /**

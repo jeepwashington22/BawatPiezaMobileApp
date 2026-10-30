@@ -18,11 +18,12 @@ import { Ionicons } from '@expo/vector-icons';
 import { apiFetch } from '../lib/api';
 import { describeApiFailure } from '../lib/network';
 
-const BUTTER = '#F6C445';
-const ORANGE_DARK = '#C2410C';
-const MUTED = 'rgba(255, 255, 255, 0.72)';
-const LINE = 'rgba(255, 255, 255, 0.12)';
-const INPUT_BG = 'rgba(255, 255, 255, 0.05)';
+const ORANGE = '#F97316';
+const ORANGE_DARK = '#EA580C';
+const TEXT_PRIMARY = '#0F172A';
+const TEXT_SECONDARY = '#64748B';
+const BORDER = '#E2E8F0';
+const INPUT_BG = '#FFFFFF';
 
 const NETWORK_FALLBACK = 'Unable to reach the server. Check your connection and try again.';
 
@@ -162,25 +163,25 @@ export default function ForgotPasswordScreen() {
     value,
     onChangeText: setter,
     style: styles.input,
-    placeholderTextColor: 'rgba(255,255,255,0.35)',
+    placeholderTextColor: '#94A3B8',
   });
 
   return (
     <View style={styles.container}>
-      <LinearGradient colors={['#8F350E', '#2A0D06', '#120705']} style={StyleSheet.absoluteFill} />
+      <LinearGradient colors={['#FFFFFF', '#F8FAFC', '#F1F5F9']} style={StyleSheet.absoluteFill} />
 
       <SafeAreaView style={styles.safeArea}>
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.flex}>
           <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
             <TouchableOpacity style={styles.backRow} onPress={() => router.back()} hitSlop={8}>
-              <Ionicons name="arrow-back" size={18} color={MUTED} />
+              <Ionicons name="arrow-back" size={18} color={TEXT_SECONDARY} />
               <Text style={styles.backText}>Back to sign in</Text>
             </TouchableOpacity>
 
             <View style={styles.brandWrap}>
               <Image source={require('../../assets/images/LOGO3.png')} style={styles.logo} resizeMode="contain" />
               <View style={styles.iconBadge}>
-                <Ionicons name="key-outline" size={26} color={BUTTER} />
+                <Ionicons name="key-outline" size={26} color={ORANGE} />
               </View>
               <Text style={styles.title}>Forgot password</Text>
               <Text style={styles.subtitle}>
@@ -206,7 +207,7 @@ export default function ForgotPasswordScreen() {
               <View>
                 <Text style={styles.label}>Email</Text>
                 <View style={styles.inputBox}>
-                  <Ionicons name="mail-outline" size={18} color="rgba(255,255,255,0.45)" style={styles.inputIcon} />
+                  <Ionicons name="mail-outline" size={18} color="#94A3B8" style={styles.inputIcon} />
                   <TextInput
                     {...inputProps(email, setEmail)}
                     placeholder="you@example.com"
@@ -218,7 +219,7 @@ export default function ForgotPasswordScreen() {
                 <TouchableOpacity style={styles.primaryButton} onPress={requestOtp} disabled={busy}>
                   <View style={styles.primaryButtonInner}>
                     {busy ? (
-                      <Text style={styles.primaryButtonText}>Sendingâ€¦</Text>
+                      <Text style={styles.primaryButtonText}>Sending...</Text>
                     ) : (
                       <>
                         <Ionicons name="paper-plane-outline" size={16} color="#FFFFFF" style={{ marginRight: 8 }} />
@@ -250,7 +251,7 @@ export default function ForgotPasswordScreen() {
                       selectTextOnFocus
                       autoFocus={index === 0}
                       placeholder="0"
-                      placeholderTextColor="rgba(255,255,255,0.25)"
+                      placeholderTextColor="#CBD5E1"
                       style={[styles.otpBox, digit ? styles.otpBoxFilled : null]}
                       textAlign="center"
                     />
@@ -261,7 +262,7 @@ export default function ForgotPasswordScreen() {
                 </TouchableOpacity>
                 <TouchableOpacity style={styles.primaryButton} onPress={verifyOtp} disabled={busy}>
                   <View style={styles.primaryButtonInner}>
-                    <Text style={styles.primaryButtonText}>{busy ? 'Verifyingâ€¦' : 'Verify code'}</Text>
+                    <Text style={styles.primaryButtonText}>{busy ? 'Verifying...' : 'Verify code'}</Text>
                   </View>
                 </TouchableOpacity>
                 <TouchableOpacity style={styles.secondaryButton} onPress={requestOtp} disabled={busy}>
@@ -274,17 +275,17 @@ export default function ForgotPasswordScreen() {
               <View>
                 <Text style={styles.label}>New password</Text>
                 <View style={styles.inputBox}>
-                  <Ionicons name="lock-closed-outline" size={18} color="rgba(255,255,255,0.45)" style={styles.inputIcon} />
+                  <Ionicons name="lock-closed-outline" size={18} color="#94A3B8" style={styles.inputIcon} />
                   <TextInput {...inputProps(password, setPassword)} placeholder="At least 8 characters" secureTextEntry />
                 </View>
                 <Text style={styles.label}>Confirm new password</Text>
                 <View style={styles.inputBox}>
-                  <Ionicons name="lock-closed-outline" size={18} color="rgba(255,255,255,0.45)" style={styles.inputIcon} />
+                  <Ionicons name="lock-closed-outline" size={18} color="#94A3B8" style={styles.inputIcon} />
                   <TextInput {...inputProps(confirm, setConfirm)} placeholder="Repeat new password" secureTextEntry />
                 </View>
                 <TouchableOpacity style={styles.primaryButton} onPress={resetPassword} disabled={busy}>
                   <View style={styles.primaryButtonInner}>
-                    <Text style={styles.primaryButtonText}>{busy ? 'Updatingâ€¦' : 'Update password'}</Text>
+                    <Text style={styles.primaryButtonText}>{busy ? 'Updating...' : 'Update password'}</Text>
                   </View>
                 </TouchableOpacity>
               </View>
@@ -310,83 +311,91 @@ export default function ForgotPasswordScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#120705' },
+  container: { flex: 1, backgroundColor: '#FFFFFF' },
   safeArea: { flex: 1 },
   flex: { flex: 1 },
   scroll: { flexGrow: 1, justifyContent: 'center', paddingHorizontal: 26, paddingTop: 18, paddingBottom: 40 },
-  backRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
-  backText: { color: MUTED, fontSize: 13, fontWeight: '600', fontFamily: fonts.semibold, marginLeft: 6 },
-  brandWrap: { alignItems: 'center', marginBottom: 18 },
+  backRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 16 },
+  backText: { color: TEXT_SECONDARY, fontSize: 13, fontWeight: '600', fontFamily: fonts.semibold, marginLeft: 6 },
+  brandWrap: { alignItems: 'center', marginBottom: 22 },
   logo: { width: 140, height: 140, marginBottom: 2 },
   iconBadge: {
     width: 54,
     height: 54,
     borderRadius: 18,
-    backgroundColor: 'rgba(246, 196, 69, 0.14)',
+    backgroundColor: '#FFF7ED',
     borderWidth: 1,
-    borderColor: 'rgba(246, 196, 69, 0.3)',
+    borderColor: '#FFEDD5',
     alignItems: 'center',
     justifyContent: 'center',
     marginTop: 8,
     marginBottom: 12,
   },
-  title: { fontSize: 28, fontWeight: '800', fontFamily: fonts.extrabold, color: '#FFFFFF', letterSpacing: -0.8, marginBottom: 6, textAlign: 'center' },
-  subtitle: { fontSize: 13, color: MUTED, marginBottom: 6, lineHeight: 19, textAlign: 'center' },
+  title: { fontSize: 26, fontWeight: '800', fontFamily: fonts.extrabold, color: TEXT_PRIMARY, letterSpacing: -0.6, marginBottom: 6, textAlign: 'center' },
+  subtitle: { fontSize: 14, color: TEXT_SECONDARY, marginBottom: 6, lineHeight: 20, textAlign: 'center' },
   infoBox: {
-    backgroundColor: 'rgba(246, 196, 69, 0.1)',
-    borderRadius: 12,
+    backgroundColor: '#FEF3C7',
+    borderRadius: 10,
     borderWidth: 1,
-    borderColor: 'rgba(246, 196, 69, 0.3)',
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    marginBottom: 16,
+    borderColor: '#FDE68A',
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    marginBottom: 18,
   },
-  infoText: { color: BUTTER, fontSize: 12, fontWeight: '600', fontFamily: fonts.semibold, lineHeight: 18 },
+  infoText: { color: '#92400E', fontSize: 13, fontWeight: '600', fontFamily: fonts.semibold, lineHeight: 18 },
   errorBox: {
-    backgroundColor: 'rgba(239, 68, 68, 0.12)',
-    borderRadius: 12,
+    backgroundColor: '#FEE2E2',
+    borderRadius: 10,
     borderWidth: 1,
-    borderColor: 'rgba(239,68,68,0.35)',
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    marginBottom: 16,
+    borderColor: '#FCA5A5',
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    marginBottom: 18,
   },
-  errorText: { color: '#FCA5A5', fontSize: 12, fontWeight: '600', fontFamily: fonts.semibold, lineHeight: 18 },
-  label: { color: 'rgba(255,255,255,0.82)', fontSize: 13, fontWeight: '600', fontFamily: fonts.semibold, marginBottom: 8 },
+  errorText: { color: '#991B1B', fontSize: 13, fontWeight: '600', fontFamily: fonts.semibold, lineHeight: 18 },
+  label: { color: '#334155', fontSize: 12, fontWeight: '600', fontFamily: fonts.semibold, marginBottom: 6 },
   inputBox: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: INPUT_BG,
-    borderRadius: 14,
+    borderRadius: 9,
     borderWidth: 1,
-    borderColor: LINE,
+    borderColor: BORDER,
     paddingHorizontal: 14,
-    paddingVertical: 12,
-    marginBottom: 14,
+    paddingVertical: 14,
+    marginBottom: 16,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.02, shadowRadius: 3, elevation: 1,
   },
   inputIcon: { marginRight: 10 },
-  input: { flex: 1, fontSize: 15, color: '#FFFFFF', paddingVertical: 2 },
+  input: { flex: 1, fontSize: 15, color: TEXT_PRIMARY, paddingVertical: 2 },
   otpRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 8, marginBottom: 6 },
   otpBox: {
     flex: 1,
-    height: 54,
-    backgroundColor: INPUT_BG,
-    borderRadius: 14,
+    height: 56,
+    backgroundColor: '#F8FAFC',
+    borderRadius: 10,
     borderWidth: 1,
-    borderColor: LINE,
-    fontSize: 20,
+    borderColor: BORDER,
+    fontSize: 22,
     fontWeight: '800',
     fontFamily: fonts.extrabold,
-    color: '#FFFFFF',
+    color: TEXT_PRIMARY,
     textAlign: 'center',
     paddingVertical: 0,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.02, shadowRadius: 3, elevation: 1,
   },
-  otpBoxFilled: { borderColor: 'rgba(246, 196, 69, 0.55)', backgroundColor: 'rgba(246, 196, 69, 0.08)' },
-  otpClearRow: { alignItems: 'flex-end', paddingVertical: 6, marginBottom: 6 },
-  primaryButton: { borderRadius: 14, overflow: 'hidden', backgroundColor: ORANGE_DARK, marginTop: 6, marginBottom: 12 },
-  primaryButtonInner: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 16 },
-  primaryButtonText: { color: '#FFFFFF', fontSize: 15, fontWeight: '800', fontFamily: fonts.extrabold },
-  secondaryButton: { alignItems: 'center', paddingVertical: 10 },
-  secondaryText: { color: BUTTER, fontSize: 12, fontWeight: '700', fontFamily: fonts.bold },
+  otpBoxFilled: { borderColor: ORANGE, backgroundColor: '#FFF7ED' },
+  otpClearRow: { alignItems: 'flex-end', paddingVertical: 6, marginBottom: 10 },
+  primaryButton: { 
+    borderRadius: 9, 
+    overflow: 'hidden', 
+    backgroundColor: ORANGE, 
+    marginTop: 8, 
+    marginBottom: 12,
+    shadowColor: ORANGE, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 8, elevation: 4 
+  },
+  primaryButtonInner: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 15 },
+  primaryButtonText: { color: '#FFFFFF', fontSize: 14, fontWeight: '800', fontFamily: fonts.extrabold },
+  secondaryButton: { alignItems: 'center', paddingVertical: 12 },
+  secondaryText: { color: ORANGE_DARK, fontSize: 13, fontWeight: '700', fontFamily: fonts.bold },
 });
-

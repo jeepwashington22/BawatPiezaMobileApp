@@ -8,10 +8,12 @@ import healthRouter from './routes/health.js';
 import emailRouter from './routes/email.js';
 import accountsRouter from './routes/accounts.js';
 import twoFactorRouter from './routes/twoFactor.js';
+import googleOnboardingRouter from './routes/googleOnboarding.js';
 import notificationsRouter from './routes/notifications.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { connectRedis, disconnectRedis } from './lib/redis.js';
 import { verifyMailer } from './lib/mailer.js';
+import { startBatteryMilestoneListener } from './lib/batteryMilestoneListener.js';
 
 const app = express();
 
@@ -29,6 +31,7 @@ app.use('/email', emailRouter);
 // prefix is matched first; both are plain Express routers, so either order
 // works, but this keeps the intent explicit.
 app.use('/accounts/2fa', twoFactorRouter);
+app.use('/accounts/google-onboarding', googleOnboardingRouter);
 app.use('/accounts', accountsRouter);
 app.use('/notifications', notificationsRouter);
 
@@ -57,9 +60,11 @@ async function main(): Promise<void> {
   const server = app.listen(PORT, () => {
     console.log(`API listening on http://localhost:${PORT}`);
   });
+  const stopBatteryMilestoneListener = startBatteryMilestoneListener();
 
   const shutdown = async (signal: string): Promise<void> => {
     console.log(`${signal} received, shutting down...`);
+    stopBatteryMilestoneListener();
     server.close(async () => {
       await disconnectRedis();
       process.exit(0);

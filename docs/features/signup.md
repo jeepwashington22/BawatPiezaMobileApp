@@ -2,7 +2,7 @@
 
 - **Route:** `/signup`
 - **Source:** `BawatPiezaApp/src/app/signup.tsx`
-- **API/Cloud:** Supabase Auth directly (`signUp`), welcome e-mail via backend
+- **API/Cloud:** Backend account endpoint (Supabase Admin Auth + Brevo OTP)
 - **Status:** 🟢 live
 
 ---
@@ -23,16 +23,32 @@
 3. The email step checks the `email_registered` RPC when migration
    `006_email_registered.sql` is available. If the check is unavailable, the
    final Supabase signup still reports duplicate email errors.
-4. On submit → `supabase.auth.signUp({ email, password, options.data })` with
-   user metadata: `full_name`, `firstname`, `middlename`, `lastname`, and
-   `contact_number`.
+4. On submit → `POST /accounts/signup` creates an unconfirmed Supabase Auth
+   user with the profile, contact, and Terms acceptance metadata, then emails
+   a 6-digit code through the backend mailer. The backend does not create a
+   client session during registration, so the auth gate cannot send the new
+   user to the dashboard before verification.
 5. The `handle_new_auth_user` trigger (migration 001/005) mirrors the metadata
    into the `user_accounts` table.
-6. A **welcome e-mail** is sent for brand-new accounts
-   (`sendWelcomeEmailIfNew()` — only if the account was created < 2 min ago,
-   calls `POST /accounts/welcome-email` on the backend).
-7. Success → the user is signed in / asked to confirm the e-mail depending on
-   the Supabase project's confirmation setting, and lands on **Home**.
+6. A success modal asks the user to enter the code. `POST
+   /accounts/signup/verify` validates it, confirms the email, and activates the
+   account. The user then continues to sign in with their credentials.
+7. The user can request a replacement code with `POST
+   /accounts/signup/resend`. Codes expire after 5 minutes, allow 5 attempts,
+   and can be re-sent once per minute.
+8. The app uses `TileLoader` while checking the email, creating the account,
+   sending another code, or verifying the code.
+9. Terms acceptance is required only when creating a new account. Existing
+   users signing in with email/password do not see or need to accept the Terms
+   again. First-time Google accounts accept during their onboarding; returning
+   Google users skip that new-account step.
+
+### Email delivery setup
+
+Configure the backend Brevo SMTP settings (`BREVO_SMTP_USER`,
+`BREVO_SMTP_KEY`, and optionally `MAIL_FROM`) so the mailer can deliver signup
+verification codes. A mail failure is shown in the success modal, where the
+user can retry sending the code.
 
 ## Errors
 

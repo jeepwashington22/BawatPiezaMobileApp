@@ -1,6 +1,6 @@
-import { useEffect } from "react";
-import { View } from "react-native";
-import { Stack, useSegments } from "expo-router";
+import { useEffect, useRef, useState } from "react";
+import { DeviceEventEmitter, View } from "react-native";
+import { Stack, usePathname } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import {
   useFonts,
@@ -15,11 +15,22 @@ import { ThemeProvider } from "../theme";
 import { AuthProvider, useAuth } from "../hooks/use-auth";
 import { PowerOverrideProvider, usePowerOverride } from "../hooks/use-power-override";
 import { AuthGate } from "../hooks/use-auth-gate";
+import { AppTourProvider } from "../hooks/use-app-tour";
 import { NetworkBanner } from "../components/network-banner";
 import { QuickOverridesModal } from "../components/quick-overrides-modal";
+import { AppTourOverlay } from "../components/app-tour-overlay";
 
-// Keep the splash visible until fonts + root layout are ready,
-// then hide it so the app (login screen) is actually rendered.
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { supabase } from "../lib/supabase";
+import { apiFetch } from "../lib/api";
+import { DEVICE_ACCESS_CHANGED_EVENT } from "../components/device-status-banner";
+
+/** AsyncStorage key written once a hub is successfully paired (provisioning). */
+const DEVICE_STORAGE_KEY = "bawatpieza_hub_id";
+
+/** AsyncStorage flag set when this account has an accepted shared-user relationship. */
+const SHARED_ACCESS_KEY = "bawatpieza_shared_access";
+
 SplashScreen.preventAutoHideAsync();
 
 export default function RootLayout() {
@@ -31,47 +42,125 @@ export default function RootLayout() {
     Poppins_800ExtraBold,
   });
 
-  useEffect(() => {
-    if (fontsLoaded) SplashScreen.hideAsync();
-  }, [fontsLoaded]);
-
   if (!fontsLoaded) return null;
 
   return (
     <ThemeProvider>
       <AuthProvider>
         <PowerOverrideProvider>
-          <AuthGate>
-            <AuthedShell />
-          </AuthGate>
+          <AppTourProvider>
+            <AuthGate>
+              <AuthedShell fontsLoaded={fontsLoaded} />
+            </AuthGate>
+          </AppTourProvider>
         </PowerOverrideProvider>
       </AuthProvider>
     </ThemeProvider>
   );
 }
 
-/**
- * Inner shell — reads the session so it can hold the splash screen until the
- * session check finishes, and hides the network banner on setup screens.
- * Uses `useSegments` (static-safe) instead of pathname matching where possible.
- */
-function AuthedShell() {
+function AuthedShell({ fontsLoaded }: { fontsLoaded: boolean }) {
   const { ready, isLoggedIn } = useAuth();
-  const segments = useSegments();
+  const pathname = usePathname();
 
-  // Hold the splash until fonts + session are resolved: no protected link can
-  // render for a logged-out user, and no login flash for a logged-in one.
-  useEffect(() => {
-    if (ready) SplashScreen.hideAsync().catch(() => {});
-  }, [ready]);
-
-  // Same setup-screen exclusion as before: never mount the Network & MQTT
-  // banner while configuring a hub.
-  const currentRoute = segments.join("/").toLowerCase();
+  const currentRoute = pathname.toLowerCase();
   const isSetupScreen =
     currentRoute.includes("provisioning") ||
     currentRoute.includes("device") ||
     currentRoute.includes("setup");
+
+  // ---- Device-access cache refresh --------------------------------------
+  const [gateReady, setGateReady] = useState(false);
+  const accessVersionRef = useRef(0);
+
+  useEffect(() => {
+    const subscription = DeviceEventEmitter.addListener(
+      DEVICE_ACCESS_CHANGED_EVENT,
+      () => {
+        accessVersionRef.current += 1;
+      },
+    );
+    return () => subscription.remove();
+  }, []);
+
+  useEffect(() => {
+    if (!ready) {
+      setGateReady(false);
+      return;
+    }
+    if (!isLoggedIn) {
+      setGateReady(true);
+      return;
+    }
+
+    let cancelled = false;
+    let checking = false;
+    const refreshAccess = async () => {
+      if (checking) return;
+      checking = true;
+      const accessVersion = accessVersionRef.current;
+      try {
+        const { data } = await supabase.auth.getSession();
+        const token = data.session?.access_token ?? null;
+        if (!token) {
+          if (cancelled || accessVersion !== accessVersionRef.current) return;
+          await Promise.all([
+            AsyncStorage.removeItem(DEVICE_STORAGE_KEY),
+            AsyncStorage.removeItem(SHARED_ACCESS_KEY),
+          ]);
+          return;
+        }
+
+        const res = await apiFetch("/accounts/device-access", {
+          headers: { Authorization: `Bearer ${token}` },
+          timeoutMs: 8_000,
+        });
+        if (!res.ok) {
+          throw new Error(`Device access check failed (${res.status})`);
+        }
+        const json = (await res.json()) as {
+          hub_id?: string | null;
+          access_granted?: boolean;
+          can_unlink?: boolean;
+        };
+        const apiHubId = json.hub_id ?? null;
+        if (cancelled || accessVersion !== accessVersionRef.current) return;
+        if (json.access_granted && apiHubId) {
+          await AsyncStorage.setItem(DEVICE_STORAGE_KEY, apiHubId);
+          if (json.can_unlink === false) {
+            await AsyncStorage.setItem(SHARED_ACCESS_KEY, "1");
+          } else {
+            await AsyncStorage.removeItem(SHARED_ACCESS_KEY);
+          }
+        } else {
+          await Promise.all([
+            AsyncStorage.removeItem(DEVICE_STORAGE_KEY),
+            AsyncStorage.removeItem(SHARED_ACCESS_KEY),
+          ]);
+        }
+      } catch (error) {
+        console.warn("[device-access] failed to refresh access", error);
+      } finally {
+        if (!cancelled) setGateReady(true);
+        checking = false;
+      }
+    };
+
+    void refreshAccess();
+    const interval = setInterval(() => void refreshAccess(), 15_000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [ready, isLoggedIn]);
+
+  // Hold the splash until fonts, auth, and the initial device-cache refresh resolve.
+  const splashReady = fontsLoaded && ready && gateReady;
+  useEffect(() => {
+    if (splashReady) SplashScreen.hideAsync().catch(() => {});
+  }, [splashReady]);
+
+  if (!splashReady) return null;
 
   return (
     <View style={{ flex: 1 }}>
@@ -106,8 +195,10 @@ function AuthedShell() {
           }}
         />
       </Stack>
-      {/* Single global Quick Overrides sheet — one modal for the whole app. */}
       <GlobalOverridesSheet />
+      {isLoggedIn && (currentRoute === "/home" || currentRoute === "/") && (
+        <AppTourOverlay />
+      )}
     </View>
   );
 }

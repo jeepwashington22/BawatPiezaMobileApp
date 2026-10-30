@@ -3,6 +3,7 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { LinearGradient } from "expo-linear-gradient";
+import Svg, { Circle } from "react-native-svg";
 import { ScreenShell } from "../../../components/screen-shell";
 import { TopBar } from "../../../components/top-bar";
 import { HeroGlow } from "../../../components/hero-glow";
@@ -178,7 +179,7 @@ export default function ZoneDetailScreen() {
     mode === "dark" ? ["#FDBA74", "#F97316"] : ["#F97316", "#C2410C"];
 
   return (
-    <ScreenShell scroll>
+    <ScreenShell scroll showNoDeviceNotice>
       <View style={styles.hero}>
         <HeroGlow mode={mode} intensity={1} bleedBottom={scale(40)} />
 
@@ -288,7 +289,7 @@ export default function ZoneDetailScreen() {
           <Text style={[styles.sectionLabel, { color: heroInkSoft }]}>
             LIVE READOUT
           </Text>
-          <View style={styles.readoutStack}>
+          <View style={styles.readoutRow}>
             <Readout
               icon="flash"
               value={liveVoltage}
@@ -296,7 +297,6 @@ export default function ZoneDetailScreen() {
               label="VOLTAGE"
               color="#1764B0"
             />
-            <View style={styles.statsDivider} />
             <Readout
               icon="speedometer"
               value={liveWatts.toString()}
@@ -304,7 +304,6 @@ export default function ZoneDetailScreen() {
               label="LIVE LOAD"
               color="#F59E0B"
             />
-            <View style={styles.statsDivider} />
             <Readout
               icon="time-outline"
               value={getEstimatedRuntime()}
@@ -508,6 +507,13 @@ const makeStyles = (c: ThemeColors) =>
       marginLeft: scale(2),
     },
     readoutStack: { alignSelf: "stretch" },
+    readoutRow: {
+      width: "100%",
+      flexDirection: "row",
+      alignItems: "stretch",
+      justifyContent: "space-between",
+      gap: scale(6),
+    },
     smartSwitchHeader: {
       flexDirection: "row",
       alignItems: "center",

@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react';
-import { Image, Pressable, StyleSheet, View } from 'react-native';
+import { useCallback, useEffect, useState } from 'react';
+import { Alert, DeviceEventEmitter, Image, Pressable, StyleSheet, View } from 'react-native';
 import { AppText as Text } from './app-text';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { supabase } from '../lib/supabase';
 import { apiFetch } from '../lib/api';
@@ -35,6 +36,10 @@ function toneForType(type: string): { icon: keyof typeof Ionicons.glyphMap; tone
       return { icon: 'people-outline', tone: 'success' };
     case 'share_declined':
       return { icon: 'close-circle-outline', tone: 'warning' };
+    case 'battery_full':
+      return { icon: 'battery-full-outline', tone: 'success' };
+    case 'battery_low':
+      return { icon: 'battery-dead-outline', tone: 'warning' };
     default:
       return { icon: 'notifications-outline', tone: 'notice' };
   }
@@ -72,8 +77,16 @@ type NotificationSnapshot = {
 };
 
 const NOTIFICATION_CACHE_TTL_MS = 30_000;
+const PROFILE_CACHE_TTL_MS = 300_000;
 const notificationSnapshots = new Map<string, NotificationSnapshot>();
 const notificationAttempts = new Map<string, number>();
+let profileSnapshot: {
+  userId: string;
+  name: string | null;
+  email: string | null;
+  avatarUrl: string | null;
+  fetchedAt: number;
+} | null = null;
 
 export type TopBarProps = {
   gutter?: number;
@@ -125,7 +138,7 @@ export function TopBar({ gutter = 18, title, subtitle, showBack = false, showTit
   };
 
   /** Loads the signed-in user's in-app notifications; silent on failure. */
-  const loadNotifications = async (): Promise<void> => {
+  const loadNotifications = useCallback(async (): Promise<void> => {
     setFeedLoading(true);
     try {
       const { data: authData } = await supabase.auth.getSession();
@@ -133,19 +146,65 @@ export function TopBar({ gutter = 18, title, subtitle, showBack = false, showTit
       if (!token) return;
       const userId = authData.session?.user?.id;
       if (!userId) return;
-      const attemptedAt = notificationAttempts.get(userId);
-      const cached = notificationSnapshots.get(userId);
-      if (cached && Date.now() - cached.fetchedAt < NOTIFICATION_CACHE_TTL_MS) {
-        setFeed(cached.feed);
-        setUnread(cached.unread);
+      notificationAttempts.set(userId, Date.now());
+      const authoritativeResponse = await apiFetch('/notifications', {
+        timeoutMs: 8_000,
+        silent: true,
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!authoritativeResponse.ok) return;
+      const authoritativeJson = (await authoritativeResponse.json().catch(() => null)) as {
+        notifications?: ApiNotification[];
+        unread?: number;
+      } | null;
+      if (authoritativeJson?.notifications) {
+        const invitesResponse = await apiFetch('/accounts/invites', {
+          timeoutMs: 8_000,
+          silent: true,
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const invitesJson = invitesResponse.ok
+          ? (await invitesResponse.json().catch(() => null)) as {
+              received?: { id: string }[];
+            } | null
+          : null;
+        const pendingInviteIds = new Set((invitesJson?.received ?? []).map((invite) => invite.id));
+        const activeNotifications = authoritativeJson.notifications.filter(
+          (notification) =>
+            notification.type !== 'share_invite' ||
+            (notification.reference_id !== null && pendingInviteIds.has(notification.reference_id)),
+        );
+        const authoritativeItems: FeedItem[] = activeNotifications.map((n) => {
+          const { icon, tone } = toneForType(n.type);
+          return {
+            id: n.id,
+            icon,
+            tone,
+            title: n.title,
+            detail: n.body ?? '',
+            time: timeAgo(n.created_at),
+            kind: n.type,
+            refId: n.reference_id,
+            read: n.read_at !== null,
+          };
+        });
+        const authoritativeUnread =
+          activeNotifications.filter((notification) => notification.read_at === null).length;
+        setFeed(authoritativeItems);
+        setUnread(authoritativeUnread);
+        notificationSnapshots.set(userId, {
+          feed: authoritativeItems,
+          unread: authoritativeUnread,
+          fetchedAt: Date.now(),
+        });
         return;
       }
-      if (attemptedAt && Date.now() - attemptedAt < NOTIFICATION_CACHE_TTL_MS) return;
-      notificationAttempts.set(userId, Date.now());
+
       const { data: notificationRows, error: notificationError } = await supabase
         .from('notifications')
         .select('id, type, title, body, reference_id, read_at, created_at')
         .eq('user_id', userId)
+        .neq('type', 'share_invite')
         .order('created_at', { ascending: false })
         .limit(30);
       if (!notificationError) {
@@ -211,11 +270,39 @@ export function TopBar({ gutter = 18, title, subtitle, showBack = false, showTit
     } finally {
       setFeedLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
+    const subscription = DeviceEventEmitter.addListener(
+      'bawatpieza:refresh-notifications',
+      () => void loadNotifications(),
+    );
+    return () => subscription.remove();
+  }, [loadNotifications]);
+
+  useEffect(() => {
+    const cached = profileSnapshot;
+    if (cached) {
+      setName(cached.name);
+      setEmail(cached.email);
+      setAvatarUrl(cached.avatarUrl);
+    }
+    const cachedNotifications =
+      cached && notificationSnapshots.get(cached.userId);
+    if (
+      cachedNotifications &&
+      Date.now() - cachedNotifications.fetchedAt < NOTIFICATION_CACHE_TTL_MS
+    ) {
+      const nonInviteFeed = cachedNotifications.feed.filter((item) => item.kind !== 'share_invite');
+      setFeed(nonInviteFeed);
+      setUnread(nonInviteFeed.filter((item) => !item.read).length);
+      if (!cachedNotifications.feed.some((item) => item.kind === 'share_invite')) {
+        setFeedLoading(false);
+        return;
+      }
+    }
     void loadNotifications();
-  }, []);
+  }, [loadNotifications]);
 
   /** Accept / decline a shared-user invite without leaving the bell panel. */
   const respondToInvite = async (item: FeedItem, action: 'accept' | 'decline'): Promise<void> => {
@@ -230,29 +317,106 @@ export function TopBar({ gutter = 18, title, subtitle, showBack = false, showTit
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
       });
-      if (!res.ok) return;
-      // Drop the invite notification + refresh the feed so the badge decrements.
+      if (!res.ok) {
+        const response = (await res.json().catch(() => null)) as { message?: string } | null;
+        Alert.alert('Could not respond', response?.message ?? `The server responded ${res.status}.`);
+        return;
+      }
+      // Remove the answered invite immediately; device discovery must not
+      // delay or prevent the notification from disappearing.
       setFeed((prev) => (prev ? prev.filter((n) => n.id !== item.id) : prev));
       setUnread((u) => Math.max(0, u - (item.read ? 0 : 1)));
+      if (action === 'accept') {
+        try {
+          // Persist shared-access locally so the device gate lets this
+          // account in even without its own paired hub.
+          try {
+            await AsyncStorage.setItem('bawatpieza_shared_access', '1');
+          } catch {
+            // ignore
+          }
+          // Fetch and store the owner's hub_id so device screens work
+          // immediately for shared users.
+          try {
+            const devRes = await apiFetch('/accounts/device-access', {
+              headers: { Authorization: `Bearer ${token}` },
+              timeoutMs: 8_000,
+            });
+            if (devRes.ok) {
+              const devJson = (await devRes.json().catch(() => null)) as {
+                hub_id?: string | null;
+              } | null;
+              if (devJson?.hub_id) {
+                await AsyncStorage.setItem('bawatpieza_hub_id', devJson.hub_id);
+              }
+            }
+          } catch {
+            // ignore — the gate will retry on next launch.
+          }
+        } catch {
+          // Access is already granted; gate re-checks on next launch.
+        }
+      }
+      await supabase
+        .from('notifications')
+        .update({ read_at: new Date().toISOString() })
+        .eq('id', item.id);
+      // Refresh the feed after the server-side notification cleanup.
+      const { data: refreshedAuth } = await supabase.auth.getSession();
+      if (refreshedAuth.session?.user?.id) {
+        notificationSnapshots.delete(refreshedAuth.session.user.id);
+        notificationAttempts.delete(refreshedAuth.session.user.id);
+      }
       await loadNotifications();
+      if (action === 'accept') router.replace('/home');
     } catch {
-      // Best-effort — the row stays so the user can retry.
+      Alert.alert('Could not respond', 'Please check your connection and try again.');
     } finally {
       setRespondingId(null);
     }
   };
 
+  const confirmInviteResponse = (item: FeedItem, action: 'accept' | 'decline'): void => {
+    Alert.alert(
+      action === 'accept' ? 'Accept shared access?' : 'Decline shared access?',
+      action === 'accept'
+        ? 'The inviter will be able to share their device with you.'
+        : 'You will not get access to the inviter’s device.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: action === 'accept' ? 'Accept' : 'Decline',
+          style: action === 'decline' ? 'destructive' : 'default',
+          onPress: () => void respondToInvite(item, action),
+        },
+      ],
+    );
+  };
+
   useEffect(() => {
     (async () => {
       try {
+        if (
+          profileSnapshot &&
+          Date.now() - profileSnapshot.fetchedAt < PROFILE_CACHE_TTL_MS
+        ) {
+          setName(profileSnapshot.name);
+          setEmail(profileSnapshot.email);
+          setAvatarUrl(profileSnapshot.avatarUrl);
+          return;
+        }
         const { data: userData } = await supabase.auth.getUser();
         const user = userData.user;
-        setEmail(user?.email ?? null);
+
+        let resolvedName: string | null = null;
+        const resolvedEmail = user?.email ?? null;
         const meta = user?.user_metadata as Record<string, unknown> | undefined;
+        const resolvedAvatarUrl = (meta?.avatar_url as string) ?? null;
+
         if (user?.email && !meta?.full_name && !meta?.firstname) {
-          setName(user.email.split('@')[0]);
+          resolvedName = user.email.split('@')[0];
         }
-        setAvatarUrl((meta?.avatar_url as string) ?? null);
+
         if (user) {
           const { data: row } = await supabase
             .from('user_accounts')
@@ -260,10 +424,22 @@ export function TopBar({ gutter = 18, title, subtitle, showBack = false, showTit
             .eq('id', user.id)
             .maybeSingle();
           if (row) {
-            setName(
-              [row.firstname, row.lastname].filter(Boolean).join(' ') || null,
-            );
+            resolvedName =
+              [row.firstname, row.lastname].filter(Boolean).join(' ') || null;
           }
+        }
+
+        setEmail(user?.email ?? null);
+        setName(resolvedName);
+        setAvatarUrl(resolvedAvatarUrl);
+        if (user) {
+          profileSnapshot = {
+            userId: user.id,
+            name: resolvedName,
+            email: resolvedEmail,
+            avatarUrl: resolvedAvatarUrl,
+            fetchedAt: Date.now(),
+          };
         }
       } catch {
         // non-fatal — greeting falls back to a generic label
@@ -479,7 +655,7 @@ export function TopBar({ gutter = 18, title, subtitle, showBack = false, showTit
                     <View style={styles.inviteActions}>
                       <Pressable
                         disabled={respondingId !== null}
-                        onPress={() => void respondToInvite(notification, 'accept')}
+                        onPress={() => confirmInviteResponse(notification, 'accept')}
                         style={({ pressed }) => [
                           styles.inviteBtn,
                           styles.inviteAccept,
@@ -495,7 +671,7 @@ export function TopBar({ gutter = 18, title, subtitle, showBack = false, showTit
                       </Pressable>
                       <Pressable
                         disabled={respondingId !== null}
-                        onPress={() => void respondToInvite(notification, 'decline')}
+                        onPress={() => confirmInviteResponse(notification, 'decline')}
                         style={({ pressed }) => [
                           styles.inviteBtn,
                           styles.inviteDecline,

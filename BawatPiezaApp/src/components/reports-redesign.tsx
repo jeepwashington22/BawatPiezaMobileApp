@@ -10,6 +10,7 @@ import { TopBar } from './top-bar';
 import { HeroGlow } from './hero-glow';
 import { Card, scale } from './glass-ui';
 import { fonts, useTheme, type ThemeColors } from '../theme';
+import { CountUpText } from './count-up-text';
 
 const FORECAST = [12, 37, 29, 34, 26, 31, 42, 20, 15, 25, 29, 12, 30, 35, 15];
 const TREND = [58, 88, 60, 88, 72, 94, 47];
@@ -68,14 +69,11 @@ export function ReportsRedesign() {
   const heroBtnBorder = mode === 'dark' ? 'rgba(255,255,255,0.22)' : 'rgba(255,255,255,0.85)';
 
   return (
-    <ScreenShell>
+    <ScreenShell showNoDeviceNotice>
       {/* ============ HERO: GLASS TOP BAR + BILLING IMPACT ON A GLOW ============ */}
       <View style={styles.hero}>
         <HeroGlow mode={mode} intensity={1} bleedBottom={scale(40)} />
-
-        <View style={styles.heroTopBar}>
-          <TopBar gutter={0} title="Reports" glass />
-        </View>
+        <TopBar gutter={0} title="Reports" glass />
 
         {/* Period selector — kept at the top, above the metric it controls */}
         <View style={styles.heroPeriodRow}>
@@ -113,7 +111,10 @@ export function ReportsRedesign() {
                 {active.prefix ? (
                   <Text style={[styles.heroPrefix, { color: heroInkSoft }]}>{active.prefix}</Text>
                 ) : null}
-                <Text style={[styles.heroNumber, { color: heroInk }]}>{active.values[range]}</Text>
+                <CountUpText
+                  value={Number(active.values[range].replace(/,/g, ''))}
+                  style={[styles.heroNumber, { color: heroInk }]}
+                />
                 {active.suffix ? (
                   <Text style={[styles.heroUnit, { color: heroInkSoft }]}>{active.suffix}</Text>
                 ) : null}
@@ -241,7 +242,6 @@ const styles = StyleSheet.create({
     position: 'relative',
     zIndex: 10,
   },
-  heroTopBar: { zIndex: 5 },
   heroBody: { zIndex: 1, marginTop: scale(6) },
   heroCarousel: { flexDirection: 'row', alignItems: 'center', alignSelf: 'stretch' },
   heroArrow: {
@@ -265,9 +265,9 @@ const styles = StyleSheet.create({
 
   heroPeriodRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: scale(12), marginBottom: scale(2), zIndex: 1 },
   heroPeriodLabel: { fontSize: scale(10), letterSpacing: 1.1, fontFamily: fonts.extrabold },
-  rangeTabs: { flexDirection: 'row', gap: scale(4) },
-  rangeChip: { borderWidth: 1, borderColor: 'transparent', borderRadius: scale(8), paddingHorizontal: scale(8), paddingVertical: scale(5) },
-  rangeText: { fontSize: scale(9), fontFamily: fonts.bold },
+  rangeTabs: { flexDirection: 'row', gap: scale(6) },
+  rangeChip: { borderWidth: 1, borderColor: 'transparent', borderRadius: scale(6), paddingHorizontal: scale(8), paddingVertical: scale(5) },
+  rangeText: { fontSize: scale(12), fontFamily: fonts.bold },
 
   forecastCard: { padding: scale(14), borderRadius: scale(18), marginBottom: scale(10) },
   titleRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },

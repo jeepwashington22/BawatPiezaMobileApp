@@ -4,24 +4,41 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { fonts } from '../theme';
+import { useAuth } from '../hooks/use-auth';
+import { prepareGoogleOnboarding } from '../lib/supabase';
+import { useEffect, useRef, useState } from 'react';
 
 /**
  * Landing route for the Google OAuth deep link.
  *
  * `signInWithBrowserGoogle()` redirects back to `Linking.createURL('/oauth')` —
  * `bawatpiezaapp://oauth` in a build, `exp://<metro-host>/--/oauth` inside Expo
- * Go. The token exchange itself belongs to that function: the Linking event
- * resolves its promise, and the login/signup screen that started the flow
- * routes to /provisioning as soon as the session exists — its `await` keeps
- * running even though this route has replaced that screen in the stack.
- *
- * So this screen only keeps expo-router from flashing its "Unmatched route"
- * fallback during that hand-off, and gives the user a way back when the
- * exchange was cancelled or failed (the originating alert appears on top of
- * this screen).
+ * Go. This route waits for the restored session, detects a first-time Google
+ * account, and routes new users through Terms and email-code verification
+ * before device provisioning.
  */
 export default function OAuthLandingScreen() {
   const router = useRouter();
+  const { ready, isLoggedIn } = useAuth();
+  const handled = useRef(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!ready || !isLoggedIn || handled.current) return;
+    handled.current = true;
+    void prepareGoogleOnboarding()
+      .then((isNewUser) => {
+        router.replace(isNewUser ? '/google-onboarding' : '/home');
+      })
+      .catch((onboardingError) => {
+        handled.current = false;
+        setError(
+          onboardingError instanceof Error
+            ? onboardingError.message
+            : 'Could not finish Google sign-in.',
+        );
+      });
+  }, [ready, isLoggedIn, router]);
 
   return (
     <View style={styles.container}>
@@ -31,8 +48,12 @@ export default function OAuthLandingScreen() {
       />
       <SafeAreaView style={styles.content}>
         <ActivityIndicator size="large" color="#208AEF" />
-        <Text style={styles.title}>Completing Google sign-in…</Text>
-        <Text style={styles.subtitle}>This only takes a moment.</Text>
+        <Text style={styles.title}>
+          {error ? 'Google sign-in needs attention' : 'Completing Google sign-in…'}
+        </Text>
+        <Text style={styles.subtitle}>
+          {error ?? (isLoggedIn ? 'Preparing your account.' : 'This only takes a moment.')}
+        </Text>
         <TouchableOpacity
           accessibilityRole="button"
           onPress={() => router.replace('/')}

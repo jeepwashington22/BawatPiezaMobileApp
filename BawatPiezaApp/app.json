@@ -7,7 +7,7 @@
     "orientation": "portrait",
     "icon": "./assets/images/LOGO4.png",
     "scheme": "bawatpieza",
-    "userInterfaceStyle": "automatic",
+    "userInterfaceStyle": "light",
     "ios": {
       "bundleIdentifier": "com.bawatpieza.app",
       "icon": "./assets/images/LOGO4.png",

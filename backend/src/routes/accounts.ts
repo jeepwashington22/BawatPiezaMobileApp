@@ -23,10 +23,10 @@ function sha256(value: string): string {
 
 /**
  * Redis key namespace for an OTP flow. `fp` = forgot password, `lg` = login
- * two-factor. Keeping the flows in separate namespaces means a code issued for
- * one purpose can never be replayed against the other.
+ * two-factor, `su` = signup verification. A code issued for one purpose cannot
+ * be replayed against another.
  */
-type OtpScope = 'fp' | 'lg';
+type OtpScope = 'fp' | 'lg' | 'su';
 
 /**
  * Creates a fresh 6-digit code for `email` and stores only its SHA-256 hash,
@@ -308,22 +308,31 @@ async function sendOtpEmail(opts: {
   email: string;
   fullName: string;
   otp: string;
-  purpose: 'reset' | 'login';
+  purpose: 'reset' | 'login' | 'signup';
 }): Promise<boolean> {
   const isLogin = opts.purpose === 'login';
-  const heading = isLogin ? 'BawatPieza sign-in verification' : 'BawatPieza password reset';
+  const isSignup = opts.purpose === 'signup';
+  const heading = isLogin
+    ? 'BawatPieza sign-in verification'
+    : isSignup
+      ? 'Verify your BawatPieza account'
+      : 'BawatPieza password reset';
   const lead = isLogin
     ? 'use the verification code below to finish signing in.'
-    : 'use the verification code below to reset your password.';
+    : isSignup
+      ? 'use the verification code below to verify your email and activate your account.'
+      : 'use the verification code below to reset your password.';
   const footer = isLogin
     ? 'If you did not try to sign in, someone may have your password. Change it right away.'
-    : 'If you did not request a password reset, you can safely ignore this email.';
+    : isSignup
+      ? 'If you did not create a BawatPieza account, you can safely ignore this email.'
+      : 'If you did not request a password reset, you can safely ignore this email.';
 
   try {
     await sendMail({
       to: opts.email,
-      subject: `Your BawatPieza verification code: ${opts.otp} (valid 5 minutes)`,
-      text: `Hi ${opts.fullName},\n\nYour ${isLogin ? 'sign-in' : 'password reset'} code is ${opts.otp}. It expires in 5 minutes.\n${footer}`,
+      subject: `Your BawatPieza ${isSignup ? 'account verification' : isLogin ? 'sign-in' : 'password reset'} code: ${opts.otp}`,
+      text: `Hi ${opts.fullName},\n\nYour ${isSignup ? 'account verification' : isLogin ? 'sign-in' : 'password reset'} code is ${opts.otp}. It expires in 5 minutes.\n${footer}`,
       html: `<div style="font-family:Arial,sans-serif;max-width:520px;margin:auto">
         <h2 style="color:#0a2a4a">${heading}</h2>
         <p>Hi <b>${opts.fullName}</b>, ${lead}</p>
@@ -332,13 +341,214 @@ async function sendOtpEmail(opts: {
         <p style="color:#666;font-size:12px">${footer}</p>
       </div>`,
     });
-    console.log(`[accounts] ${isLogin ? 'Login' : 'Reset'} OTP email sent to ${opts.email}`);
+    console.log(`[accounts] ${isSignup ? 'Signup' : isLogin ? 'Login' : 'Reset'} OTP email sent to ${opts.email}`);
     return true;
   } catch (mailErr) {
-    console.error('[accounts] OTP email failed:', (mailErr as Error).message);
+    console.error(`[accounts] ${isSignup ? 'Signup' : isLogin ? 'Login' : 'Reset'} OTP email failed:`, (mailErr as Error).message);
     return false;
   }
 }
+
+const SIGNUP_USER_TTL_SECONDS = 24 * 60 * 60;
+
+const signupSchema = z.object({
+  email: z.string().email(),
+  password: z.string().min(8),
+  firstname: z.string().trim().min(1).max(80),
+  middlename: z.string().trim().max(80).optional().default(''),
+  lastname: z.string().trim().min(1).max(80),
+  contactNumber: z.string().regex(/^\+639\d{9}$/),
+  terms_accepted_at: z.string().datetime(),
+  terms_version: z.string().min(1).max(32),
+});
+
+const signupEmailSchema = z.object({ email: z.string().email() });
+const signupVerifySchema = z.object({
+  email: z.string().email(),
+  otp: z.string().regex(/^\d{6}$/),
+});
+
+function signupUserKey(email: string): string {
+  return `su:user:${email}`;
+}
+
+async function sendSignupOtp(email: string, fullName: string): Promise<boolean> {
+  const otp = await issueOtp('su', email);
+  const sent = await sendOtpEmail({ email, fullName, otp, purpose: 'signup' });
+  if (!sent) {
+    await redis.del(`su:otp:${email}`, `su:att:${email}`, `su:cool:${email}`);
+  }
+  return sent;
+}
+
+/**
+ * POST /accounts/signup
+ * Creates a pending auth user and sends a one-time email verification code.
+ * No client session is created until the account is verified and the user signs in.
+ */
+router.post('/signup', async (req, res, next) => {
+  try {
+    const parsed = signupSchema.safeParse(req.body);
+    if (!parsed.success) {
+      throw createHttpError(400, 'Enter valid account details and accept the Terms & Conditions.');
+    }
+
+    const {
+      email: rawEmail,
+      password,
+      firstname,
+      middlename,
+      lastname,
+      contactNumber,
+      terms_accepted_at,
+      terms_version,
+    } = parsed.data;
+    const email = rawEmail.trim().toLowerCase();
+    const fullName = [firstname, middlename, lastname].filter(Boolean).join(' ');
+
+    const { data, error } = await supabase.auth.admin.createUser({
+      email,
+      password,
+      email_confirm: false,
+      user_metadata: {
+        firstname,
+        middlename: middlename || null,
+        lastname,
+        full_name: fullName,
+        phone: contactNumber,
+        contact_number: contactNumber,
+        terms_accepted_at,
+        terms_version,
+      },
+    });
+
+    if (error) {
+      const message = error.message.toLowerCase();
+      if (message.includes('already') || message.includes('exists')) {
+        throw createHttpError(409, 'This email is already registered. Please sign in or use another email address.');
+      }
+      throw createHttpError(500, `Could not create the account: ${error.message}`);
+    }
+    if (!data.user) throw createHttpError(500, 'Account creation did not return a user.');
+
+    let emailSent: boolean;
+    try {
+      await redis.set(signupUserKey(email), data.user.id, 'EX', SIGNUP_USER_TTL_SECONDS);
+      emailSent = await sendSignupOtp(email, fullName);
+    } catch (error) {
+      const { error: deleteError } = await supabase.auth.admin.deleteUser(data.user.id);
+      if (deleteError) {
+        console.error('[accounts] Could not remove signup user after verification setup failed:', deleteError.message);
+      }
+      throw error;
+    }
+
+    res.status(201).json({
+      ok: true,
+      email,
+      verificationEmailSent: emailSent,
+      message: emailSent
+        ? `A verification code was sent to ${email}.`
+        : 'Your account was created, but the verification email could not be sent. Request another code to try again.',
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/signup/resend', async (req, res, next) => {
+  try {
+    const parsed = signupEmailSchema.safeParse(req.body);
+    if (!parsed.success) throw createHttpError(400, 'A valid email is required.');
+    const email = parsed.data.email.trim().toLowerCase();
+
+    let userId = await redis.get(signupUserKey(email));
+    if (!userId) {
+      const { data: account, error: accountError } = await supabase
+        .from('user_accounts')
+        .select('id, firstname, middlename, lastname')
+        .eq('email', email)
+        .maybeSingle();
+      if (accountError) throw createHttpError(500, accountError.message);
+      if (!account) throw createHttpError(404, 'No pending account was found for this email.');
+      const accountId = account.id;
+      if (!accountId) throw createHttpError(404, 'No pending account was found for this email.');
+      userId = accountId;
+      await redis.set(signupUserKey(email), accountId, 'EX', SIGNUP_USER_TTL_SECONDS);
+    }
+    if (!userId) throw createHttpError(404, 'No pending account was found for this email.');
+
+    const { data: authUser, error: authUserError } = await supabase.auth.admin.getUserById(userId);
+    if (authUserError || !authUser.user) throw createHttpError(404, 'No pending account was found for this email.');
+    if (authUser.user.email_confirmed_at) {
+      res.json({ ok: true, alreadyVerified: true, verificationEmailSent: false, message: 'This email is already verified.' });
+      return;
+    }
+
+    const metadata = authUser.user.user_metadata as {
+      firstname?: string;
+      middlename?: string | null;
+      lastname?: string;
+      full_name?: string;
+    };
+    const fullName = metadata.full_name
+      ?? [metadata.firstname, metadata.middlename, metadata.lastname].filter(Boolean).join(' ')
+      ?? email;
+    const emailSent = await sendSignupOtp(email, fullName);
+    res.json({
+      ok: true,
+      verificationEmailSent: emailSent,
+      message: emailSent
+        ? `A verification code was sent to ${email}.`
+        : 'Could not send the verification code. Please try again shortly.',
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/signup/verify', async (req, res, next) => {
+  try {
+    const parsed = signupVerifySchema.safeParse(req.body);
+    if (!parsed.success) throw createHttpError(400, 'Enter a valid email and 6-digit verification code.');
+    const email = parsed.data.email.trim().toLowerCase();
+    const { otp } = parsed.data;
+
+    await consumeOtp('su', email, otp);
+
+    let userId = await redis.get(signupUserKey(email));
+    if (!userId) {
+      const { data: account, error: accountError } = await supabase
+        .from('user_accounts')
+        .select('id')
+        .eq('email', email)
+        .maybeSingle();
+      if (accountError) throw createHttpError(500, accountError.message);
+      if (!account) throw createHttpError(404, 'No pending account was found for this email.');
+      if (!account.id) throw createHttpError(404, 'No pending account was found for this email.');
+      userId = account.id;
+    }
+    if (!userId) throw createHttpError(404, 'No pending account was found for this email.');
+
+    const { data: authUser, error: authUserError } = await supabase.auth.admin.getUserById(userId);
+    if (authUserError || !authUser.user) throw createHttpError(404, 'No pending account was found for this email.');
+    if (!authUser.user.email_confirmed_at) {
+      const { error: confirmError } = await supabase.auth.admin.updateUserById(userId, { email_confirm: true });
+      if (confirmError) throw createHttpError(500, `Code accepted, but the account could not be verified: ${confirmError.message}`);
+    }
+
+    const { error: tableError } = await supabase
+      .from('user_accounts')
+      .update({ status: 'active', is_active: true })
+      .eq('id', userId);
+    if (tableError) throw createHttpError(500, `Email verified, but the account status could not be updated: ${tableError.message}`);
+
+    await redis.del(signupUserKey(email), `su:cool:${email}`);
+    res.json({ ok: true, message: 'Email verified. You can now sign in.' });
+  } catch (err) {
+    next(err);
+  }
+});
 
 /**
  * POST /accounts/forgot-password
@@ -599,6 +809,9 @@ function fullNameOf(row: { firstname?: string | null; lastname?: string | null; 
 }
 
 const inviteSchema = z.object({ inviteeId: z.string().uuid() });
+const devicePairingSchema = z.object({
+  hub_id: z.string().trim().min(1).max(128),
+});
 
 /**
  * GET /accounts/invitable
@@ -663,6 +876,29 @@ router.post('/invite', requireAuth, async (req, res, next) => {
     const me = req.user!.id;
     const { inviteeId } = parsed.data;
     if (inviteeId === me) throw createHttpError(400, 'You cannot invite yourself.');
+
+    const { data: acceptedShare, error: shareError } = await supabase
+      .from('share_invites')
+      .select('id')
+      .eq('invitee_id', me)
+      .eq('status', 'accepted')
+      .limit(1)
+      .maybeSingle();
+    if (shareError) throw createHttpError(500, shareError.message);
+    if (acceptedShare) {
+      throw createHttpError(403, 'Shared users cannot invite other users. Only device owners can send invites.');
+    }
+
+    const { data: ownPairing, error: pairingError } = await supabase
+      .from('device_pairings')
+      .select('hub_id')
+      .eq('user_id', me)
+      .limit(1)
+      .maybeSingle();
+    if (pairingError) throw createHttpError(500, pairingError.message);
+    if (!ownPairing?.hub_id) {
+      throw createHttpError(403, 'Only users who own a paired device can invite shared users.');
+    }
 
     const { data: invitee, error: invErr } = await supabase
       .from('user_accounts')
@@ -791,8 +1027,12 @@ router.get('/invites', requireAuth, async (req, res, next) => {
   }
 });
 
-/** Loads one invite and asserts the caller is the pending invitee. */
-async function consumeInviteForResponse(inviteId: string, userId: string) {
+/** Loads an invite and distinguishes a matching prior response from a pending invite. */
+async function consumeInviteForResponse(
+  inviteId: string,
+  userId: string,
+  responseStatus: 'accepted' | 'declined',
+) {
   const { data: invite, error } = await supabase
     .from('share_invites')
     .select('id, inviter_id, invitee_id, status')
@@ -801,8 +1041,9 @@ async function consumeInviteForResponse(inviteId: string, userId: string) {
   if (error) throw createHttpError(500, error.message);
   if (!invite) throw createHttpError(404, 'This invite no longer exists.');
   if (invite.invitee_id !== userId) throw createHttpError(403, 'This invite was not sent to you.');
+  if (invite.status === responseStatus) return { invite, alreadyResponded: true };
   if (invite.status !== 'pending') throw createHttpError(409, 'This invite has already been answered.');
-  return invite;
+  return { invite, alreadyResponded: false };
 }
 
 /** Caller's own display name, for notification copy. */
@@ -823,13 +1064,40 @@ async function callerName(userId: string): Promise<string> {
 router.post('/invites/:id/accept', requireAuth, async (req, res, next) => {
   try {
     const me = req.user!.id;
-    const invite = await consumeInviteForResponse(String(req.params.id), me);
+    const { invite, alreadyResponded } = await consumeInviteForResponse(
+      String(req.params.id),
+      me,
+      'accepted',
+    );
+
+    if (alreadyResponded) {
+      await supabase
+        .from('notifications')
+        .delete()
+        .eq('user_id', me)
+        .eq('type', 'share_invite')
+        .eq('reference_id', invite.id);
+      res.json({
+        ok: true,
+        invite: { id: invite.id, status: 'accepted' },
+        message: 'This invite was already accepted. Shared access is active.',
+      });
+      return;
+    }
 
     const { error: upErr } = await supabase
       .from('share_invites')
       .update({ status: 'accepted', responded_at: new Date().toISOString() })
       .eq('id', invite.id);
     if (upErr) throw createHttpError(500, upErr.message);
+
+    const { error: notificationError } = await supabase
+      .from('notifications')
+      .delete()
+      .eq('user_id', me)
+      .eq('type', 'share_invite')
+      .eq('reference_id', invite.id);
+    if (notificationError) console.error('[accounts] invite notification cleanup failed:', notificationError.message);
 
     await pushNotification({
       userId: invite.inviter_id,
@@ -858,13 +1126,40 @@ router.post('/invites/:id/accept', requireAuth, async (req, res, next) => {
 router.post('/invites/:id/decline', requireAuth, async (req, res, next) => {
   try {
     const me = req.user!.id;
-    const invite = await consumeInviteForResponse(String(req.params.id), me);
+    const { invite, alreadyResponded } = await consumeInviteForResponse(
+      String(req.params.id),
+      me,
+      'declined',
+    );
+
+    if (alreadyResponded) {
+      await supabase
+        .from('notifications')
+        .delete()
+        .eq('user_id', me)
+        .eq('type', 'share_invite')
+        .eq('reference_id', invite.id);
+      res.json({
+        ok: true,
+        invite: { id: invite.id, status: 'declined' },
+        message: 'This invite was already declined.',
+      });
+      return;
+    }
 
     const { error: upErr } = await supabase
       .from('share_invites')
       .update({ status: 'declined', responded_at: new Date().toISOString() })
       .eq('id', invite.id);
     if (upErr) throw createHttpError(500, upErr.message);
+
+    const { error: notificationError } = await supabase
+      .from('notifications')
+      .delete()
+      .eq('user_id', me)
+      .eq('type', 'share_invite')
+      .eq('reference_id', invite.id);
+    if (notificationError) console.error('[accounts] invite notification cleanup failed:', notificationError.message);
 
     await pushNotification({
       userId: invite.inviter_id,
@@ -898,6 +1193,222 @@ router.post('/invites/:id/decline', requireAuth, async (req, res, next) => {
  * completed the handshake are not fetched at all. Without the flag the full
  * list is returned, so other consumers (web dashboard) are unaffected.
  */
+router.post('/device-pairing', requireAuth, async (req, res, next) => {
+  try {
+    const parsed = devicePairingSchema.safeParse(req.body);
+    if (!parsed.success) {
+      throw createHttpError(400, 'A valid hub_id is required.', parsed.error.flatten());
+    }
+
+    const { hub_id: hubId } = parsed.data;
+    const userId = req.user!.id;
+    const { data: existing, error: lookupError } = await supabase
+      .from('device_pairings')
+      .select('hub_id, user_id')
+      .eq('hub_id', hubId)
+      .maybeSingle();
+    if (lookupError) throw createHttpError(500, lookupError.message);
+    if (existing && existing.user_id !== userId) {
+      throw createHttpError(409, 'This hub is already paired with another account.');
+    }
+
+    if (existing) {
+      const { error: updateError } = await supabase
+        .from('device_pairings')
+        .update({ last_connected: new Date().toISOString() })
+        .eq('hub_id', hubId)
+        .eq('user_id', userId);
+      if (updateError) throw createHttpError(500, updateError.message);
+      res.json({ ok: true, hub_id: hubId });
+      return;
+    }
+
+    const { error: insertError } = await supabase
+      .from('device_pairings')
+      .insert({
+        hub_id: hubId,
+        user_id: userId,
+        last_connected: new Date().toISOString(),
+      });
+    if (insertError) {
+      if (insertError.code !== '23505') {
+        throw createHttpError(500, insertError.message);
+      }
+
+      const { data: racedPairing, error: raceLookupError } = await supabase
+        .from('device_pairings')
+        .select('hub_id, user_id')
+        .eq('hub_id', hubId)
+        .maybeSingle();
+      if (raceLookupError) throw createHttpError(500, raceLookupError.message);
+      if (racedPairing?.user_id !== userId) {
+        throw createHttpError(409, 'This hub is already paired with another account.');
+      }
+    }
+
+    res.json({ ok: true, hub_id: hubId });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get('/device-access', requireAuth, async (req, res, next) => {
+  try {
+    const me = req.user!.id;
+    const { data: deviceAccess, error: accessError } = await supabase
+      .from('device_access')
+      .select('hub_id')
+      .eq('user_id', me)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (accessError) throw createHttpError(500, accessError.message);
+
+    const { data: ownPairing, error: ownError } = await supabase
+      .from('device_pairings')
+      .select('hub_id')
+      .eq('user_id', me)
+      .limit(1)
+      .maybeSingle();
+    if (ownError) throw createHttpError(500, ownError.message);
+
+    if (ownPairing?.hub_id) {
+      res.json({
+        ok: true,
+        access_granted: true,
+        hub_id: ownPairing.hub_id,
+        can_invite: true,
+        can_unlink: true,
+      });
+      return;
+    }
+
+    if (deviceAccess?.hub_id) {
+      res.json({
+        ok: true,
+        access_granted: true,
+        hub_id: deviceAccess.hub_id,
+        can_invite: false,
+        can_unlink: false,
+      });
+      return;
+    }
+
+    res.json({
+      ok: true,
+      access_granted: false,
+      hub_id: null,
+      can_invite: false,
+      can_unlink: false,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.delete('/device-access', requireAuth, async (req, res, next) => {
+  try {
+    const parsed = z.object({ hub_id: z.string().min(1).optional() }).safeParse(req.body ?? {});
+    if (!parsed.success) {
+      throw createHttpError(400, 'Invalid hub ID.');
+    }
+    const me = req.user!.id;
+    const { data: pairings, error: pairingError } = await supabase
+      .from('device_pairings')
+      .select('hub_id')
+      .eq('user_id', me)
+      .order('last_connected', { ascending: false });
+    if (pairingError) throw createHttpError(500, pairingError.message);
+    const pairing =
+      pairings?.find((row) => row.hub_id === parsed.data.hub_id) ??
+      (pairings?.length === 1 ? pairings[0] : null);
+    if (!pairing && pairings?.length) {
+      throw createHttpError(404, 'The requested hub is not paired to this account.');
+    }
+    if (pairing?.hub_id) {
+      const { error: deleteError } = await supabase
+        .from('device_pairings')
+        .delete()
+        .eq('hub_id', pairing.hub_id)
+        .eq('user_id', me);
+      if (deleteError) throw createHttpError(500, deleteError.message);
+
+      res.json({ ok: true, hub_id: pairing.hub_id, disconnected: 'device' });
+      return;
+    }
+
+    const { data: grants, error: grantError } = await supabase
+      .from('device_access')
+      .select('hub_id, share_invite_id')
+      .eq('user_id', me)
+      .order('created_at', { ascending: false });
+    if (grantError) throw createHttpError(500, grantError.message);
+    const grant =
+      grants?.find((row) => row.hub_id === parsed.data.hub_id) ??
+      (grants?.length === 1 ? grants[0] : null);
+    let inviteId = grant?.share_invite_id;
+    if (!grant && grants?.length) {
+      throw createHttpError(404, 'The requested hub is not shared with this account.');
+    }
+
+    if (!inviteId) {
+      let inviteQuery = supabase
+        .from('share_invites')
+        .select('id')
+        .eq('invitee_id', me)
+        .eq('status', 'accepted')
+        .order('responded_at', { ascending: false });
+      if (parsed.data.hub_id) {
+        const { data: ownerPairings, error: ownerPairingError } = await supabase
+          .from('device_pairings')
+          .select('user_id')
+          .eq('hub_id', parsed.data.hub_id);
+        if (ownerPairingError) throw createHttpError(500, ownerPairingError.message);
+        const ownerIds = (ownerPairings ?? []).map((row) => row.user_id);
+        if (!ownerIds.length) {
+          throw createHttpError(404, 'The requested hub is no longer paired to its owner.');
+        }
+        inviteQuery = inviteQuery.in('inviter_id', ownerIds);
+      }
+      const { data: acceptedInvites, error: inviteError } = await inviteQuery.limit(2);
+      if (inviteError) throw createHttpError(500, inviteError.message);
+      if (acceptedInvites?.length === 1) inviteId = acceptedInvites[0]?.id;
+    }
+    if (!inviteId) {
+      res.json({
+        ok: true,
+        hub_id: parsed.data.hub_id ?? null,
+        disconnected: 'already_unlinked',
+      });
+      return;
+    }
+
+    const { data: revokedInvite, error: revokeError } = await supabase
+      .from('share_invites')
+      .update({
+        status: 'declined',
+        responded_at: new Date().toISOString(),
+      })
+      .eq('id', inviteId)
+      .eq('invitee_id', me)
+      .eq('status', 'accepted')
+      .select('id')
+      .maybeSingle();
+    if (revokeError) throw createHttpError(500, revokeError.message);
+    if (!revokedInvite) {
+      throw createHttpError(409, 'Shared device access has already been removed.');
+    }
+
+    res.json({
+      ok: true,
+      hub_id: grant?.hub_id ?? parsed.data.hub_id ?? null,
+      disconnected: 'shared_access',
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.get('/', requireAuth, async (req, res, next) => {
   try {
     const me = req.user!.id;
@@ -946,6 +1457,13 @@ router.get('/', requireAuth, async (req, res, next) => {
         .order('created_at', { ascending: false });
       if (error) throw createHttpError(500, error.message);
 
+      const { data: pairings, error: pairingError } = await supabase
+        .from('device_pairings')
+        .select('user_id, hub_id')
+        .in('user_id', sharedIds);
+      if (pairingError) throw createHttpError(500, pairingError.message);
+      const hubByUser = new Map((pairings ?? []).map((pairing) => [pairing.user_id, pairing.hub_id]));
+
       res.json({
         ok: true,
         accounts: (data ?? []).map((a) => ({
@@ -963,6 +1481,7 @@ router.get('/', requireAuth, async (req, res, next) => {
           created: a.created_at,
           createdTime: new Date(a.created_at).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
           share: 'shared',
+          hub_id: hubByUser.get(a.id) ?? null,
           shared_since: sharedSince.get(a.id) ?? null,
         })),
       });

@@ -1,6 +1,12 @@
 import { useEffect, type ReactNode } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { usePathname, useRouter } from 'expo-router';
 import { useAuth } from './use-auth';
+import { deviceSetupRequiredKey } from '../lib/device-setup';
+import {
+  isGoogleOnboardingRequired,
+  isGoogleSignInInProgress,
+} from '../lib/supabase';
 
 /**
  * Routes anyone can visit without a session (login gate + recovery).
@@ -13,6 +19,7 @@ const PUBLIC_ROUTES = new Set([
   '/signup',
   '/forgot-password',
   '/oauth',
+  '/google-onboarding',
   '/onboarding',
 ]);
 
@@ -42,19 +49,85 @@ function isPublicRoute(pathname: string): boolean {
  *   (revoked/expired → session becomes null → guard fires).
  */
 export function AuthGate({ children }: { children: ReactNode }) {
-  const { ready, isLoggedIn } = useAuth();
+  const { ready, isLoggedIn, user } = useAuth();
   const pathname = usePathname();
   const router = useRouter();
 
   useEffect(() => {
     if (!ready) return;
-    const route = pathname.toLowerCase();
+    if (isGoogleSignInInProgress()) return;
+    const route = pathname.toLowerCase().replace(/\/$/, '') || '/';
+    if (route === '/google-onboarding' && !isLoggedIn) {
+      router.replace('/login');
+      return;
+    }
     if (!isLoggedIn && !isPublicRoute(route)) {
       router.replace('/login');
-    } else if (isLoggedIn && (route === '/' || route === '/index' || route === '/login' || route === '/onboarding')) {
-      router.replace('/home');
+      return;
     }
-  }, [ready, isLoggedIn, pathname, router]);
+    if (!isLoggedIn || !user?.id) return;
+
+    const googleOnboardingRequired = isGoogleOnboardingRequired(user);
+    if (
+      googleOnboardingRequired &&
+      route !== '/google-onboarding' &&
+      route !== '/oauth'
+    ) {
+      router.replace('/google-onboarding');
+      return;
+    }
+    if (googleOnboardingRequired) return;
+
+    let active = true;
+    const isDeviceSetup = route === '/pages/device-setup';
+    Promise.all([
+      AsyncStorage.getItem(deviceSetupRequiredKey(user.id)),
+      AsyncStorage.getItem('bawatpieza_hub_id'),
+    ])
+      .then(async ([required, hubId]) => {
+        if (!active) return;
+        if (required === '1' && hubId && !isDeviceSetup) {
+          const [latestRequired, latestHubId] = await Promise.all([
+            AsyncStorage.getItem(deviceSetupRequiredKey(user.id)),
+            AsyncStorage.getItem('bawatpieza_hub_id'),
+          ]);
+          if (!active) return;
+          if (latestRequired !== '1' || !latestHubId) {
+            if (!latestHubId) {
+              await AsyncStorage.removeItem(deviceSetupRequiredKey(user.id));
+            }
+            return;
+          }
+          router.replace('/pages/device-setup');
+        } else if (required === '1' && !hubId) {
+          await AsyncStorage.removeItem(deviceSetupRequiredKey(user.id));
+        } else if (
+          required !== '1' &&
+          (route === '/' || route === '/index' || route === '/login' || route === '/onboarding')
+        ) {
+          router.replace('/home');
+        }
+      })
+      .catch((error) => {
+        console.error('[auth-gate] Could not check device setup status:', error);
+        if (
+          active &&
+          (route === '/' || route === '/index' || route === '/login' || route === '/onboarding')
+        ) {
+          router.replace('/home');
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [
+    ready,
+    isLoggedIn,
+    pathname,
+    router,
+    user,
+  ]);
 
   return <>{children}</>;
 }

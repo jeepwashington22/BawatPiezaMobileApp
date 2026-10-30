@@ -33,18 +33,19 @@ import { AnimatedPressable, scale } from "../components/glass-ui";
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get("window");
 
 /**
- * Full-bleed hero art height. Mirrors the reference template, where the top
- * illustration / map / collage fills roughly the upper half of the screen.
+ * Full-bleed hero art height exactly at 50% for an even split layout.
  */
-const HERO_H = SCREEN_H * 0.56;
+const HERO_H = SCREEN_H * 0.50;
 
 /** AsyncStorage flag marking the boarding walkthrough as completed. */
 const ONBOARDING_SEEN_KEY = "bawatpieza.onboarding.seen";
 
 /* ------------------------------ brand tokens ------------------------------ */
-const ACCENT = "#F97316";
-const INK = "#FFFFFF";
-const INK_SOFT = "rgba(255,255,255,0.68)";
+const ACCENT = "#EA580C";
+const TEXT_PRIMARY = "#0F172A";
+const TEXT_SECONDARY = "#64748B";
+const BORDER = "#E2E8F0";
+const BG_LIGHT = "#F8FAFC";
 
 /* --------------------------------- slides --------------------------------- */
 
@@ -84,7 +85,6 @@ function HeroVideo({ isActive }: { isActive: boolean }) {
     },
   );
 
-  // Only the visible slide should be decoding frames.
   useEffect(() => {
     if (isActive) player.play();
     else player.pause();
@@ -96,7 +96,6 @@ function HeroVideo({ isActive }: { isActive: boolean }) {
       player={player}
       nativeControls={false}
       contentFit="cover"
-      // textureView lets the Skip pill / dots composite on top of the video on Android.
       surfaceType="textureView"
     />
   );
@@ -105,7 +104,6 @@ function HeroVideo({ isActive }: { isActive: boolean }) {
 /* ------------------------------ the AI visual ----------------------------- */
 
 function AiVisual() {
-  // Gentle floating loop for the icon badge.
   const float = useSharedValue(0);
   useEffect(() => {
     float.value = withRepeat(
@@ -117,7 +115,6 @@ function AiVisual() {
     );
   }, [float]);
 
-  // Scale multiplier resolved outside the worklet.
   const floatYScale = scale(10);
 
   const orb = useAnimatedStyle(() => ({
@@ -151,13 +148,12 @@ function Visual({ slide, isActive }: { slide: SlideDef; isActive: boolean }) {
   }
 
   if (slide.visual === "placeholder") {
-    // Space reserved for the upcoming Dynamo artwork — intentionally empty.
     return (
       <View style={[st.hero, st.placeholder]}>
         <Ionicons
           name="image-outline"
           size={scale(34)}
-          color="rgba(15,33,55,0.26)"
+          color="#CBD5E1"
         />
         <Text style={st.placeholderText}>Dynamo visual coming soon</Text>
       </View>
@@ -176,7 +172,6 @@ function Dot({
   index: number;
   scrollX: SharedValue<number>;
 }) {
-  // Width stretches for the active dot and morphs smoothly while swiping.
   const style = useAnimatedStyle(() => {
     const t = interpolate(
       scrollX.value,
@@ -189,7 +184,7 @@ function Dot({
       backgroundColor: interpolateColor(
         t,
         [0, 1],
-        ["rgba(15,33,55,0.18)", ACCENT],
+        ["#CBD5E1", ACCENT],
       ),
     };
   });
@@ -219,7 +214,6 @@ function Slide({
   scrollX: SharedValue<number>;
   isActive: boolean;
 }) {
-  // Parallax: the copy drifts slower than the pager and cross-fades at edges.
   const content = useAnimatedStyle(() => ({
     opacity: interpolate(
       scrollX.value,
@@ -258,8 +252,6 @@ export default function OnboardingScreen({ onDone }: { onDone?: () => void }) {
     },
   });
 
-  // Index follows the pager continuously (also works on web, where momentum
-  // end events are unreliable).
   const onScroll = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
     const next = Math.min(
       SLIDES.length - 1,
@@ -272,7 +264,6 @@ export default function OnboardingScreen({ onDone }: { onDone?: () => void }) {
     scrollRef.current?.scrollTo({ x: i * SCREEN_W, animated: true });
   };
 
-  /** Records completion and hands control back to the login gate. */
   const finish = () => {
     AsyncStorage.setItem(ONBOARDING_SEEN_KEY, "1").catch(() => {});
     if (onDone) onDone();
@@ -281,7 +272,6 @@ export default function OnboardingScreen({ onDone }: { onDone?: () => void }) {
 
   return (
     <View style={st.screen}>
-      {/* Slides — full-bleed hero art with the copy swapped underneath */}
       <Animated.ScrollView
         ref={scrollRef}
         horizontal
@@ -305,26 +295,23 @@ export default function OnboardingScreen({ onDone }: { onDone?: () => void }) {
         ))}
       </Animated.ScrollView>
 
-      {/* Skip — floats over the hero at the top-right (reference style) */}
       <View style={[st.skipRow, { top: insets.top + scale(8) }]}>
         <AnimatedPressable onPress={finish}>
           <View style={st.skipPill}>
             <Text style={st.skipText}>Skip</Text>
-            <Ionicons name="chevron-forward" size={scale(13)} color={ACCENT} />
+            <Ionicons name="chevron-forward" size={scale(13)} color={TEXT_SECONDARY} />
           </View>
         </AnimatedPressable>
       </View>
 
-      {/* Dots — pinned just under the hero art */}
       <View
-        style={[st.dotsOverlay, { top: HERO_H + scale(14) }]}
+        style={[st.dotsOverlay, { top: HERO_H + scale(24) }]}
         pointerEvents="none"
       >
         <Dots scrollX={scrollX} />
       </View>
 
-      {/* Bottom actions */}
-      <View style={[st.bottom, { paddingBottom: insets.bottom + scale(14) }]}>
+      <View style={[st.bottom, { paddingBottom: insets.bottom + scale(16) }]}>
         <View style={st.actionsRow}>
           {active > 0 ? (
             <AnimatedPressable
@@ -332,7 +319,7 @@ export default function OnboardingScreen({ onDone }: { onDone?: () => void }) {
               onPress={() => goTo(active - 1)}
             >
               <View style={st.backButton}>
-                <Ionicons name="arrow-back" size={scale(20)} color={INK} />
+                <Ionicons name="arrow-back" size={scale(20)} color={TEXT_PRIMARY} />
               </View>
             </AnimatedPressable>
           ) : null}
@@ -362,14 +349,13 @@ export default function OnboardingScreen({ onDone }: { onDone?: () => void }) {
 /* --------------------------------- styles --------------------------------- */
 
 const st = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: "#120705" },
+  screen: { flex: 1, backgroundColor: "#FFFFFF" },
   pager: { flex: 1 },
 
-  /* hero art (video / placeholder / AI) */
   hero: {
     width: "100%",
     height: HERO_H,
-    backgroundColor: "#2A0D06",
+    backgroundColor: BG_LIGHT,
     overflow: "hidden",
   },
   heroScrim: {
@@ -378,26 +364,28 @@ const st = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: "rgba(0,0,0,0.06)",
+    backgroundColor: "rgba(0,0,0,0.02)",
     pointerEvents: "none",
   },
   placeholder: {
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#351207",
+    backgroundColor: BG_LIGHT,
     borderBottomWidth: 1,
-    borderBottomColor: "rgba(15,33,55,0.06)",
+    borderBottomColor: BORDER,
   },
   placeholderText: {
     marginTop: scale(10),
-    color: "rgba(255,255,255,0.48)",
-    fontSize: scale(12),
+    color: TEXT_SECONDARY,
+    fontSize: scale(13),
     fontFamily: fonts.medium,
   },
   aiVisual: {
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#351207",
+    backgroundColor: BG_LIGHT,
+    borderBottomWidth: 1,
+    borderBottomColor: BORDER,
   },
   aiOrb: {
     width: scale(132),
@@ -407,7 +395,7 @@ const st = StyleSheet.create({
     justifyContent: "center",
     backgroundColor: "#FFFFFF",
     shadowColor: ACCENT,
-    shadowOpacity: 0.3,
+    shadowOpacity: 0.15,
     shadowRadius: 26,
     shadowOffset: { width: 0, height: 12 },
     elevation: 8,
@@ -417,34 +405,32 @@ const st = StyleSheet.create({
     width: scale(12),
     height: scale(12),
     borderRadius: scale(6),
-    backgroundColor: "#F6C445",
+    backgroundColor: "#F59E0B",
   },
   aiSparkOne: { top: scale(96), right: scale(70) },
-  aiSparkTwo: { bottom: scale(110), left: scale(66), backgroundColor: "#7CB6FF" },
+  aiSparkTwo: { bottom: scale(110), left: scale(66), backgroundColor: "#3B82F6" },
 
-  /* copy under the hero (margin clears the pinned dots row) */
   copy: {
-    paddingHorizontal: scale(28),
-    marginTop: scale(46),
+    paddingHorizontal: scale(32),
+    marginTop: scale(64),
     alignItems: "center",
   },
   title: {
-    color: "#FFFFFF",
-    fontSize: scale(25),
+    color: TEXT_PRIMARY,
+    fontSize: scale(26),
     fontFamily: fonts.extrabold,
     textAlign: "center",
-    marginBottom: scale(10),
+    marginBottom: scale(12),
   },
   body: {
-    color: "rgba(255,255,255,0.68)",
-    fontSize: scale(12.5),
-    lineHeight: scale(19),
+    color: TEXT_SECONDARY,
+    fontSize: scale(14),
+    lineHeight: scale(22),
     fontFamily: fonts.medium,
     textAlign: "center",
-    maxWidth: scale(290),
+    maxWidth: scale(310),
   },
 
-  /* skip */
   skipRow: {
     position: "absolute",
     left: 0,
@@ -459,21 +445,20 @@ const st = StyleSheet.create({
     paddingHorizontal: scale(14),
     paddingVertical: scale(7),
     borderRadius: 99,
-    backgroundColor: "rgba(255,255,255,0.9)",
-    shadowColor: INK,
-    shadowOpacity: 0.12,
-    shadowRadius: 6,
+    backgroundColor: "#FFFFFF",
+    shadowColor: "#000",
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
     shadowOffset: { width: 0, height: 2 },
     elevation: 2,
   },
   skipText: {
-    color: "#F97316",
+    color: TEXT_SECONDARY,
     fontSize: scale(12.5),
     fontFamily: fonts.bold,
     marginRight: scale(2),
   },
 
-  /* dots */
   dotsOverlay: {
     position: "absolute",
     left: 0,
@@ -488,9 +473,8 @@ const st = StyleSheet.create({
   },
   dot: { height: scale(6), borderRadius: 99 },
 
-  /* bottom actions */
   bottom: {
-    paddingHorizontal: scale(20),
+    paddingHorizontal: scale(24),
     paddingTop: scale(10),
   },
   actionsRow: {
@@ -505,8 +489,13 @@ const st = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     borderWidth: 1,
-    borderColor: "rgba(15,33,55,0.16)",
+    borderColor: BORDER,
     backgroundColor: "#FFFFFF",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.02,
+    shadowRadius: 3,
+    elevation: 1,
   },
   primaryButton: {
     width: "100%",
@@ -517,10 +506,15 @@ const st = StyleSheet.create({
     backgroundColor: ACCENT,
     paddingVertical: scale(17),
     paddingHorizontal: scale(24),
+    shadowColor: ACCENT,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    elevation: 4,
   },
   primaryText: {
     color: "#FFFFFF",
-    fontSize: scale(14.5),
+    fontSize: scale(15),
     fontFamily: fonts.extrabold,
   },
   primaryIcon: { marginLeft: scale(6) },

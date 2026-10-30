@@ -31,6 +31,8 @@ import { supabase } from "../../lib/supabase"; // Supabase client connection
 
 import { ScreenShell } from "../../components/screen-shell";
 import { Card, LiveDot, SectionHead, scale } from "../../components/glass-ui";
+import { HeatmapTileGrid } from "../../components/heatmap-tile-grid";
+import { installedTileCountKey } from "../../lib/device-setup";
 import { fonts, useTheme } from "../../theme";
 
 /* ------------------------------- reference data --------------------------- */
@@ -59,23 +61,14 @@ type HubTelemetry = {
   batPct: number;
 };
 
-// Tile 1 is active (92% traffic), all other tiles are set to inactive/minimal traffic
-const TILES: TileDatum[] = [
-  { id: 1, label: "Tile 1", traffic: 0.92 },
-  { id: 2, label: "Tile 2", traffic: 0.05 },
-  { id: 3, label: "Tile 3", traffic: 0.02 },
-  { id: 4, label: "Tile 4", traffic: 0.04 },
-  { id: 5, label: "Tile 5", traffic: 0.03 },
-  { id: 6, label: "Tile 6", traffic: 0.01 },
-];
+function createTiles(count: number): TileDatum[] {
+  return Array.from({ length: count }, (_, index) => {
+    const id = index + 1;
+    const traffic = id === 1 ? 0.92 : 0.01 + ((id * 17) % 5) / 100;
+    return { id, label: `Tile ${id}`, traffic };
+  });
+}
 
-const TILE_ORANGE_RAMP = [
-  "#7C2D12",
-  "#9A3412",
-  "#C2410C",
-  "#EA580C",
-  "#F97316",
-];
 const TILE_ORANGE = "#F97316";
 
 const PREDICTIVE = [
@@ -195,86 +188,6 @@ function Segmented({
 
 /* ------------------------------ tile rendering ------------------------------ */
 
-function getTileColor(traffic: number): string {
-  const t = Math.min(1, Math.max(0, traffic));
-  const idx = Math.floor(t * (TILE_ORANGE_RAMP.length - 1));
-  return TILE_ORANGE_RAMP[idx];
-}
-
-// Update HeatTile to accept the dynamic floor rules from the database
-function HeatTile({
-  tile,
-  viewMode,
-  activeThreshold,
-}: {
-  tile: TileDatum;
-  viewMode: ViewMode;
-  activeThreshold: number;
-}) {
-  const { mode } = useTheme();
-
-  // The tile is flagged if traffic crosses the dynamic DB threshold
-  const flagged = tile.traffic >= activeThreshold;
-  const bg =
-    viewMode === "diagnostic" && flagged
-      ? TILE_ORANGE
-      : getTileColor(tile.traffic);
-
-  return (
-    <Card
-      mode={mode}
-      style={[
-        styles.tileCard,
-        {
-          backgroundColor: bg,
-          borderColor:
-            viewMode === "diagnostic" && flagged
-              ? "#FDBA74"
-              : "rgba(255,255,255,0.22)",
-        },
-      ]}
-    >
-      <View
-        pointerEvents="none"
-        style={[
-          styles.tileDepth,
-          { backgroundColor: flagged ? "#9A3412" : "#431407" },
-        ]}
-      />
-      <LinearGradient
-        pointerEvents="none"
-        colors={[
-          "rgba(255,255,255,0.28)",
-          "rgba(255,255,255,0.04)",
-          "rgba(0,0,0,0.28)",
-        ]}
-        locations={[0, 0.34, 1]}
-        style={StyleSheet.absoluteFill}
-      />
-      <View pointerEvents="none" style={styles.tileSheen} />
-      <View pointerEvents="none" style={styles.tileDiagonal} />
-      <View pointerEvents="none" style={styles.tileBevelTop} />
-      <View pointerEvents="none" style={styles.tileBevelBottom} />
-      <View style={styles.tileInner}>
-        <Text style={[styles.tileLabel, { color: "#FFFFFF" }]}>
-          {tile.label.toUpperCase()}
-        </Text>
-        <Text
-          style={[styles.tileTraffic, { color: "#FFFFFF" }]}
-        >{`${Math.round(tile.traffic * 100)}%`}</Text>
-        {viewMode === "diagnostic" && flagged && (
-          <View style={styles.tileFlag}>
-            <Ionicons name="flash" size={scale(11)} color="#FFFFFF" />
-            <Text style={[styles.tileFlagText, { color: "#FFFFFF" }]}>
-              Active
-            </Text>
-          </View>
-        )}
-      </View>
-    </Card>
-  );
-}
-
 function HeatSurface({ children }: { children: ReactNode }) {
   return (
     <View style={styles.heatSurface}>
@@ -350,6 +263,8 @@ export default function HeatmapScreen() {
   const { colors: c, mode } = useTheme();
   const [viewMode, setViewMode] = useState<ViewMode>("view");
   const [kineticLogs, setKineticLogs] = useState<KineticLog[]>([]);
+  const [installedTileCount, setInstalledTileCount] = useState(0);
+  const [tileSetupLoaded, setTileSetupLoaded] = useState(false);
   const [liveTelemetry, setLiveTelemetry] = useState<HubTelemetry | null>(null);
   const [selectedLog, setSelectedLog] = useState<KineticLog | null>(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -364,21 +279,65 @@ export default function HeatmapScreen() {
     watchWindow: 60,
   });
 
-  const flaggedCount = TILES.filter(
+  const tiles = useMemo(
+    () => createTiles(installedTileCount),
+    [installedTileCount],
+  );
+  const flaggedCount = tiles.filter(
     (t) => t.traffic >= systemRules.floor,
   ).length;
 
-  const gridRows = useMemo(() => {
-    const rows: TileDatum[][] = [];
-    for (let i = 0; i < TILES.length; i += 3) rows.push(TILES.slice(i, i + 3));
-    return rows;
-  }, []);
-
   // === DYNAMIC DATABASE DETECTOR: FETCH RULES & LOGS ON LOAD ===
   useEffect(() => {
+    let cancelled = false;
     const loadSystemData = async () => {
       try {
         const hubId = await AsyncStorage.getItem("bawatpieza_hub_id");
+        if (hubId) {
+          try {
+            const { data: setup, error: setupError } = await supabase
+              .from("device_setups")
+              .select("installed_tile_count")
+              .eq("hub_id", hubId)
+              .maybeSingle();
+            if (setupError) throw setupError;
+            if (
+              typeof setup?.installed_tile_count === "number" &&
+              Number.isSafeInteger(setup.installed_tile_count) &&
+              setup.installed_tile_count >= 6
+            ) {
+              if (!cancelled) {
+                setInstalledTileCount(setup.installed_tile_count);
+              }
+            } else {
+              const localCount = Number(
+                await AsyncStorage.getItem(installedTileCountKey(hubId)),
+              );
+              if (
+                !cancelled &&
+                Number.isSafeInteger(localCount) &&
+                localCount >= 6
+              ) {
+                setInstalledTileCount(localCount);
+              }
+            }
+          } catch (setupError) {
+            console.error(
+              "[heatmap] failed to load installed tile setup",
+              setupError,
+            );
+            const localCount = Number(
+              await AsyncStorage.getItem(installedTileCountKey(hubId)),
+            );
+            if (
+              !cancelled &&
+              Number.isSafeInteger(localCount) &&
+              localCount >= 6
+            ) {
+              setInstalledTileCount(localCount);
+            }
+          }
+        }
 
         // 1. Fetch Dynamic Threshold Rules from Supabase
         if (hubId) {
@@ -389,6 +348,7 @@ export default function HeatmapScreen() {
             .single();
 
           if (ruleData) {
+            if (cancelled) return;
             setSystemRules({
               // We map the J/step floor input dynamically back to a traffic scale for the UI heat visual
               floor: ruleData.floor > 1 ? 0.75 : ruleData.floor,
@@ -402,11 +362,14 @@ export default function HeatmapScreen() {
             );
             if (localRules) {
               const parsed = JSON.parse(localRules);
-              setSystemRules({
-                floor: Number(parsed.floor) > 1 ? 0.75 : Number(parsed.floor),
-                degradation: Number(parsed.degradation),
-                watchWindow: Number(parsed.watchWindow),
-              });
+              if (!cancelled) {
+                setSystemRules({
+                  floor:
+                    Number(parsed.floor) > 1 ? 0.75 : Number(parsed.floor),
+                  degradation: Number(parsed.degradation),
+                  watchWindow: Number(parsed.watchWindow),
+                });
+              }
             }
           }
         }
@@ -433,6 +396,7 @@ export default function HeatmapScreen() {
             powerW: formatNum(item.power_w, 3),
             energyJ: formatNum(item.energy_j, 4),
           }));
+          if (cancelled) return;
           setKineticLogs(dbLogs);
           await AsyncStorage.setItem(LOGS_STORAGE_KEY, JSON.stringify(dbLogs));
           return;
@@ -440,15 +404,20 @@ export default function HeatmapScreen() {
 
         // 3. Local AsyncStorage fallback for logs
         const stored = await AsyncStorage.getItem(LOGS_STORAGE_KEY);
-        if (stored) {
+        if (stored && !cancelled) {
           setKineticLogs(JSON.parse(stored));
         }
       } catch (error) {
         console.error("Failed to load system data", error);
+      } finally {
+        if (!cancelled) setTileSetupLoaded(true);
       }
     };
 
-    loadSystemData();
+    void loadSystemData();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   // === ARCHIVE LOGS (CLEAR ACTIVE LIST & SUPABASE DATABASE) ===
@@ -488,7 +457,7 @@ export default function HeatmapScreen() {
       const clientId = `app-client-${Math.random().toString(16).substring(2, 8)}`;
       client = new Paho.Client("broker.hivemq.com", 8884, clientId);
 
-      client.onConnectionLost = (responseObject) => {
+      client.onConnectionLost = (responseObject: { errorCode?: number }) => {
         setMqttStatus("Offline");
         if (responseObject.errorCode !== 0) {
           setTimeout(() => {
@@ -623,7 +592,7 @@ export default function HeatmapScreen() {
   }, [selectedLog]);
 
   return (
-    <ScreenShell title="Heatmap" showBack>
+    <ScreenShell title="Heatmap" showBack showNoDeviceNotice>
       <ScrollView
         showsVerticalScrollIndicator={false}
         refreshControl={
@@ -701,18 +670,27 @@ export default function HeatmapScreen() {
         <FadeIn delay={160}>
           <HeatSurface>
             <View style={styles.grid}>
-              {gridRows.map((row, ri) => (
-                <View key={ri} style={styles.gridRow}>
-                  {row.map((tile) => (
-                    <HeatTile
-                      key={tile.id}
-                      tile={tile}
-                      viewMode={viewMode}
-                      activeThreshold={systemRules.floor}
-                    />
-                  ))}
-                </View>
-              ))}
+              {!tileSetupLoaded ? (
+                <Text
+                  style={[styles.tileSetupMessage, { color: c.textSoft }]}
+                >
+                  Loading installed tile setup...
+                </Text>
+              ) : tiles.length === 0 ? (
+                <Text
+                  style={[styles.tileSetupMessage, { color: c.textSoft }]}
+                >
+                  No triangular tiles are configured. Complete Device Setup to
+                  display your installed tiles.
+                </Text>
+              ) : (
+                <HeatmapTileGrid
+                  tiles={tiles}
+                  maxVisibleTiles={tiles.length}
+                  viewMode={viewMode}
+                  activeThreshold={systemRules.floor}
+                />
+              )}
             </View>
           </HeatSurface>
         </FadeIn>
@@ -775,7 +753,9 @@ export default function HeatmapScreen() {
                         marginTop: scale(2),
                       }}
                     >
-                      All 6 kinetic tiles online. Peak traffic active on Tile 1.
+                      {installedTileCount > 0
+                        ? `${installedTileCount} triangular tiles configured. Peak traffic active on Tile 1.`
+                        : "No triangular tile setup found. Complete Device Setup to configure the heatmap."}
                     </Text>
                   </View>
                   <View style={styles.statusBadge}>
@@ -960,7 +940,11 @@ export default function HeatmapScreen() {
             <View style={{ marginTop: scale(20) }}>
               <SectionHead title="PREDICTIVE INSPECTIONS" mode={mode} />
               <Card mode={mode} style={styles.diagPanel}>
-                {PREDICTIVE.map((p) => (
+                {PREDICTIVE.filter(
+                  (item) =>
+                    Number(item.tile.replace("Tile ", "")) <=
+                    installedTileCount,
+                ).map((p) => (
                   <View key={p.tile} style={styles.diagRow}>
                     <View style={styles.diagRowLeft}>
                       <Text
@@ -1000,7 +984,11 @@ export default function HeatmapScreen() {
             <View style={{ marginTop: scale(16) }}>
               <SectionHead title="WATCHLIST" mode={mode} />
               <Card mode={mode} style={styles.diagPanel}>
-                {WATCHLIST.map((w) => (
+                {WATCHLIST.filter(
+                  (item) =>
+                    Number(item.tile.replace("Tile ", "")) <=
+                    installedTileCount,
+                ).map((w) => (
                   <View key={w.tile} style={styles.diagRow}>
                     <View style={styles.diagRowLeft}>
                       <Text
@@ -1247,6 +1235,14 @@ const styles = StyleSheet.create({
   },
   headerTick: { width: scale(3), height: scale(12), borderRadius: 2 },
   grid: { marginTop: scale(2) },
+  tileSetupMessage: {
+    fontSize: scale(11),
+    fontFamily: fonts.medium,
+    lineHeight: scale(16),
+    paddingHorizontal: scale(12),
+    paddingVertical: scale(24),
+    textAlign: "center",
+  },
   heatSurface: {
     position: "relative",
     overflow: "hidden",
@@ -1265,75 +1261,6 @@ const styles = StyleSheet.create({
   },
   heatGlow: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0 },
   heatGridContent: { position: "relative" },
-  gridRow: { flexDirection: "row", gap: scale(6), marginBottom: scale(6) },
-  tileCard: {
-    flex: 1,
-    height: scale(91),
-    borderRadius: scale(13),
-    padding: scale(8),
-    overflow: "hidden",
-    borderWidth: 1.5,
-    shadowColor: "#090B12",
-    shadowOpacity: 0.48,
-    shadowRadius: scale(9),
-    shadowOffset: { width: 0, height: 6 },
-    elevation: 7,
-  },
-  tileDepth: {
-    position: "absolute",
-    left: scale(4),
-    right: scale(4),
-    bottom: 0,
-    height: scale(8),
-    opacity: 0.9,
-  },
-  tileSheen: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    height: "42%",
-    backgroundColor: "rgba(255,255,255,0.12)",
-  },
-  tileDiagonal: {
-    position: "absolute",
-    width: "145%",
-    height: 1,
-    top: "50%",
-    left: "-22%",
-    backgroundColor: "rgba(52,12,6,0.64)",
-    transform: [{ rotate: "45deg" }],
-  },
-  tileBevelTop: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    height: 1.5,
-    backgroundColor: "rgba(255,255,255,0.42)",
-  },
-  tileBevelBottom: {
-    position: "absolute",
-    bottom: 0,
-    left: 0,
-    right: 0,
-    height: 2,
-    backgroundColor: "rgba(57,12,5,0.72)",
-  },
-  tileInner: { flex: 1, alignItems: "center", justifyContent: "center" },
-  tileLabel: { fontSize: scale(7), letterSpacing: 1, fontFamily: fonts.bold },
-  tileTraffic: {
-    fontSize: scale(17),
-    fontFamily: fonts.extrabold,
-    marginTop: scale(3),
-  },
-  tileFlag: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: scale(3),
-    marginTop: scale(4),
-  },
-  tileFlagText: { fontSize: scale(8), fontFamily: fonts.bold },
   statsGrid: {
     flexDirection: "row",
     gap: scale(10),

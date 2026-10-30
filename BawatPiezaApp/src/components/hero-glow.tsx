@@ -16,6 +16,8 @@ import { scale } from './glass-ui';
 
 type HeroGlowProps = {
   mode: Mode;
+  /** Use the grid-power palette when the home is currently on grid power. */
+  gridActive?: boolean;
   /** 0–1 multiplier for glow strength (use ~0.4 for an offline / idle state). */
   intensity?: number;
   /** How far the glow extends past the bottom of its parent so it fades out softly. */
@@ -36,6 +38,7 @@ type HeroGlowProps = {
  */
 export function HeroGlow({
   mode,
+  gridActive = false,
   intensity = 1,
   bleedBottom = scale(36),
   bleedTop = 0,
@@ -49,8 +52,22 @@ export function HeroGlow({
     setSize((prev) => (prev.w === width && prev.h === height ? prev : { w: width, h: height }));
   };
 
-  // Palette per theme — same orange hue family, tuned for contrast on each background.
-  const glow = dark
+  // Palette per theme — the grid state replaces the warm orange with green.
+  const glow = gridActive
+    ? dark
+      ? [
+          { o: 0, c: '#4ADE80', a: 0.78 },
+          { o: 0.35, c: '#16A34A', a: 0.52 },
+          { o: 0.7, c: '#166534', a: 0.22 },
+          { o: 1, c: '#052E16', a: 0 },
+        ]
+      : [
+          { o: 0, c: '#4ADE80', a: 0.82 },
+          { o: 0.35, c: '#22C55E', a: 0.62 },
+          { o: 0.7, c: '#BBF7D0', a: 0.3 },
+          { o: 1, c: '#DCFCE7', a: 0 },
+        ]
+    : dark
     ? [
         { o: 0, c: '#FF9638', a: 0.86 },
         { o: 0.35, c: '#F98224', a: 0.56 },
@@ -63,9 +80,9 @@ export function HeroGlow({
         { o: 0.7, c: '#FBC99D', a: 0.31 },
         { o: 1, c: '#FFE8D6', a: 0 },
       ];
-  const core = dark ? '#FFD2A8' : '#FFFFFF';
+  const core = gridActive ? (dark ? '#BBF7D0' : '#FFFFFF') : dark ? '#FFD2A8' : '#FFFFFF';
   const coreAlpha = dark ? 0.26 : 0.44;
-  const gridColor = dark ? '#FFFFFF' : '#C2410C';
+  const gridColor = gridActive ? (dark ? '#BBF7D0' : '#15803D') : dark ? '#FFFFFF' : '#C2410C';
   const gridAlpha = dark ? 0.07 : 0.12;
 
   const { w, h } = size;
