@@ -1,15 +1,15 @@
 import { useState, useEffect } from "react";
 import { Ionicons } from "@expo/vector-icons";
 import { Modal, Pressable, StyleSheet, TextInput, View } from "react-native";
-import { AppText as Text } from "../../components/app-text";
+import { AppText as Text } from "../../../components/app-text";
 import { LinearGradient } from "expo-linear-gradient";
-import { ScreenShell } from "../../components/screen-shell";
-import { TopBar } from "../../components/top-bar";
-import { HeroGlow } from "../../components/hero-glow";
-import { scale } from "../../components/glass-ui";
-import { fonts, useTheme, type ThemeColors } from "../../theme";
+import { ScreenShell } from "../../../components/screen-shell";
+import { TopBar } from "../../../components/top-bar";
+import { HeroGlow } from "../../../components/hero-glow";
+import { scale } from "../../../components/glass-ui";
+import { fonts, useTheme, type ThemeColors } from "../../../theme";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { supabase } from "../../lib/supabase"; // Make sure this path matches your project
+import { supabase } from "../../../lib/supabase";
 
 type ThresholdKey = "floor" | "degradation" | "watchWindow";
 type Thresholds = Record<ThresholdKey, string>;

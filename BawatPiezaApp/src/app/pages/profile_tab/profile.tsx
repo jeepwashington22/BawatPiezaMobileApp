@@ -1,15 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, Image, Pressable, StyleSheet, Switch, View, Modal } from 'react-native';
-import { AppText as Text } from '../../components/app-text';
+import { AppText as Text } from '../../../components/app-text';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { useRouter, usePathname, type Href } from 'expo-router';
-import { ScreenShell } from '../../components/screen-shell';
-import { TileLoader } from '../../components/tile-loader';
-import { supabase, signOut } from '../../lib/supabase';
-import { apiFetch } from '../../lib/api';
-import { useTheme, fonts, type ThemeColors } from '../../theme';
-import { useAppTour } from '../../hooks/use-app-tour';
+import { ScreenShell } from '../../../components/screen-shell';
+import { TileLoader } from '../../../components/tile-loader';
+import { supabase, signOut } from '../../../lib/supabase';
+import { apiFetch } from '../../../lib/api';
+import { useTheme, fonts, type ThemeColors } from '../../../theme';
+import { useAppTour } from '../../../hooks/use-app-tour';
 
 const MUTED = 'rgba(10, 42, 74, 0.62)';
 const LINE = 'rgba(10, 42, 74, 0.1)';
@@ -269,7 +269,7 @@ export default function ProfileScreen() {
       setShowLogoutModal(false);
       
       // Redirect to login screen
-      router.replace('/login');
+      router.replace('../login');
     } catch (error) {
       Alert.alert('Error', 'Could not sign out. Please try again.');
       setShowLogoutModal(false);

@@ -1,9 +1,9 @@
-import { fonts, useTheme, type ThemeColors } from '../../theme';
+import { fonts, useTheme, type ThemeColors } from '../../../theme';
 import { Image, StyleSheet, View } from 'react-native';
-import { AppText as Text } from '../../components/app-text';
+import { AppText as Text } from '../../../components/app-text';
 import { Ionicons } from '@expo/vector-icons';
-import { ScreenShell } from '../../components/screen-shell';
-import { ContentCard } from '../../components/content-card';
+import { ScreenShell } from '../../../components/screen-shell';
+import { ContentCard } from '../../../components/content-card';
 
 const MUTED = 'rgba(10, 42, 74, 0.62)';
 
@@ -21,7 +21,7 @@ export default function AboutScreen() {
   return (
     <ScreenShell title="About" showBack>
       <View style={styles.hero}>
-        <Image source={require('../../../assets/images/LOGO3.png')} style={styles.logo} resizeMode="contain" />
+        <Image source={require('../../../../assets/images/LOGO3.png')} style={styles.logo} resizeMode="contain" />
         <Text style={styles.tagline}>Waste Into Watts, Ions</Text>
         <Text style={styles.version}>Mobile App v1.0.0</Text>
       </View>
@@ -81,7 +81,6 @@ const makeStyles = (c: ThemeColors) => {
   copyright: { color: MUTED, fontSize: 10, textAlign: 'center', marginTop: 8 },
   });
 };
-
 
 
 

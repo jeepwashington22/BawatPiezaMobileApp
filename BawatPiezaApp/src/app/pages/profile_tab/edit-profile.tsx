@@ -1,20 +1,20 @@
-import { fonts, useTheme, type ThemeColors } from '../../theme';
+import { fonts, useTheme, type ThemeColors } from '../../../theme';
 import { useEffect, useState } from 'react';
 import { Alert, Image, StyleSheet, TextInput, TouchableOpacity, View } from 'react-native';
-import { AppText as Text } from '../../components/app-text';
+import { AppText as Text } from '../../../components/app-text';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
-import { ScreenShell } from '../../components/screen-shell';
-import { TileLoader } from '../../components/tile-loader';
-import { ContentCard } from '../../components/content-card';
-import { supabase } from '../../lib/supabase';
+import { ScreenShell } from '../../../components/screen-shell';
+import { TileLoader } from '../../../components/tile-loader';
+import { ContentCard } from '../../../components/content-card';
+import { supabase } from '../../../lib/supabase';
 import {
   describeAuthError,
   PASSWORD_MIN_LENGTH,
   validateContactNumber,
   validateNamePart,
   validateNewPassword,
-} from '../../lib/validation';
+} from '../../../lib/validation';
 
 const MUTED = 'rgba(10, 42, 74, 0.62)';
 

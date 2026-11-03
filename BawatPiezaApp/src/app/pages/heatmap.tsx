@@ -199,9 +199,9 @@ function HeatSurface({ children }: { children: ReactNode }) {
       >
         <Defs>
           <SvgGradient id="displaySurface" x1="0" y1="0" x2="1" y2="1">
-            <Stop offset="0" stopColor="#35213F" />
-            <Stop offset="0.5" stopColor="#1D1A2A" />
-            <Stop offset="1" stopColor="#0B101A" />
+            <Stop offset="0" stopColor="#3A1C12" />
+            <Stop offset="0.48" stopColor="#1A120D" />
+            <Stop offset="1" stopColor="#090909" />
           </SvgGradient>
         </Defs>
         <Path d="M0 0H360V360H0Z" fill="url(#displaySurface)" />
@@ -210,8 +210,8 @@ function HeatSurface({ children }: { children: ReactNode }) {
           y1="120"
           x2="390"
           y2="-30"
-          stroke="#FFB347"
-          strokeOpacity="0.24"
+          stroke="#FF9F43"
+          strokeOpacity="0.28"
           strokeWidth="2"
         />
         <Line
@@ -219,8 +219,8 @@ function HeatSurface({ children }: { children: ReactNode }) {
           y1="240"
           x2="390"
           y2="90"
-          stroke="#FFB347"
-          strokeOpacity="0.24"
+          stroke="#FF9F43"
+          strokeOpacity="0.28"
           strokeWidth="2"
         />
         <Line
@@ -228,8 +228,8 @@ function HeatSurface({ children }: { children: ReactNode }) {
           y1="360"
           x2="390"
           y2="210"
-          stroke="#FFB347"
-          strokeOpacity="0.24"
+          stroke="#FF9F43"
+          strokeOpacity="0.28"
           strokeWidth="2"
         />
         <Polygon

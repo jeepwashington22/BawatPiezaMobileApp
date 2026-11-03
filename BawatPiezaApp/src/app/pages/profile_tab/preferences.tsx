@@ -1,10 +1,10 @@
 import { useState } from 'react';
 import { Pressable, StyleSheet, Switch, View } from 'react-native';
-import { AppText as Text } from '../../components/app-text';
+import { AppText as Text } from '../../../components/app-text';
 import { Ionicons } from '@expo/vector-icons';
-import { ScreenShell } from '../../components/screen-shell';
-import { ContentCard } from '../../components/content-card';
-import { FONT_SIZE_OPTIONS, fonts, useTheme, type FontSizeOption } from '../../theme';
+import { ScreenShell } from '../../../components/screen-shell';
+import { ContentCard } from '../../../components/content-card';
+import { FONT_SIZE_OPTIONS, fonts, useTheme, type FontSizeOption } from '../../../theme';
 
 type Pref = { key: string; icon: keyof typeof Ionicons.glyphMap; label: string; sub: string; value: boolean };
 

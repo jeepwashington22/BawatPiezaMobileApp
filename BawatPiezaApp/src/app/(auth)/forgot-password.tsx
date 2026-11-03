@@ -9,14 +9,14 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { AppText as Text } from '../components/app-text';
+import { AppText as Text } from '../../components/app-text';
 import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { fonts } from '../theme';
+import { fonts } from '../../theme';
 import { Ionicons } from '@expo/vector-icons';
-import { apiFetch } from '../lib/api';
-import { describeApiFailure } from '../lib/network';
+import { apiFetch } from '../../lib/api';
+import { describeApiFailure } from '../../lib/network';
 
 const ORANGE = '#F97316';
 const ORANGE_DARK = '#EA580C';
@@ -179,7 +179,7 @@ export default function ForgotPasswordScreen() {
             </TouchableOpacity>
 
             <View style={styles.brandWrap}>
-              <Image source={require('../../assets/images/LOGO3.png')} style={styles.logo} resizeMode="contain" />
+              <Image source={require('../../../assets/images/LOGO3.png')} style={styles.logo} resizeMode="contain" />
               <View style={styles.iconBadge}>
                 <Ionicons name="key-outline" size={26} color={ORANGE} />
               </View>
