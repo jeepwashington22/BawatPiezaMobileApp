@@ -5,29 +5,30 @@ import {
   Modal,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   TextInput,
   View,
 } from 'react-native';
-import { AppText as Text } from '../components/app-text';
+import { AppText as Text } from '../../components/app-text';
 import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { fonts } from '../theme';
-import { isEmailRegistered, termsAcceptanceMetadata } from '../lib/supabase';
-import { useAuth } from '../hooks/use-auth';
-import { TermsModal } from '../components/terms-modal';
-import { TileLoader } from '../components/tile-loader';
-import { apiFetch } from '../lib/api';
-import { describeApiFailure } from '../lib/network';
+import { fonts } from '../../theme';
+import { isEmailRegistered, termsAcceptanceMetadata } from '../../lib/supabase';
+import { useAuth } from '../../hooks/use-auth';
+import { TermsModal } from '../../components/terms-modal';
+import { TileLoader } from '../../components/tile-loader';
+import { apiFetch } from '../../lib/api';
+import { describeApiFailure } from '../../lib/network';
 import {
   PASSWORD_MIN_LENGTH,
   validateContactNumber,
   validateEmail,
   validateNamePart,
   validateNewPassword,
-} from '../lib/validation';
+} from '../../lib/validation';
 
 const ORANGE = '#F97316';
 const ORANGE_DARK = '#EA580C';
@@ -357,9 +358,16 @@ export default function SignupScreen() {
       <LinearGradient colors={['#FFFFFF', '#F8FAFC', '#F1F5F9']} style={StyleSheet.absoluteFill} />
       <SafeAreaView style={styles.safeArea}>
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.flex}>
+          <ScrollView
+            style={styles.scrollView}
+            contentContainerStyle={styles.scrollContent}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+            showsVerticalScrollIndicator={false}
+          >
           <View style={styles.header}>
             <Image
-              source={require('../../assets/images/LOGO3.png')}
+              source={require('../../../assets/images/LOGO3.png')}
               style={styles.logo}
               resizeMode="contain"
               accessibilityLabel="BawatPieza logo"
@@ -489,6 +497,7 @@ export default function SignupScreen() {
               <Text style={styles.footerLink}>Back to sign in</Text>
             </Pressable>
           </View>
+          </ScrollView>
         </KeyboardAvoidingView>
       </SafeAreaView>
       <TermsModal
@@ -604,7 +613,9 @@ export default function SignupScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#FFFFFF' },
   safeArea: { flex: 1 },
-  flex: { flex: 1, alignItems: 'center', paddingHorizontal: 18, paddingTop: 24, paddingBottom: 24 },
+  flex: { flex: 1 },
+  scrollView: { flex: 1, width: '100%' },
+  scrollContent: { alignItems: 'center', paddingHorizontal: 18, paddingTop: 24, paddingBottom: 32 },
   header: { width: '100%', alignItems: 'center', paddingBottom: 14 },
   logo: { width: 132, height: 106, marginBottom: 2 },
   welcomeText: { color: TEXT_SECONDARY, fontSize: 11, letterSpacing: 1.1, textTransform: 'uppercase', fontFamily: fonts.bold },

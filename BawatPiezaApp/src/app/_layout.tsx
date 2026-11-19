@@ -174,21 +174,21 @@ function AuthedShell({ fontsLoaded }: { fontsLoaded: boolean }) {
         }}
       >
         <Stack.Screen
-          name="login"
+          name="(auth)/login"
           options={{
             animation: "slide_from_right",
             animationDuration: 280,
           }}
         />
         <Stack.Screen
-          name="forgot-password"
+          name="(auth)/forgot-password"
           options={{
             animation: "slide_from_right",
             animationDuration: 280,
           }}
         />
         <Stack.Screen
-          name="signup"
+          name="(auth)/signup"
           options={{
             animation: "slide_from_right",
             animationDuration: 280,

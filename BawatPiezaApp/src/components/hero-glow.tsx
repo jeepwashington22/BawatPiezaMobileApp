@@ -52,37 +52,37 @@ export function HeroGlow({
     setSize((prev) => (prev.w === width && prev.h === height ? prev : { w: width, h: height }));
   };
 
-  // Palette per theme — the grid state replaces the warm orange with green.
+  // Palette per theme — using the warm orange energy glow across the board.
   const glow = gridActive
     ? dark
       ? [
-          { o: 0, c: '#4ADE80', a: 0.78 },
-          { o: 0.35, c: '#16A34A', a: 0.52 },
-          { o: 0.7, c: '#166534', a: 0.22 },
-          { o: 1, c: '#052E16', a: 0 },
+          { o: 0, c: '#FFB14A', a: 0.8 },
+          { o: 0.35, c: '#F97316', a: 0.56 },
+          { o: 0.7, c: '#D97706', a: 0.24 },
+          { o: 1, c: '#431407', a: 0 },
         ]
       : [
-          { o: 0, c: '#4ADE80', a: 0.82 },
-          { o: 0.35, c: '#22C55E', a: 0.62 },
-          { o: 0.7, c: '#BBF7D0', a: 0.3 },
-          { o: 1, c: '#DCFCE7', a: 0 },
+          { o: 0, c: '#FFB14A', a: 0.86 },
+          { o: 0.35, c: '#F59E0B', a: 0.66 },
+          { o: 0.7, c: '#FED7AA', a: 0.3 },
+          { o: 1, c: '#FFF7ED', a: 0 },
         ]
     : dark
     ? [
-        { o: 0, c: '#FF9638', a: 0.86 },
-        { o: 0.35, c: '#F98224', a: 0.56 },
-        { o: 0.7, c: '#A44818', a: 0.23 },
+        { o: 0, c: '#FFB14A', a: 0.86 },
+        { o: 0.35, c: '#F97316', a: 0.56 },
+        { o: 0.7, c: '#B45309', a: 0.23 },
         { o: 1, c: '#431407', a: 0 },
       ]
     : [
-        { o: 0, c: '#FF9638', a: 0.88 },
-        { o: 0.35, c: '#FB9848', a: 0.68 },
-        { o: 0.7, c: '#FBC99D', a: 0.31 },
-        { o: 1, c: '#FFE8D6', a: 0 },
+        { o: 0, c: '#FFB14A', a: 0.88 },
+        { o: 0.35, c: '#F59E0B', a: 0.68 },
+        { o: 0.7, c: '#FCD7A1', a: 0.31 },
+        { o: 1, c: '#FFF7ED', a: 0 },
       ];
-  const core = gridActive ? (dark ? '#BBF7D0' : '#FFFFFF') : dark ? '#FFD2A8' : '#FFFFFF';
-  const coreAlpha = dark ? 0.26 : 0.44;
-  const gridColor = gridActive ? (dark ? '#BBF7D0' : '#15803D') : dark ? '#FFFFFF' : '#C2410C';
+  const core = gridActive ? (dark ? '#FFE9C4' : '#FFF7ED') : dark ? '#FFD7A8' : '#FFF7ED';
+  const coreAlpha = dark ? 0.24 : 0.42;
+  const gridColor = gridActive ? (dark ? '#FFD8A8' : '#EA580C') : dark ? '#FFFFFF' : '#C2410C';
   const gridAlpha = dark ? 0.07 : 0.12;
 
   const { w, h } = size;

@@ -26,12 +26,12 @@ import "text-encoding";
 import { supabase } from "../../lib/supabase";
 import { installedTileCountKey } from "../../lib/device-setup";
 import { CountUpText } from "../../components/count-up-text";
-import { DashboardStats } from "./dashboard/stats-and-battery";
+import { DashboardStats } from "../../components/home-dashboard/stats-and-battery";
 import {
   DashboardActions,
   type DashboardZone,
-} from "./dashboard/dashboard-actions";
-import { st } from "./dashboard/home-styles";
+} from "../../components/home-dashboard/dashboard-actions";
+import { st } from "../../components/home-dashboard/home-styles";
 import { useDeviceConnection } from "../../components/device-status-banner";
 import { ZONES_STORAGE_KEY } from "../../components/zone-management-screen";
 import { brandAccent, scale } from "../../components/glass-ui";

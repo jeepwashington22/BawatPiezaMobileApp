@@ -11,17 +11,17 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 
-import { AppText as Text } from '../components/app-text';
-import { TermsModal } from '../components/terms-modal';
-import { useAuth } from '../hooks/use-auth';
-import { apiFetch } from '../lib/api';
+import { AppText as Text } from '../../components/app-text';
+import { TermsModal } from '../../components/terms-modal';
+import { useAuth } from '../../hooks/use-auth';
+import { apiFetch } from '../../lib/api';
 import {
   GOOGLE_ONBOARDING_STATUS_KEY,
   isGoogleOnboardingRequired,
   supabase,
-} from '../lib/supabase';
-import { TERMS_VERSION } from '../constants/terms';
-import { useTheme } from '../theme';
+} from '../../lib/supabase';
+import { TERMS_VERSION } from '../../constants/terms';
+import { useTheme } from '../../theme';
 
 type ApiMessage = { error?: string; message?: string; resendAfterSeconds?: number };
 

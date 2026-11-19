@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
-import LoginScreen from './login';
-import OnboardingScreen from './onboarding';
+import LoginScreen from './(auth)/login';
+import OnboardingScreen from './(auth)/onboarding';
 import { useAuth } from '../hooks/use-auth';
 
 /** AsyncStorage flag marking the boarding walkthrough as completed. */

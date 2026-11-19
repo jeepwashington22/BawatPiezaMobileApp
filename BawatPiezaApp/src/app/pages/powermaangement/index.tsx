@@ -6,11 +6,11 @@ import Paho from "paho-mqtt";
 import { AppText as Text } from "../../../components/app-text";
 import { ScreenShell } from "../../../components/screen-shell";
 import { fonts, useTheme } from "../../../theme";
-import { Monitor } from "../../../components/power-management/monitor";
-import { Configure } from "../../../components/power-management/configure";
-import { Allocation } from "../../../components/power-management/allocation";
-import { Override } from "../../../components/power-management/override";
-import { styles } from "../../../components/power-management/styles";
+import { Monitor } from "../../../components/power-management-subtab/monitor";
+import { Configure } from "../../../components/power-management-subtab/configure";
+import { Allocation } from "../../../components/power-management-subtab/allocation";
+import { Override } from "../../../components/power-management-subtab/override";
+import { styles } from "../../../components/power-management-subtab/styles";
 import { useDeviceConnection } from "../../../components/device-status-banner";
 
 type PowerTab = "monitor" | "configure" | "allocation" | "override";

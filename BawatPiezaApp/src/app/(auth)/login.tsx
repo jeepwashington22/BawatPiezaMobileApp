@@ -8,14 +8,15 @@ import {
   KeyboardAvoidingView,
   Modal,
   Platform,
+  ScrollView,
   Alert,
   ActivityIndicator,
 } from 'react-native';
-import { AppText as Text } from '../components/app-text';
+import { AppText as Text } from '../../components/app-text';
 import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { fonts } from '../theme';
+import { fonts } from '../../theme';
 import { Ionicons } from '@expo/vector-icons';
 import {
   isGoogleOnboardingRequired,
@@ -24,9 +25,9 @@ import {
   sendWelcomeEmailIfNew,
   signInWithGoogle,
   supabase,
-} from '../lib/supabase';
-import { useAuth } from '../hooks/use-auth';
-import { apiFetch } from '../lib/api';
+} from '../../lib/supabase';
+import { useAuth } from '../../hooks/use-auth';
+import { apiFetch } from '../../lib/api';
 
 const ORANGE = '#F97316';
 const ORANGE_DARK = '#EA580C';
@@ -231,8 +232,15 @@ export default function LoginScreen() {
 
       <SafeAreaView style={styles.safeArea}>
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.flex}>
+          <ScrollView
+            style={styles.scrollView}
+            contentContainerStyle={styles.scrollContent}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+            showsVerticalScrollIndicator={false}
+          >
           <View style={styles.brandWrap}>
-            <Image source={require('../../assets/images/LOGO3.png')} style={styles.logo} resizeMode="contain" />
+            <Image source={require('../../../assets/images/LOGO3.png')} style={styles.logo} resizeMode="contain" />
             <Text style={styles.welcomeText}>Welcome back</Text>
             <Text style={styles.heroTitle}>Sign In</Text>
             <Text style={styles.heroSubtitle}>Access your BawatPieza account</Text>
@@ -321,6 +329,7 @@ export default function LoginScreen() {
               </TouchableOpacity>
             </View>
           </View>
+          </ScrollView>
         </KeyboardAvoidingView>
       </SafeAreaView>
       <Modal visible={twoFactorChallenge !== null} transparent animationType="fade" onRequestClose={() => setTwoFactorChallenge(null)}>
@@ -386,11 +395,15 @@ const styles = StyleSheet.create({
   },
   flex: {
     flex: 1,
-    justifyContent: 'flex-start',
+  },
+  scrollView: {
+    flex: 1,
+    width: '100%',
+  },
+  scrollContent: {
     alignItems: 'center',
     paddingHorizontal: 18,
-    paddingTop: 0,
-    paddingBottom: 24,
+    paddingBottom: 32,
   },
   brandWrap: {
     width: '100%',

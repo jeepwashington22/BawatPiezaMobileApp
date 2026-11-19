@@ -1,3 +1,1 @@
-import { PowerManagementScreen } from '../../components/power-management-screen';
-
-export default PowerManagementScreen;
+export { default } from './powermaangement/power-management';

@@ -27,8 +27,8 @@ import Animated, {
 import { useRouter } from "expo-router";
 import { useVideoPlayer, VideoView } from "expo-video";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { fonts } from "../theme";
-import { AnimatedPressable, scale } from "../components/glass-ui";
+import { fonts } from "../../theme";
+import { AnimatedPressable, scale } from "../../components/glass-ui";
 
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get("window");
 
@@ -77,7 +77,7 @@ const SLIDES: SlideDef[] = [
 
 function HeroVideo({ isActive }: { isActive: boolean }) {
   const player = useVideoPlayer(
-    require("../../assets/images/videobg.mp4"),
+    require("../../../assets/images/videobg.mp4"),
     (p) => {
       p.loop = true;
       p.muted = true;
