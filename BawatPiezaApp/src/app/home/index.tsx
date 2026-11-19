@@ -68,6 +68,9 @@ type HubTelemetry = {
   grid_w?: unknown;
   grid_kwh?: unknown;
   charger_on?: unknown;
+  power_mode?: unknown;
+  ch1_on?: unknown;
+  ch2_on?: unknown;
   event?: unknown;
 };
 
@@ -76,6 +79,13 @@ function readTelemetryNumber(value: unknown): number | null {
   if (typeof value === "string" && value.trim() === "") return null;
   const number = Number(value);
   return Number.isFinite(number) ? number : null;
+}
+
+function readTelemetryBoolean(value: unknown): boolean | null {
+  if (typeof value === "boolean") return value;
+  if (value === 1 || value === "1" || value === "true") return true;
+  if (value === 0 || value === "0" || value === "false") return false;
+  return null;
 }
 
 type GridPalette = {
@@ -97,7 +107,12 @@ export default function HomeScreen() {
   const hasDevice = useDeviceConnection();
 
   const { override, openOverrides } = usePowerOverride();
-  const usingGrid = override === "grid" || override === null;
+  const [hubPowerMode, setHubPowerMode] = useState<
+    "grid" | "battery" | "shutdown" | null
+  >(null);
+
+  const effectiveMode = hubPowerMode ?? override;
+  const usingGrid = effectiveMode === "grid" || effectiveMode === null;
 
   const activeOrange = BRAND_ORANGE;
   const activeOrangeDark = BRAND_ORANGE_DARK;
@@ -137,6 +152,7 @@ export default function HomeScreen() {
   const [zones, setZones] = useState<DashboardZone[]>([]);
 
   const mqttClientRef = useRef<Paho.Client | null>(null);
+  const lastToggleAtRef = useRef<Record<number, number>>({});
 
   const batteryCardMutedInk =
     mode === "dark" ? "rgba(255,255,255,0.82)" : "rgba(10,42,74,0.72)";
@@ -228,7 +244,7 @@ export default function HomeScreen() {
             name: roomName,
             source: "Battery",
             detail: `Relay CH${ch.channel} · ${bulbs} bulb${bulbs > 1 ? "s" : ""}`,
-            on: true,
+            on: false,
             channel: ch.channel,
           };
         });
@@ -244,7 +260,7 @@ export default function HomeScreen() {
               name: z.name || `Room ${idx + 1}`,
               source: "Battery",
               detail: `Relay CH${z.channel || idx + 1} · ${z.installedBulbs || 1} bulb${(z.installedBulbs || 1) > 1 ? "s" : ""}`,
-              on: true,
+              on: false,
               channel: z.channel || idx + 1,
             }));
           }
@@ -371,6 +387,7 @@ export default function HomeScreen() {
     setGenerationByDay([]);
     setFootsteps(0);
     setZones([]);
+    setHubPowerMode(null);
     setHasLoadedGenerationSummary(true);
     setMqttStatus("Offline");
   }, [hasDevice]);
@@ -439,6 +456,41 @@ export default function HomeScreen() {
           if (current !== null) setGridCurrent(current);
           if (power !== null) setGridPower(power);
           if (energy !== null) setGridEnergyKwh(energy);
+
+          // Sync live physical power_mode from ESP32 telemetry
+          if (
+            data.power_mode === "grid" ||
+            data.power_mode === "battery" ||
+            data.power_mode === "shutdown"
+          ) {
+            setHubPowerMode(data.power_mode);
+          }
+
+          // Sync live physical room relay states (CH1 & CH2) from ESP32 telemetry
+          const ch1State = readTelemetryBoolean(data.ch1_on);
+          const ch2State = readTelemetryBoolean(data.ch2_on);
+          if (ch1State !== null || ch2State !== null) {
+            const nowMs = Date.now();
+            setZones((prev) =>
+              prev.map((zone) => {
+                if (
+                  zone.channel === 1 &&
+                  ch1State !== null &&
+                  nowMs - (lastToggleAtRef.current[1] ?? 0) > 2500
+                ) {
+                  return { ...zone, on: ch1State };
+                }
+                if (
+                  zone.channel === 2 &&
+                  ch2State !== null &&
+                  nowMs - (lastToggleAtRef.current[2] ?? 0) > 2500
+                ) {
+                  return { ...zone, on: ch2State };
+                }
+                return zone;
+              }),
+            );
+          }
 
           if (data.event === "footstep") {
             void loadGenerationSummary();
@@ -529,6 +581,9 @@ export default function HomeScreen() {
         if (zone.id === zoneId) {
           targetChannel = zone.channel;
           nextState = !zone.on;
+          if (targetChannel !== undefined) {
+            lastToggleAtRef.current[targetChannel] = Date.now();
+          }
           return { ...zone, on: nextState };
         }
         return zone;
@@ -775,7 +830,7 @@ export default function HomeScreen() {
           c={c}
           mode={mode}
           usingGrid={usingGrid}
-          powerMode={override}
+          powerMode={effectiveMode}
           isActive={isActive}
           isLoading={isLoadingDashboardData}
           isSharedUser={isSharedUser}
