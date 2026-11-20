@@ -24,6 +24,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { supabase } from "../lib/supabase";
 import { apiFetch } from "../lib/api";
 import { DEVICE_ACCESS_CHANGED_EVENT } from "../components/device-status-banner";
+import { registerPushNotifications } from "../lib/push-notifications";
 
 /** AsyncStorage key written once a hub is successfully paired (provisioning). */
 const DEVICE_STORAGE_KEY = "bawatpieza_hub_id";
@@ -60,10 +61,16 @@ export default function RootLayout() {
 }
 
 function AuthedShell({ fontsLoaded }: { fontsLoaded: boolean }) {
-  const { ready, isLoggedIn } = useAuth();
+  const { ready, isLoggedIn, session } = useAuth();
   const pathname = usePathname();
 
   const currentRoute = pathname.toLowerCase();
+  useEffect(() => {
+    if (!ready || !isLoggedIn || !session?.access_token) return;
+    void registerPushNotifications(session.access_token).catch((error) => {
+      console.warn("[push-notifications] registration failed", error);
+    });
+  }, [ready, isLoggedIn, session?.access_token]);
   const isSetupScreen =
     currentRoute.includes("provisioning") ||
     currentRoute.includes("device") ||

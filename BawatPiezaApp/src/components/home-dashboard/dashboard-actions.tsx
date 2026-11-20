@@ -46,11 +46,13 @@ function ZoneSwitch({
   mode,
   onToggle,
   gridActive = false,
+  disabled = false,
 }: {
   on: boolean;
   mode: Mode;
   onToggle: () => void;
   gridActive?: boolean;
+  disabled?: boolean;
 }) {
   const anim = useRef(new Animated.Value(on ? 1 : 0)).current;
   useEffect(() => {
@@ -84,13 +86,14 @@ function ZoneSwitch({
 
   return (
     <Pressable
+      disabled={disabled}
       onPress={(e) => {
         e.stopPropagation();
         onToggle();
       }}
       hitSlop={8}
       accessibilityRole="switch"
-      accessibilityState={{ checked: on }}
+      accessibilityState={{ checked: on, disabled }}
     >
       <Animated.View
         style={{
@@ -98,6 +101,7 @@ function ZoneSwitch({
           height: H,
           borderRadius: H / 2,
           backgroundColor: trackColor,
+          opacity: disabled ? 0.55 : 1,
           justifyContent: "center",
           shadowColor: gridActive ? gridGreen : BRAND_ORANGE_DARK,
           shadowOpacity: on ? 0.45 : 0,
@@ -163,6 +167,8 @@ export type DashboardZone = {
 type Props = {
   c: ThemeColors;
   mode: Mode;
+  smokeDetected: boolean;
+  smokeZone: string;
   usingGrid: boolean;
   activeOrange: string;
   activeOrangeDark: string;
@@ -185,6 +191,8 @@ type Props = {
 export function DashboardActions({
   c,
   mode,
+  smokeDetected,
+  smokeZone,
   usingGrid,
   activeOrange,
   activeOrangeDark,
@@ -221,6 +229,30 @@ export function DashboardActions({
 
   return (
     <>
+      {smokeDetected && (
+        <View
+          style={{
+            marginHorizontal: scale(16),
+            marginBottom: scale(12),
+            borderRadius: scale(14),
+            padding: scale(14),
+            backgroundColor: "#7F1D1D",
+            flexDirection: "row",
+            alignItems: "center",
+            gap: scale(10),
+          }}
+        >
+          <Ionicons name="warning" size={scale(22)} color="#FFFFFF" />
+          <View style={{ flex: 1 }}>
+            <Text style={{ color: "#FFFFFF", fontFamily: fonts.extrabold }}>
+              Smoke detected — device shut down
+            </Text>
+            <Text style={{ color: "rgba(255,255,255,0.82)", marginTop: 2 }}>
+              {smokeZone || "Check the device enclosure physically"} before restoring power.
+            </Text>
+          </View>
+        </View>
+      )}
       <View style={st.quickActionsSection}>
         <Text style={[st.quickActionsTitle, { color: c.text }]}>
           quick actions
@@ -521,6 +553,7 @@ export function DashboardActions({
                         <ZoneSwitch
                           on={live}
                           mode={mode}
+                          disabled={smokeDetected}
                           onToggle={() => onZoneToggle(z.id)}
                           gridActive={gridActive}
                         />

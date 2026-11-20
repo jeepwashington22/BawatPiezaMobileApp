@@ -14,7 +14,7 @@ import { ContentCard } from "../../components/content-card";
 import { useRouter } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { supabase } from "../../lib/supabase";
-import { apiFetch } from "../../lib/api";
+import { apiFetch, clearApiGetCache } from "../../lib/api";
 import { notifyDeviceAccessChanged } from "../../components/device-status-banner";
 import { deviceSetupRequiredKey } from "../../lib/device-setup";
 
@@ -115,28 +115,7 @@ export default function DeviceScreen() {
           );
         }
 
-        // Step 2: Fallback to Direct Supabase Query if API route failed
-        if (!fetchedHubId) {
-          try {
-            const { data: pairingData } = await supabase
-              .from("device_pairings")
-              .select("hub_id")
-              .eq("user_id", user.id)
-              .maybeSingle();
-
-            if (pairingData?.hub_id) {
-              fetchedHubId = pairingData.hub_id;
-              isOwner = true;
-            }
-          } catch (spError) {
-            console.warn(
-              "[device] Direct Supabase query failed, checking AsyncStorage...",
-              spError,
-            );
-          }
-        }
-
-        // Step 3: Offline Local Storage Fallback
+        // Offline local storage fallback. Database access stays behind the API.
         if (!fetchedHubId) {
           const cachedHubId = await AsyncStorage.getItem("bawatpieza_hub_id");
           if (cachedHubId) {
@@ -538,6 +517,7 @@ export default function DeviceScreen() {
             body: JSON.stringify({ hub_id: targetHubId }),
             timeoutMs: 6_000,
           });
+          clearApiGetCache("/accounts/device-access");
         }
       } catch (apiErr) {
         console.warn(

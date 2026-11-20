@@ -232,6 +232,31 @@ export interface ApiRequestOptions extends RequestInit {
   baseUrls?: string[];
   /** Suppress console warnings for optional background requests. */
   silent?: boolean;
+  /** Cache successful GET/HEAD responses briefly to deduplicate polling. */
+  cacheTtlMs?: number;
+}
+
+const GET_CACHE_TTL_MS = 10_000;
+const responseCache = new Map<string, { expiresAt: number; response: Response }>();
+const inFlightGets = new Map<string, Promise<Response>>();
+
+export function clearApiGetCache(pathPrefix?: string): void {
+  if (!pathPrefix) {
+    responseCache.clear();
+    return;
+  }
+  for (const key of responseCache.keys()) {
+    if (key.includes(pathPrefix)) responseCache.delete(key);
+  }
+}
+
+function isCacheableMethod(method: string | undefined): boolean {
+  return !method || method.toUpperCase() === 'GET' || method.toUpperCase() === 'HEAD';
+}
+
+function cacheKey(url: string, init: RequestInit): string {
+  const headers = new Headers(init.headers);
+  return `${url}|${headers.get('authorization') ?? ''}|${headers.get('accept') ?? ''}`;
 }
 
 /**
@@ -251,6 +276,7 @@ export async function apiFetch(
     timeoutMs = 15_000,
     baseUrls = apiBaseCandidates(),
     silent = false,
+    cacheTtlMs = GET_CACHE_TTL_MS,
     ...init
   } = options;
   const suffix = path.startsWith('/') ? path : `/${path}`;
@@ -261,7 +287,33 @@ export async function apiFetch(
     const url = `${stripTrailingSlashes(base)}${suffix}`;
     tried.push(url);
     try {
-      return await fetchWithTimeout(url, { ...init, timeoutMs });
+      if (!isCacheableMethod(init.method) || cacheTtlMs <= 0) {
+        return await fetchWithTimeout(url, { ...init, timeoutMs });
+      }
+
+      const key = cacheKey(url, init);
+      const cached = responseCache.get(key);
+      if (cached && cached.expiresAt > Date.now()) {
+        return cached.response.clone();
+      }
+      if (cached) responseCache.delete(key);
+
+      let request = inFlightGets.get(key);
+      if (!request) {
+        request = fetchWithTimeout(url, { ...init, timeoutMs }).then((response) => {
+          if (response.ok) {
+            responseCache.set(key, {
+              expiresAt: Date.now() + cacheTtlMs,
+              response: response.clone(),
+            });
+          }
+          return response;
+        }).finally(() => {
+          inFlightGets.delete(key);
+        });
+        inFlightGets.set(key, request);
+      }
+      return (await request).clone();
     } catch (err) {
       lastError = err;
       if (!silent) {

@@ -35,6 +35,7 @@ import { st } from "../../components/home-dashboard/home-styles";
 import { useDeviceConnection } from "../../components/device-status-banner";
 import { ZONES_STORAGE_KEY } from "../../components/zone-management-screen";
 import { brandAccent, scale } from "../../components/glass-ui";
+import { updateSmokeAlarm } from "../../lib/push-notifications";
 
 const BRAND_ORANGE = "#F5A220";
 const BRAND_ORANGE_DARK = "#E6641F";
@@ -71,6 +72,8 @@ type HubTelemetry = {
   power_mode?: unknown;
   ch1_on?: unknown;
   ch2_on?: unknown;
+  smoke_alert?: unknown;
+  smoke_zone?: unknown;
   event?: unknown;
 };
 
@@ -110,6 +113,9 @@ export default function HomeScreen() {
   const [hubPowerMode, setHubPowerMode] = useState<
     "grid" | "battery" | "shutdown" | null
   >(null);
+  const [smokeDetected, setSmokeDetected] = useState(false);
+  const [smokeZone, setSmokeZone] = useState("");
+  const previousSmokeRef = useRef(false);
 
   const effectiveMode = hubPowerMode ?? override;
   const usingGrid = effectiveMode === "grid" || effectiveMode === null;
@@ -466,6 +472,28 @@ export default function HomeScreen() {
             setHubPowerMode(data.power_mode);
           }
 
+          setSmokeDetected(
+            data.smoke_alert === true ||
+              data.smoke_alert === 1 ||
+              data.smoke_alert === "1" ||
+              data.smoke_alert === "true",
+          );
+          setSmokeZone(
+            typeof data.smoke_zone === "string" ? data.smoke_zone : "",
+          );
+          const smokeActive =
+            data.smoke_alert === true ||
+            data.smoke_alert === 1 ||
+            data.smoke_alert === "1" ||
+            data.smoke_alert === "true";
+          if (smokeActive !== previousSmokeRef.current) {
+            previousSmokeRef.current = smokeActive;
+            void updateSmokeAlarm(
+              smokeActive,
+              typeof data.smoke_zone === "string" ? data.smoke_zone : "",
+            );
+          }
+
           // Sync live physical room relay states (CH1 & CH2) from ESP32 telemetry
           const ch1State = readTelemetryBoolean(data.ch1_on);
           const ch2State = readTelemetryBoolean(data.ch2_on);
@@ -573,6 +601,7 @@ export default function HomeScreen() {
   }, [ready, isLoggedIn, checked, completed, welcomeSeen, openWelcome]);
 
   const onZoneToggle = useCallback(async (zoneId: string) => {
+    if (smokeDetected) return;
     let targetChannel: number | undefined;
     let nextState = false;
 
@@ -606,7 +635,7 @@ export default function HomeScreen() {
     } catch (error) {
       console.error("[dashboard] failed to send zone relay command", error);
     }
-  }, []);
+  }, [smokeDetected]);
 
   const [activeTile, setActiveTile] = useState<number | null>(null);
   const [installedTileCount, setInstalledTileCount] = useState(0);
@@ -873,6 +902,8 @@ export default function HomeScreen() {
           tileSetupLoaded={tileSetupLoaded}
           router={router}
           zones={zones}
+          smokeDetected={smokeDetected}
+          smokeZone={smokeZone}
           onZoneToggle={onZoneToggle}
           activeTile={activeTile}
           setActiveTile={setActiveTile}

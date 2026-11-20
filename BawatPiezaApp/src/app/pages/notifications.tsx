@@ -84,6 +84,8 @@ function toneForType(type: string): { icon: keyof typeof Ionicons.glyphMap; tone
       return { icon: 'battery-full-outline', tone: 'success' };
     case 'battery_low':
       return { icon: 'battery-dead-outline', tone: 'warning' };
+    case 'smoke_detected':
+      return { icon: 'warning-outline', tone: 'danger' };
     default:
       return { icon: 'notifications-outline', tone: 'notice' };
   }
