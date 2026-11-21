@@ -9,7 +9,7 @@ import { styles } from "./styles";
 import { SectionLabel, ThresholdCard, ScheduleRow, ActionButton, ZoneCard } from "./shared";
 
 export function Override({ c }: { c: ThemeColors }) {
-  const { override, setOverride } = usePowerOverride();
+  const { override, setOverride, smokeEmergencyActive } = usePowerOverride();
   const options = [
     {
       value: "grid" as const,
@@ -66,6 +66,7 @@ export function Override({ c }: { c: ThemeColors }) {
             <Pressable
               key={option.value}
               onPress={() => setOverride(option.value)}
+              disabled={smokeEmergencyActive}
               style={[
                 styles.overrideOption,
                 {
@@ -74,8 +75,8 @@ export function Override({ c }: { c: ThemeColors }) {
                 },
               ]}
               accessibilityRole="radio"
-              accessibilityState={{ selected: active }}
               accessibilityLabel={option.label}
+              accessibilityState={{ selected: active, disabled: smokeEmergencyActive }}
             >
               <Ionicons
                 name={option.icon}

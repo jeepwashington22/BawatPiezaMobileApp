@@ -7,6 +7,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { supabase } from '../lib/supabase';
 import { apiFetch } from '../lib/api';
+import { getLocalNotifications, mergeLocalNotifications, markLocalNotificationsRead } from '../lib/local-notifications';
 import { useTheme } from '../theme';
 import { scale } from './glass-ui';
 
@@ -40,6 +41,10 @@ function toneForType(type: string): { icon: keyof typeof Ionicons.glyphMap; tone
       return { icon: 'battery-full-outline', tone: 'success' };
     case 'battery_low':
       return { icon: 'battery-dead-outline', tone: 'warning' };
+    case 'power_mode_changed':
+      return { icon: 'flash-outline', tone: 'notice' };
+    case 'smoke_detected':
+      return { icon: 'warning-outline', tone: 'danger' };
     default:
       return { icon: 'notifications-outline', tone: 'notice' };
   }
@@ -65,6 +70,7 @@ type ApiNotification = {
   type: string;
   title: string;
   body: string | null;
+  payload?: Record<string, unknown> | null;
   reference_id: string | null;
   read_at: string | null;
   created_at: string;
@@ -152,7 +158,9 @@ export function TopBar({ gutter = 18, title, subtitle, showBack = false, showTit
         silent: true,
         headers: { Authorization: `Bearer ${token}` },
       });
-      if (!authoritativeResponse.ok) return;
+      if (!authoritativeResponse.ok) {
+        throw new Error(`Notifications request failed with ${authoritativeResponse.status}`);
+      }
       const authoritativeJson = (await authoritativeResponse.json().catch(() => null)) as {
         notifications?: ApiNotification[];
         unread?: number;
@@ -174,7 +182,8 @@ export function TopBar({ gutter = 18, title, subtitle, showBack = false, showTit
             notification.type !== 'share_invite' ||
             (notification.reference_id !== null && pendingInviteIds.has(notification.reference_id)),
         );
-        const authoritativeItems: FeedItem[] = activeNotifications.map((n) => {
+        const mergedNotifications = await mergeLocalNotifications(userId, activeNotifications);
+        const authoritativeItems: FeedItem[] = mergedNotifications.map((n) => {
           const { icon, tone } = toneForType(n.type);
           return {
             id: n.id,
@@ -189,7 +198,7 @@ export function TopBar({ gutter = 18, title, subtitle, showBack = false, showTit
           };
         });
         const authoritativeUnread =
-          activeNotifications.filter((notification) => notification.read_at === null).length;
+          mergedNotifications.filter((notification) => notification.read_at === null).length;
         setFeed(authoritativeItems);
         setUnread(authoritativeUnread);
         notificationSnapshots.set(userId, {
@@ -202,13 +211,16 @@ export function TopBar({ gutter = 18, title, subtitle, showBack = false, showTit
 
       const { data: notificationRows, error: notificationError } = await supabase
         .from('notifications')
-        .select('id, type, title, body, reference_id, read_at, created_at')
+        .select('id, type, title, body, payload, reference_id, read_at, created_at')
         .eq('user_id', userId)
         .neq('type', 'share_invite')
         .order('created_at', { ascending: false })
         .limit(30);
       if (!notificationError) {
-        const notifications = (notificationRows ?? []) as ApiNotification[];
+        const notifications = await mergeLocalNotifications(
+          userId,
+          (notificationRows ?? []) as ApiNotification[],
+        );
         const items: FeedItem[] = notifications.map((n) => {
           const { icon, tone } = toneForType(n.type);
           return {
@@ -236,13 +248,14 @@ export function TopBar({ gutter = 18, title, subtitle, showBack = false, showTit
       const res = await apiFetch('/notifications', { timeoutMs: 1_000, silent: true,
         headers: { Authorization: `Bearer ${token}` },
       });
-      if (!res.ok) return;
+      if (!res.ok) throw new Error(`Notifications request failed with ${res.status}`);
       const json = (await res.json().catch(() => null)) as {
         notifications?: ApiNotification[];
         unread?: number;
       } | null;
-      if (!json?.notifications) return;
-      const items: FeedItem[] = json.notifications.map((n) => {
+      if (!json?.notifications) throw new Error('Notifications response did not contain a feed');
+      const mergedNotifications = await mergeLocalNotifications(userId, json.notifications);
+      const items: FeedItem[] = mergedNotifications.map((n) => {
         const { icon, tone } = toneForType(n.type);
         return {
           id: n.id,
@@ -257,16 +270,46 @@ export function TopBar({ gutter = 18, title, subtitle, showBack = false, showTit
         };
       });
       setFeed(items);
-      const unreadCount = json.unread ?? 0;
+      const unreadCount = mergedNotifications.filter((notification) => notification.read_at === null).length;
       setUnread(unreadCount);
       notificationSnapshots.set(userId, {
         feed: items,
         unread: unreadCount,
         fetchedAt: Date.now(),
       });
-    } catch {
-      // Offline or API down — the panel shows an empty/error state instead
-      // of fake notifications.
+    } catch (error) {
+      // Offline or API down — fall back to real notification rows saved locally.
+      try {
+        const { data: authData } = await supabase.auth.getSession();
+        const userId = authData.session?.user?.id;
+        if (userId) {
+          const localNotifications = await getLocalNotifications(userId);
+          const items: FeedItem[] = localNotifications.map((n) => {
+            const { icon, tone } = toneForType(n.type);
+            return {
+              id: n.id,
+              icon,
+              tone,
+              title: n.title,
+              detail: n.body ?? '',
+              time: timeAgo(n.created_at),
+              kind: n.type,
+              refId: n.reference_id,
+              read: n.read_at !== null,
+            };
+          });
+          setFeed(items);
+          const unreadCount = localNotifications.filter((notification) => notification.read_at === null).length;
+          setUnread(unreadCount);
+          notificationSnapshots.set(userId, {
+            feed: items,
+            unread: unreadCount,
+            fetchedAt: Date.now(),
+          });
+        }
+      } catch (localError) {
+        console.warn('[notifications] Could not load saved local notifications:', localError, error);
+      }
     } finally {
       setFeedLoading(false);
     }
@@ -608,6 +651,8 @@ export function TopBar({ gutter = 18, title, subtitle, showBack = false, showTit
                         headers: { Authorization: `Bearer ${token}` },
                       });
                     }
+                    const userId = authData.session?.user?.id;
+                    if (userId) await markLocalNotificationsRead(userId);
                   } catch {
                     // Best-effort — the badge still clears locally.
                   }

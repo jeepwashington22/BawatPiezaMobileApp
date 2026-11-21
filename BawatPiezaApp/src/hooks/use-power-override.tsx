@@ -10,6 +10,7 @@ import React, {
 } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import Paho from "paho-mqtt";
+import { updatePowerModeNotification } from "../lib/push-notifications";
 
 /** Power source override chosen from Quick Overrides. `null` = Auto (no override). */
 export type PowerOverride = "grid" | "battery" | "shutdown" | null;
@@ -24,6 +25,9 @@ type PowerOverrideContextValue = {
   overridesOpen: boolean;
   openOverrides: () => void;
   closeOverrides: () => void;
+  smokeEmergencyActive: boolean;
+  smokeEmergencyZone: string;
+  assertPowerControlsAvailable: () => void;
 };
 
 const PowerOverrideContext = createContext<PowerOverrideContextValue | null>(
@@ -31,6 +35,7 @@ const PowerOverrideContext = createContext<PowerOverrideContextValue | null>(
 );
 
 const STORAGE_KEY = "bawatpieza.power.override";
+const SMOKE_EMERGENCY_STORAGE_KEY = "bawatpieza.smoke.emergency";
 const HUB_STORAGE_KEY = "bawatpieza_hub_id";
 const TELEMETRY_TOPIC_PREFIX = "bawatpieza/devices/";
 const COMMAND_TOPIC_PREFIX = "bawatpieza/devices/";
@@ -43,15 +48,67 @@ function parse(raw: string | null): PowerOverride {
 export function PowerOverrideProvider({ children }: { children: ReactNode }) {
   const [override, setOverrideState] = useState<PowerOverride>(null);
   const [overridesOpen, setOverridesOpen] = useState(false);
+  const [smokeEmergencyActive, setSmokeEmergencyActive] = useState(false);
+  const [smokeEmergencyZone, setSmokeEmergencyZone] = useState("");
   const mqttClientRef = useRef<Paho.Client | null>(null);
   const hubIdRef = useRef<string | null>(null);
+  const lastPowerModeEventByHubRef = useRef(new Map<string, string>());
   const overrideRef = useRef<PowerOverride>(null);
   const pendingOverrideRef = useRef<PowerOverride>(null);
   const userSelectedModeRef = useRef(false);
+  const smokeEmergencyActiveRef = useRef(false);
+  const smokeEmergencyZoneRef = useRef("");
+  const smokeTelemetrySeenRef = useRef(false);
   const awaitingReportedModeRef = useRef<{
     mode: Exclude<PowerOverride, null>;
     expiresAt: number;
   } | null>(null);
+
+  const assertPowerControlsAvailable = useCallback(() => {
+    if (smokeEmergencyActiveRef.current) {
+      throw new Error("Power controls are locked until the smoke alarm is reset at the hub.");
+    }
+  }, []);
+
+  const updateSmokeEmergency = useCallback((active: boolean, zone: string) => {
+    const nextZone = active ? zone : "";
+    if (
+      smokeEmergencyActiveRef.current === active &&
+      smokeEmergencyZoneRef.current === nextZone
+    ) {
+      if (!active) {
+        AsyncStorage.removeItem(SMOKE_EMERGENCY_STORAGE_KEY).catch((error) => {
+          console.warn("[power-override] failed to clear smoke emergency state", error);
+        });
+      }
+      return;
+    }
+    smokeEmergencyActiveRef.current = active;
+    smokeEmergencyZoneRef.current = nextZone;
+    setSmokeEmergencyActive(active);
+    setSmokeEmergencyZone(nextZone);
+    const persist = active
+      ? AsyncStorage.setItem(SMOKE_EMERGENCY_STORAGE_KEY, nextZone)
+      : AsyncStorage.removeItem(SMOKE_EMERGENCY_STORAGE_KEY);
+    persist.catch((error) => {
+      console.warn("[power-override] failed to persist smoke emergency state", error);
+    });
+  }, []);
+
+  useEffect(() => {
+    AsyncStorage.getItem(SMOKE_EMERGENCY_STORAGE_KEY)
+      .then((savedZone) => {
+        if (savedZone !== null && !smokeTelemetrySeenRef.current) {
+          smokeEmergencyActiveRef.current = true;
+          smokeEmergencyZoneRef.current = savedZone;
+          setSmokeEmergencyActive(true);
+          setSmokeEmergencyZone(savedZone);
+        }
+      })
+      .catch((error) => {
+        console.warn("[power-override] failed to load smoke emergency state", error);
+      });
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -60,7 +117,7 @@ export function PowerOverrideProvider({ children }: { children: ReactNode }) {
     let checkTimer: ReturnType<typeof setTimeout> | null = null;
 
     const sendOverride = (hubId: string, mode: PowerOverride) => {
-      if (!mode || !client?.isConnected()) return false;
+      if (!mode || smokeEmergencyActiveRef.current || !client?.isConnected()) return false;
       const message = new Paho.Message(JSON.stringify({ command: `force_${mode}` }));
       message.destinationName = `${COMMAND_TOPIC_PREFIX}${hubId}/commands`;
       client.send(message);
@@ -90,11 +147,47 @@ export function PowerOverrideProvider({ children }: { children: ReactNode }) {
         try {
           const telemetry = JSON.parse(message.payloadString) as {
             power_mode?: unknown;
+            previous_power_mode?: unknown;
+            power_mode_event_id?: unknown;
+            smoke_alert?: unknown;
+            smoke_zone?: unknown;
           };
+          if (telemetry.smoke_alert !== undefined) {
+            smokeTelemetrySeenRef.current = true;
+            const smokeActive =
+              telemetry.smoke_alert === true ||
+              telemetry.smoke_alert === 1 ||
+              telemetry.smoke_alert === "1" ||
+              telemetry.smoke_alert === "true";
+            updateSmokeEmergency(
+              smokeActive,
+              typeof telemetry.smoke_zone === "string" ? telemetry.smoke_zone : "",
+            );
+            if (smokeActive) {
+              pendingOverrideRef.current = null;
+              awaitingReportedModeRef.current = null;
+            }
+          }
           const reportedMode = parse(
             typeof telemetry.power_mode === "string" ? telemetry.power_mode : null,
           );
           if (reportedMode) {
+            const previousMode = parse(
+              typeof telemetry.previous_power_mode === "string"
+                ? telemetry.previous_power_mode
+                : null,
+            );
+            const eventId = typeof telemetry.power_mode_event_id === "string"
+              ? telemetry.power_mode_event_id.trim()
+              : "";
+            const activeHubId = hubIdRef.current;
+            if (activeHubId && eventId) {
+              const lastEventId = lastPowerModeEventByHubRef.current.get(activeHubId);
+              lastPowerModeEventByHubRef.current.set(activeHubId, eventId);
+              if (lastEventId && lastEventId !== eventId && previousMode && previousMode !== reportedMode) {
+                updatePowerModeNotification(activeHubId, eventId, previousMode, reportedMode);
+              }
+            }
             const awaiting = awaitingReportedModeRef.current;
             if (awaiting && reportedMode !== awaiting.mode) {
               if (Date.now() < awaiting.expiresAt) return;
@@ -161,7 +254,7 @@ export function PowerOverrideProvider({ children }: { children: ReactNode }) {
       }
       mqttClientRef.current = null;
     };
-  }, []);
+  }, [updateSmokeEmergency]);
 
   useEffect(() => {
     AsyncStorage.getItem(STORAGE_KEY)
@@ -182,6 +275,12 @@ export function PowerOverrideProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const setOverride = useCallback(async (o: PowerOverride) => {
+    try {
+      assertPowerControlsAvailable();
+    } catch {
+      console.warn("[power-override] rejected mode change during smoke emergency");
+      return;
+    }
     userSelectedModeRef.current = true;
     overrideRef.current = o;
     setOverrideState(o);
@@ -214,7 +313,7 @@ export function PowerOverrideProvider({ children }: { children: ReactNode }) {
       pendingOverrideRef.current = o;
       console.error("[power-override] failed to send mode to device", error);
     }
-  }, []);
+  }, [assertPowerControlsAvailable]);
 
   const clearOverride = useCallback(() => setOverride(null), [setOverride]);
 
@@ -230,6 +329,9 @@ export function PowerOverrideProvider({ children }: { children: ReactNode }) {
       overridesOpen,
       openOverrides,
       closeOverrides,
+      smokeEmergencyActive,
+      smokeEmergencyZone,
+      assertPowerControlsAvailable,
     }),
     [
       override,
@@ -238,6 +340,9 @@ export function PowerOverrideProvider({ children }: { children: ReactNode }) {
       overridesOpen,
       openOverrides,
       closeOverrides,
+      smokeEmergencyActive,
+      smokeEmergencyZone,
+      assertPowerControlsAvailable,
     ],
   );
 

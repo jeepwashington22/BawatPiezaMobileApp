@@ -65,7 +65,7 @@ function matchesQuery(q: string, name: string, email?: string | null): boolean {
 
 /** Display name for a candidate/account row. */
 function displayNameOf(u: Account): string {
-  return u.name ?? [u.firstname, u.lastname].filter(Boolean).join(' ') ?? u.email ?? 'Unnamed';
+  return u.name || [u.firstname, u.lastname].filter(Boolean).join(' ') || u.email || 'Unnamed';
 }
 
 /** Role tabs under the list. Backend roles are `admin` | `staff`: Owner tab
@@ -101,6 +101,7 @@ export default function AccountsScreen() {
   // Only device owners can invite; searching is available to every account.
   const [invitable, setInvitable] = useState<Account[]>([]);
   const [invitableLoading, setInvitableLoading] = useState(false);
+  const [invitableError, setInvitableError] = useState<string | null>(null);
   const [invitingId, setInvitingId] = useState<string | null>(null);
 
   // Accept / decline busy state (invite id currently in flight).
@@ -122,6 +123,7 @@ export default function AccountsScreen() {
     setLoading(true);
     setError(null);
     setInvitableLoading(true);
+    setInvitableError(null);
     try {
       const token = await getToken();
       if (!token) throw new Error('Not signed in');
@@ -157,10 +159,14 @@ export default function AccountsScreen() {
       }
       // A failed invites call is non-fatal: the member list still renders.
 
-      if (invitableRes.ok) {
-        const invJson = (await invitableRes.json().catch(() => null)) as {
-          accounts?: Account[];
-        } | null;
+      const invJson = (await invitableRes.json().catch(() => null)) as {
+        accounts?: Account[];
+        message?: string;
+      } | null;
+      if (!invitableRes.ok) {
+        setInvitable([]);
+        setInvitableError(invJson?.message || `User search failed (${invitableRes.status}).`);
+      } else {
         setInvitable(invJson?.accounts ?? []);
       }
 
@@ -365,6 +371,8 @@ export default function AccountsScreen() {
           title={
             invitableLoading
               ? 'Searching users...'
+              : invitableError
+                ? 'Could not search users'
               : inviteResults.length > 0
                 ? canInvite
                   ? `${inviteResults.length} user${inviteResults.length === 1 ? '' : 's'} found — tap Invite`
@@ -383,6 +391,10 @@ export default function AccountsScreen() {
             <View style={styles.inlineStateWrap}>
               <ActivityIndicator size="small" color={PRUSSIAN} />
               <Text style={[styles.inlineStateText, { color: MUTED }]}>Searching users...</Text>
+            </View>
+          ) : invitableError ? (
+            <View style={styles.inlineStateWrap}>
+              <Text style={[styles.inlineStateText, { color: MUTED }]}>{invitableError}</Text>
             </View>
           ) : inviteResults.length === 0 ? (
             <View style={styles.inlineStateWrap}>

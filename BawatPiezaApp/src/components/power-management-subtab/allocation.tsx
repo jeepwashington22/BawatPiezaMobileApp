@@ -13,6 +13,7 @@ import {
   getChannelPriorityOption,
   type ChannelPriority,
 } from "../../lib/device-priority";
+import { usePowerOverride } from "../../hooks/use-power-override";
 
 type ConfiguredChannel = {
   channel: number;
@@ -45,6 +46,7 @@ export function Allocation({
   batteryV: number | null;
   telemetryConnection: "connecting" | "live" | "offline";
 }) {
+  const { assertPowerControlsAvailable } = usePowerOverride();
   const [channels, setChannels] = useState<ConfiguredChannel[]>([]);
   const [activeChannel, setActiveChannel] = useState<number | null>(null);
   const [allocs, setAllocs] = useState<Record<number, number>>({});
@@ -249,6 +251,7 @@ export function Allocation({
     return { at: next.getTime(), delay: next.getTime() - now };
   };
   const sendAllocationCommands = async () => {
+    assertPowerControlsAvailable();
     const hubId = await AsyncStorage.getItem("bawatpieza_hub_id");
     if (!hubId) throw new Error("Paired hub is unavailable.");
     const channelsToPower = channels.filter(
@@ -283,6 +286,7 @@ export function Allocation({
         keepAliveInterval: 20,
         onSuccess: () => {
           try {
+            assertPowerControlsAvailable();
             const topic = `bawatpieza/devices/${hubId}/commands`;
             const commands = [
               { command: "force_battery" },

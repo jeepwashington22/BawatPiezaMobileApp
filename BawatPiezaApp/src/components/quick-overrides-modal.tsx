@@ -8,7 +8,13 @@ import { fonts, useTheme } from "../theme";
 import { scale } from "./glass-ui";
 import { usePowerOverride } from "../hooks/use-power-override";
 
-type Props = { visible: boolean; onClose: () => void };
+type PowerMode = "grid" | "battery" | "shutdown";
+
+type Props = {
+  visible: boolean;
+  onClose: () => void;
+  liveMode?: PowerMode | null;
+};
 
 /** Brand orange — every accent inside the sheet is built from these three stops. */
 const ORANGE = "#F97316";
@@ -19,16 +25,29 @@ const ORANGE_STOPS: [string, string, string] = [
 ];
 const GRID_GREEN = "#16A34A";
 const GRID_STOPS: [string, string, string] = ["#4ADE80", "#22C55E", "#16A34A"];
+const SHUTDOWN_RED = "#DC2626";
+const SHUTDOWN_STOPS: [string, string, string] = [
+  "#F87171",
+  "#EF4444",
+  "#DC2626",
+];
 
-export function QuickOverridesModal({ visible, onClose }: Props) {
+export function QuickOverridesModal({ visible, onClose, liveMode }: Props) {
   const router = useRouter();
   const { colors: c } = useTheme();
   const insets = useSafeAreaInsets();
-  const { override, setOverride } = usePowerOverride();
-  const gridActive = override === "grid";
-  const powerStops = gridActive ? GRID_STOPS : ORANGE_STOPS;
+  const { override, setOverride, smokeEmergencyActive } = usePowerOverride();
 
-  const handleOverride = (mode: "grid" | "battery" | "shutdown") => {
+  const currentMode = liveMode ?? override;
+  const gridActive = currentMode === "grid";
+  const shutdownActive = currentMode === "shutdown";
+  const powerStops = gridActive
+    ? GRID_STOPS
+    : shutdownActive
+      ? SHUTDOWN_STOPS
+      : ORANGE_STOPS;
+
+  const handleOverride = (mode: PowerMode) => {
     void setOverride(mode);
     onClose();
   };
@@ -88,38 +107,52 @@ export function QuickOverridesModal({ visible, onClose }: Props) {
             <OverrideButton
               icon="arrow-back"
               label="Force Grid"
-              active={override === "grid"}
+              active={currentMode === "grid"}
+              disabled={smokeEmergencyActive}
               color={GRID_GREEN}
+              iconBg="rgba(22, 163, 74, 0.14)"
               onPress={() => handleOverride("grid")}
             />
             <OverrideButton
               icon="flash"
               label="Force Battery"
-              active={override === "battery"}
+              active={currentMode === "battery"}
+              disabled={smokeEmergencyActive}
               color={ORANGE}
+              iconBg="rgba(249, 115, 22, 0.14)"
               onPress={() => handleOverride("battery")}
             />
             <OverrideButton
               icon="power"
               label="Shutdown"
-              active={override === "shutdown"}
-              color="#DC2626"
+              active={currentMode === "shutdown"}
+              disabled={smokeEmergencyActive}
+              color={SHUTDOWN_RED}
+              iconBg="rgba(220, 38, 38, 0.14)"
               onPress={() => handleOverride("shutdown")}
             />
           </View>
 
           <Pressable
             onPress={() => {
+              if (smokeEmergencyActive) return;
               onClose();
               router.push("/pages/power-management");
             }}
             style={({ pressed }) => [
               styles.ctaWrap,
-              { shadowColor: gridActive ? GRID_GREEN : "#EA580C" },
+              {
+                shadowColor: gridActive
+                  ? GRID_GREEN
+                  : shutdownActive
+                    ? SHUTDOWN_RED
+                    : "#EA580C",
+              },
               pressed && { opacity: 0.92 },
             ]}
             accessibilityRole="button"
             accessibilityLabel="Open full power management"
+            disabled={smokeEmergencyActive}
           >
             <LinearGradient
               colors={powerStops}
@@ -141,19 +174,24 @@ function OverrideButton({
   icon,
   label,
   active,
+  disabled = false,
   color,
+  iconBg,
   onPress,
 }: {
   icon: keyof typeof Ionicons.glyphMap;
   label: string;
   active: boolean;
+  disabled?: boolean;
   color: string;
+  iconBg: string;
   onPress: () => void;
 }) {
   const { colors: c } = useTheme();
   return (
     <Pressable
       onPress={onPress}
+      disabled={disabled}
       accessibilityRole="button"
       accessibilityLabel={label}
       style={({ pressed }) => [
@@ -170,19 +208,10 @@ function OverrideButton({
           elevation: 4,
         },
         pressed && { opacity: 0.8 },
+        disabled && { opacity: 0.45 },
       ]}
     >
-      <View
-        style={[
-          styles.icon,
-          {
-            backgroundColor:
-              active && color === GRID_GREEN
-                ? "rgba(22,163,74,0.14)"
-                : "rgba(249,115,22,0.14)",
-          },
-        ]}
-      >
+      <View style={[styles.icon, { backgroundColor: iconBg }]}>
         <Ionicons name={icon} size={scale(15)} color={color} />
       </View>
       <Text style={[styles.buttonText, { color: c.text }]}>{label}</Text>
@@ -259,7 +288,6 @@ const styles = StyleSheet.create({
     width: scale(34),
     height: scale(34),
     borderRadius: scale(11),
-    backgroundColor: "rgba(249, 115, 22, 0.14)",
     alignItems: "center",
     justifyContent: "center",
     marginBottom: scale(8),

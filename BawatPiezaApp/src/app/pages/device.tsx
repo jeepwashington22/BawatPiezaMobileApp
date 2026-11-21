@@ -488,14 +488,9 @@ export default function DeviceScreen() {
             .eq("hub_id", targetHubId);
           await supabase.from("hubs").delete().eq("id", targetHubId);
         } else {
-          // Shared user: only remove user's access & pairing
+          // Shared user: only remove user's shared access from device_access
           await supabase
             .from("device_access")
-            .delete()
-            .eq("hub_id", targetHubId)
-            .eq("user_id", user.id);
-          await supabase
-            .from("device_pairings")
             .delete()
             .eq("hub_id", targetHubId)
             .eq("user_id", user.id);
@@ -534,10 +529,12 @@ export default function DeviceScreen() {
         AsyncStorage.removeItem("bawatpieza_temp_channels"),
         AsyncStorage.removeItem(deviceSetupRequiredKey(user.id)),
       ]);
+      clearApiGetCache("/accounts/device-access");
       notifyDeviceAccessChanged(false);
 
       setHubId(null);
       setCanUnlink(false);
+      setDeviceAccessState("unpaired");
       setDeviceStatus("Offline");
       setWaitingForRestart(false);
       accessRefreshIdRef.current += 1;

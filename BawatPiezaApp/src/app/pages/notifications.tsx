@@ -11,6 +11,11 @@ import { useAuth } from '../../hooks/use-auth';
 import { supabase } from '../../lib/supabase';
 import { apiFetch } from '../../lib/api';
 import { describeApiFailure } from '../../lib/network';
+import {
+  getLocalNotifications,
+  markLocalNotificationsRead,
+  mergeLocalNotifications,
+} from '../../lib/local-notifications';
 import { fonts, useTheme, type ThemeColors } from '../../theme';
 
 /**
@@ -87,6 +92,8 @@ function toneForType(type: string): { icon: keyof typeof Ionicons.glyphMap; tone
       return { icon: 'battery-full-outline', tone: 'success' };
     case 'battery_low':
       return { icon: 'battery-dead-outline', tone: 'warning' };
+    case 'power_mode_changed':
+      return { icon: 'flash-outline', tone: 'notice' };
     case 'smoke_detected':
       return { icon: 'warning-outline', tone: 'danger' };
     default:
@@ -228,11 +235,14 @@ export default function NotificationsScreen() {
           } | null
         : null;
       const pendingInviteIds = new Set((invitesJson?.received ?? []).map((invite) => invite.id));
-      const notifications = (json?.notifications ?? []).filter(
+      const serverNotifications = (json?.notifications ?? []).filter(
         (notification) =>
           notification.type !== 'share_invite' ||
           (notification.reference_id !== null && pendingInviteIds.has(notification.reference_id)),
       );
+      const notifications = cacheKey && session?.user?.id
+        ? await mergeLocalNotifications(session.user.id, serverNotifications)
+        : serverNotifications;
       setItems(mapNotifications(notifications));
       setUnread(notifications.filter((notification) => notification.read_at === null).length);
       if (cacheKey) {
@@ -247,23 +257,39 @@ export default function NotificationsScreen() {
         }
       }
     } catch (e) {
-      if (cacheKey && !hasCachedFeed) {
+      if (cacheKey) {
         try {
           const cachedValue = await AsyncStorage.getItem(cacheKey);
           if (cachedValue) {
             const cached = JSON.parse(cachedValue) as NotificationCache;
             if (Array.isArray(cached.notifications)) {
-              const nonInviteNotifications = cached.notifications.filter(
+              const cachedNotifications = cached.notifications.filter(
                 (notification) => notification.type !== 'share_invite',
               );
-              setItems(mapNotifications(nonInviteNotifications));
-              setUnread(nonInviteNotifications.filter((notification) => notification.read_at === null).length);
+              const mergedNotifications = session?.user?.id
+                ? await mergeLocalNotifications(session.user.id, cachedNotifications)
+                : cachedNotifications;
+              setItems(mapNotifications(mergedNotifications));
+              setUnread(mergedNotifications.filter((notification) => notification.read_at === null).length);
               setError('Showing cached notifications. We could not check for new updates.');
               return;
             }
           }
         } catch {
           // A corrupt or unavailable cache must not hide the original error.
+        }
+      }
+      if (session?.user?.id) {
+        try {
+          const localNotifications = await getLocalNotifications(session.user.id);
+          if (localNotifications.length) {
+            setItems(mapNotifications(localNotifications));
+            setUnread(localNotifications.filter((notification) => notification.read_at === null).length);
+            setError('Showing saved notifications. We could not check for new updates.');
+            return;
+          }
+        } catch (localError) {
+          console.warn('[notifications] Could not load saved local notifications:', localError);
         }
       }
       if (!hasCachedFeed) {
@@ -368,6 +394,7 @@ export default function NotificationsScreen() {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
       });
+      if (session?.user?.id) await markLocalNotificationsRead(session.user.id);
       await load();
     } catch (e) {
       setError(describeApiFailure(e, 'Could not mark notifications as read'));

@@ -2,6 +2,7 @@ import Constants from "expo-constants";
 import * as Device from "expo-device";
 import { AppState, DeviceEventEmitter, Platform, Vibration } from "react-native";
 import { apiFetch } from "./api";
+import { removeLocalNotification, saveLocalNotification } from "./local-notifications";
 import { supabase } from "./supabase";
 
 type NotificationModule = typeof import("expo-notifications");
@@ -10,9 +11,12 @@ let Notifications: NotificationModule | null = null;
 let feedRefreshTimeout: ReturnType<typeof setTimeout> | null = null;
 let lastSmokeNotificationEventId: string | null = null;
 let lastSmokeNotificationSource: "local" | "remote" | null = null;
+let lastPowerModeNotificationEventId: string | null = null;
+let lastPowerModeNotificationSource: "local" | "remote" | null = null;
 let smokeLocalNotificationShown = false;
 const pendingSmokePersist = new Map<string, Promise<void>>();
 const persistedSmokeEvents = new Set<string>();
+const notifiedPowerModeEvents = new Set<string>();
 
 function signalNotificationFeedRefresh(): void {
   if (feedRefreshTimeout) clearTimeout(feedRefreshTimeout);
@@ -89,15 +93,92 @@ async function persistSmokeEvent(
   }
 }
 
+async function persistPowerModeEvent(
+  hubId: string,
+  eventId: string,
+  previousMode: "grid" | "battery" | "shutdown",
+  currentMode: "grid" | "battery" | "shutdown",
+): Promise<void> {
+  const { data } = await supabase.auth.getSession();
+  const session = data.session;
+  const accessToken = session?.access_token;
+  if (!session || !accessToken) throw new Error("Cannot persist power-mode alert while signed out");
+  const userId = session.user.id;
+  const modeName = currentMode === "shutdown"
+    ? "Shutdown"
+    : currentMode === "grid"
+      ? "Grid"
+      : "Battery";
+  const title = `Power source switched to ${modeName}`;
+  const body = currentMode === "shutdown"
+    ? `Your device has shut down (previously using ${previousMode}).`
+    : `Your device is now using ${modeName.toLowerCase()} power (previously using ${previousMode}).`;
+  const localId = `local:power_mode_changed:${encodeURIComponent(hubId)}:${encodeURIComponent(eventId)}`;
+
+  try {
+    await saveLocalNotification(userId, {
+      id: localId,
+      type: "power_mode_changed",
+      title,
+      body,
+      payload: { type: "power_mode_changed", eventId, hubId, previousMode, currentMode },
+      reference_id: null,
+      read_at: null,
+      created_at: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.warn("[push-notifications] failed to save local power-mode inbox alert", error);
+  }
+  signalNotificationFeedRefresh();
+
+  const response = await apiFetch("/notifications/power-mode-event", {
+    method: "POST",
+    timeoutMs: 8_000,
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ hubId, eventId, previousMode, currentMode }),
+  });
+  const responseText = await response.text();
+  if (!response.ok) {
+    throw new Error(
+      `Power-mode notification save failed (${response.status})${responseText ? `: ${responseText.slice(0, 300)}` : ""}`,
+    );
+  }
+  let result: { notification?: { id?: string } } | null = null;
+  try {
+    result = JSON.parse(responseText) as { notification?: { id?: string } };
+  } catch {
+    throw new Error("Backend returned an invalid power-mode notification response");
+  }
+  if (!result?.notification?.id) {
+    throw new Error("Backend did not return the saved power-mode notification");
+  }
+  try {
+    await removeLocalNotification(userId, localId);
+  } catch (error) {
+    console.warn("[push-notifications] failed to clear synced power-mode inbox alert", error);
+  }
+  signalNotificationFeedRefresh();
+}
+
 try {
   Notifications = require("expo-notifications") as NotificationModule;
   Notifications.setNotificationHandler({
     handleNotification: async (notification) => {
       const content = notification.request.content;
       const isSmokeAlert = content.data?.type === "smoke_detected";
+      const isPowerModeAlert = content.data?.type === "power_mode_changed";
       const isLocalSmokeAlert = content.data?.source === "mqtt_local";
+      const isLocalPowerModeAlert = content.data?.source === "mqtt_local";
       const eventId =
         typeof content.data?.eventId === "string" ? content.data.eventId : null;
+      const hubId =
+        typeof content.data?.hubId === "string" ? content.data.hubId : "";
+      const powerModeEventKey = eventId
+        ? `${hubId}:${eventId}`
+        : null;
       if (
         isSmokeAlert &&
         !isLocalSmokeAlert &&
@@ -112,9 +193,47 @@ try {
           shouldSetBadge: true,
         };
       }
+      if (
+        isPowerModeAlert &&
+        !isLocalPowerModeAlert &&
+        powerModeEventKey &&
+        notifiedPowerModeEvents.has(powerModeEventKey)
+      ) {
+        return {
+          shouldShowBanner: false,
+          shouldShowList: false,
+          shouldPlaySound: false,
+          shouldSetBadge: true,
+        };
+      }
+      if (
+        isPowerModeAlert &&
+        !isLocalPowerModeAlert &&
+        eventId &&
+        lastPowerModeNotificationEventId === eventId &&
+        lastPowerModeNotificationSource === "local"
+      ) {
+        return {
+          shouldShowBanner: false,
+          shouldShowList: false,
+          shouldPlaySound: false,
+          shouldSetBadge: true,
+        };
+      }
       if (isSmokeAlert) {
         lastSmokeNotificationEventId = eventId;
         lastSmokeNotificationSource = isLocalSmokeAlert ? "local" : "remote";
+      }
+      if (isPowerModeAlert) {
+        if (powerModeEventKey) {
+          notifiedPowerModeEvents.add(powerModeEventKey);
+          if (notifiedPowerModeEvents.size > 100) {
+            const oldest = notifiedPowerModeEvents.values().next().value;
+            if (oldest) notifiedPowerModeEvents.delete(oldest);
+          }
+        }
+        lastPowerModeNotificationEventId = eventId;
+        lastPowerModeNotificationSource = isLocalPowerModeAlert ? "local" : "remote";
       }
       return {
         shouldShowBanner: true,
@@ -150,6 +269,14 @@ export async function registerPushNotifications(accessToken: string): Promise<vo
       bypassDnd: true,
       showBadge: true,
     });
+    await Notifications.setNotificationChannelAsync("power-mode-alert-v1", {
+      name: "Power source changes",
+      importance: Notifications.AndroidImportance.MAX,
+      sound: "custom_sound.wav",
+      enableVibrate: true,
+      lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+      showBadge: true,
+    });
   }
 
   const { status: existingStatus } = await Notifications.getPermissionsAsync();
@@ -167,14 +294,81 @@ export async function registerPushNotifications(accessToken: string): Promise<vo
     projectId ? { projectId } : undefined,
   );
 
-  await apiFetch("/notifications/push-token", {
+  const response = await apiFetch("/notifications/push-token", {
     method: "POST",
     timeoutMs: 8_000,
-    headers: { Authorization: `Bearer ${accessToken}` },
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
     body: JSON.stringify({
       expoPushToken: token.data,
       platform: Platform.OS,
     }),
+  });
+  if (!response.ok) {
+    const responseText = await response.text();
+    throw new Error(
+      `Push token registration failed (${response.status})${responseText ? `: ${responseText.slice(0, 300)}` : ""}`,
+    );
+  }
+}
+
+export function updatePowerModeNotification(
+  hubId: string,
+  eventId: string,
+  previousMode: "grid" | "battery" | "shutdown",
+  currentMode: "grid" | "battery" | "shutdown",
+): void {
+  const key = `${hubId}:${eventId}`;
+  if (!eventId || previousMode === currentMode || notifiedPowerModeEvents.has(key)) return;
+  notifiedPowerModeEvents.add(key);
+  if (notifiedPowerModeEvents.size > 100) {
+    const oldest = notifiedPowerModeEvents.values().next().value;
+    if (oldest) notifiedPowerModeEvents.delete(oldest);
+  }
+
+  const modeName = currentMode === "shutdown"
+    ? "Shutdown"
+    : currentMode === "grid"
+      ? "Grid"
+      : "Battery";
+  const title = `Power source switched to ${modeName}`;
+  const body = currentMode === "shutdown"
+    ? `Your device has shut down (previously using ${previousMode}).`
+    : `Your device is now using ${modeName.toLowerCase()} power (previously using ${previousMode}).`;
+  lastPowerModeNotificationEventId = eventId;
+  lastPowerModeNotificationSource = "local";
+
+  if (Notifications) {
+    void Notifications.scheduleNotificationAsync({
+      content: {
+        title,
+        body,
+        sound: "custom_sound.wav",
+        priority: Notifications.AndroidNotificationPriority.MAX,
+        data: {
+          type: "power_mode_changed",
+          source: "mqtt_local",
+          eventId,
+          hubId,
+          previousMode,
+          currentMode,
+          title,
+          body,
+        },
+        ...(Platform.OS === "android" ? { channelId: "power-mode-alert-v1" } : {}),
+      },
+      trigger: null,
+    }).then((notificationId) => {
+      console.info(`[push-notifications] local power-mode alert scheduled hub=${hubId} event_id=${eventId} notification_id=${notificationId}`);
+    }).catch((error) => {
+      console.error(`[push-notifications] failed to schedule local power-mode alert hub=${hubId} event_id=${eventId}`, error);
+    });
+  }
+
+  void persistPowerModeEvent(hubId, eventId, previousMode, currentMode).catch((error) => {
+    console.error(`[push-notifications] failed to persist power-mode alert hub=${hubId} event_id=${eventId}`, error);
   });
 }
 

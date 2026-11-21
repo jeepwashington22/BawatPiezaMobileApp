@@ -18,6 +18,7 @@ import { AuthGate } from "../hooks/use-auth-gate";
 import { AppTourProvider } from "../hooks/use-app-tour";
 import { NetworkBanner } from "../components/network-banner";
 import { QuickOverridesModal } from "../components/quick-overrides-modal";
+import { SmokeEmergencyModal } from "../components/smoke-emergency-modal";
 import { AppTourOverlay } from "../components/app-tour-overlay";
 
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -203,6 +204,7 @@ function AuthedShell({ fontsLoaded }: { fontsLoaded: boolean }) {
         />
       </Stack>
       <GlobalOverridesSheet />
+      <GlobalSmokeEmergency />
       {isLoggedIn && (currentRoute === "/home" || currentRoute === "/") && (
         <AppTourOverlay />
       )}
@@ -213,4 +215,9 @@ function AuthedShell({ fontsLoaded }: { fontsLoaded: boolean }) {
 function GlobalOverridesSheet() {
   const { overridesOpen, closeOverrides } = usePowerOverride();
   return <QuickOverridesModal visible={overridesOpen} onClose={closeOverrides} />;
+}
+
+function GlobalSmokeEmergency() {
+  const { smokeEmergencyActive, smokeEmergencyZone } = usePowerOverride();
+  return <SmokeEmergencyModal visible={smokeEmergencyActive} zone={smokeEmergencyZone} />;
 }

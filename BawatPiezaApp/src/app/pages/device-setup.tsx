@@ -24,6 +24,7 @@ import {
   type ChannelPriority,
 } from "../../lib/device-priority";
 import { supabase } from "../../lib/supabase";
+import { apiFetch } from "../../lib/api";
 import { notifyDeviceAccessChanged } from "../../components/device-status-banner";
 import { fonts, useTheme } from "../../theme";
 
@@ -218,7 +219,33 @@ export default function DeviceSetupScreen() {
         user.id,
       );
 
-      // 1. Insert/Upsert Hub Row (THROWS ERROR ON FAILURE)
+      // Pair first through the backend so an existing owner's hub can never
+      // be reassigned, and do not write hub setup until ownership is verified.
+      const { data: authData } = await supabase.auth.getSession();
+      const token = authData.session?.access_token;
+      if (!token) throw new Error("Your session expired. Please sign in again.");
+      const pairingResponse = await apiFetch("/accounts/device-pairing", {
+        method: "POST",
+        headers: {
+          Authorization: `******`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ hub_id: hubId }),
+        timeoutMs: 8_000,
+      });
+      const pairingResult = (await pairingResponse.json().catch(() => null)) as {
+        message?: string;
+        error?: string;
+      } | null;
+      if (!pairingResponse.ok) {
+        throw new Error(
+          pairingResult?.message ||
+            pairingResult?.error ||
+            `Failed to pair device (${pairingResponse.status}).`,
+        );
+      }
+
+      // Save hub configuration only after the backend confirms pairing access.
       const { error: hubErr } = await supabase.from("hubs").upsert({
         id: hubId,
         name: "F1 Energy Hub",
@@ -228,22 +255,6 @@ export default function DeviceSetupScreen() {
       });
       if (hubErr) {
         throw new Error(`Failed to save hub record: ${hubErr.message}`);
-      }
-
-      // 2. Insert/Upsert Device Pairing Row (THROWS ERROR ON FAILURE)
-      const { error: pairingErr } = await supabase
-        .from("device_pairings")
-        .upsert(
-          {
-            hub_id: hubId,
-            user_id: user.id,
-            last_connected: new Date().toISOString(),
-            fw_version: "1.0.0",
-          },
-          { onConflict: "hub_id" },
-        );
-      if (pairingErr) {
-        throw new Error(`Failed to pair device to user: ${pairingErr.message}`);
       }
 
       // 3. Insert/Upsert Device Setups Row (THROWS ERROR ON FAILURE)

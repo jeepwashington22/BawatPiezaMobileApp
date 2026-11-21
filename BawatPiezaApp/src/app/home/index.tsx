@@ -71,6 +71,10 @@ type HubTelemetry = {
   grid_a?: unknown;
   grid_w?: unknown;
   grid_kwh?: unknown;
+  grid_ac_available?: unknown;
+  grid_in_v?: unknown;
+  grid_in_a?: unknown;
+  grid_in_w?: unknown;
   charger_on?: unknown;
   power_mode?: unknown;
   ch1_on?: unknown;
@@ -117,12 +121,22 @@ export default function HomeScreen() {
   const [hubPowerMode, setHubPowerMode] = useState<
     "grid" | "battery" | "shutdown" | null
   >(null);
+  const [gridAcAvailable, setGridAcAvailable] = useState<boolean | null>(null);
   const [smokeDetected, setSmokeDetected] = useState(false);
   const [smokeZone, setSmokeZone] = useState("");
   const previousSmokeRef = useRef(false);
 
-  const effectiveMode = hubPowerMode ?? override;
-  const usingGrid = effectiveMode === "grid" || effectiveMode === null;
+  const rawEffectiveMode = hubPowerMode ?? override;
+  const effectiveMode: "grid" | "battery" | "shutdown" =
+    rawEffectiveMode === "shutdown"
+      ? "shutdown"
+      : gridAcAvailable === false
+        ? "battery"
+        : gridAcAvailable === true
+          ? "grid"
+          : (rawEffectiveMode ?? "grid");
+
+  const usingGrid = effectiveMode === "grid";
 
   const activeOrange = BRAND_ORANGE;
   const activeOrangeDark = BRAND_ORANGE_DARK;
@@ -324,9 +338,7 @@ export default function HomeScreen() {
       { footsteps: number; energyJ: number }
     >();
     for (const log of logs) {
-      const eventKey = log.event_id
-        ? `${log.hub_id}:${log.event_id}`
-        : log.id;
+      const eventKey = log.event_id ? `${log.hub_id}:${log.event_id}` : log.id;
       if (seenEvents.has(eventKey)) continue;
       seenEvents.add(eventKey);
       const day = getDateKey(new Date(log.created_at));
@@ -404,6 +416,7 @@ export default function HomeScreen() {
     setFootsteps(0);
     setZones([]);
     setHubPowerMode(null);
+    setGridAcAvailable(null);
     setHasLoadedGenerationSummary(true);
     setMqttStatus("Offline");
   }, [hasDevice]);
@@ -418,17 +431,6 @@ export default function HomeScreen() {
         setMqttStatus("Offline");
         setRefreshing(false);
         return;
-      }
-
-      if (user?.id) {
-        const { error } = await supabase.from("device_pairings").upsert({
-          hub_id: hubId,
-          user_id: user.id,
-          last_connected: new Date().toISOString(),
-        });
-        if (error) {
-          console.warn("[dashboard] failed to register hub pairing", error);
-        }
       }
 
       const clientId = `app-home-${Math.random().toString(16).substring(2, 8)}`;
@@ -473,7 +475,12 @@ export default function HomeScreen() {
           if (power !== null) setGridPower(power);
           if (energy !== null) setGridEnergyKwh(energy);
 
-          // Sync live physical power_mode from ESP32 telemetry
+          // Sync 2nd PZEM Grid AC availability & live physical power_mode from ESP32 telemetry
+          const gridAcOnline = readTelemetryBoolean(data.grid_ac_available);
+          if (gridAcOnline !== null) {
+            setGridAcAvailable(gridAcOnline);
+          }
+
           if (
             data.power_mode === "grid" ||
             data.power_mode === "battery" ||
@@ -502,7 +509,9 @@ export default function HomeScreen() {
               smokeActive,
               typeof data.smoke_zone === "string" ? data.smoke_zone : "",
               hubId,
-              typeof data.smoke_event_id === "string" ? data.smoke_event_id : "",
+              typeof data.smoke_event_id === "string"
+                ? data.smoke_event_id
+                : "",
             );
           }
 
@@ -619,42 +628,49 @@ export default function HomeScreen() {
     return () => clearTimeout(timer);
   }, [ready, isLoggedIn, checked, completed, welcomeSeen, openWelcome]);
 
-  const onZoneToggle = useCallback(async (zoneId: string) => {
-    if (smokeDetected) return;
-    let targetChannel: number | undefined;
-    let nextState = false;
+  const onZoneToggle = useCallback(
+    async (zoneId: string) => {
+      if (smokeDetected) return;
+      let targetChannel: number | undefined;
+      let nextState = false;
 
-    setZones((currentZones) =>
-      currentZones.map((zone) => {
-        if (zone.id === zoneId) {
-          targetChannel = zone.channel;
-          nextState = !zone.on;
-          if (targetChannel !== undefined) {
-            lastToggleAtRef.current[targetChannel] = Date.now();
+      setZones((currentZones) =>
+        currentZones.map((zone) => {
+          if (zone.id === zoneId) {
+            targetChannel = zone.channel;
+            nextState = !zone.on;
+            if (targetChannel !== undefined) {
+              lastToggleAtRef.current[targetChannel] = Date.now();
+            }
+            return { ...zone, on: nextState };
           }
-          return { ...zone, on: nextState };
-        }
-        return zone;
-      }),
-    );
+          return zone;
+        }),
+      );
 
-    try {
-      const hubId = await AsyncStorage.getItem("bawatpieza_hub_id");
-      const client = mqttClientRef.current;
-      if (!hubId || !client?.isConnected()) return;
+      try {
+        const hubId = await AsyncStorage.getItem("bawatpieza_hub_id");
+        const client = mqttClientRef.current;
+        if (!hubId || !client?.isConnected()) return;
 
-      const payload =
-        targetChannel !== undefined
-          ? { command: "room_relay", channel: targetChannel, state: nextState }
-          : { command: nextState ? "charger_on" : "charger_off" };
+        const payload =
+          targetChannel !== undefined
+            ? {
+                command: "room_relay",
+                channel: targetChannel,
+                state: nextState,
+              }
+            : { command: nextState ? "charger_on" : "charger_off" };
 
-      const message = new Paho.Message(JSON.stringify(payload));
-      message.destinationName = `bawatpieza/devices/${hubId}/commands`;
-      client.send(message);
-    } catch (error) {
-      console.error("[dashboard] failed to send zone relay command", error);
-    }
-  }, [smokeDetected]);
+        const message = new Paho.Message(JSON.stringify(payload));
+        message.destinationName = `bawatpieza/devices/${hubId}/commands`;
+        client.send(message);
+      } catch (error) {
+        console.error("[dashboard] failed to send zone relay command", error);
+      }
+    },
+    [smokeDetected],
+  );
 
   const [activeTile, setActiveTile] = useState<number | null>(null);
   const [installedTileCount, setInstalledTileCount] = useState(0);
