@@ -54,6 +54,9 @@ type GenerationSummaryDay = {
 };
 
 type KineticGenerationLog = {
+  id: string;
+  event_id: string | null;
+  hub_id: string;
   created_at: string;
   energy_j: number | string | null;
 };
@@ -74,6 +77,7 @@ type HubTelemetry = {
   ch2_on?: unknown;
   smoke_alert?: unknown;
   smoke_zone?: unknown;
+  smoke_event_id?: unknown;
   event?: unknown;
 };
 
@@ -302,7 +306,7 @@ export default function HomeScreen() {
     for (let offset = 0; ; offset += pageSize) {
       const { data, error } = await supabase
         .from("kinetic_logs")
-        .select("created_at, energy_j")
+        .select("id, event_id, hub_id, created_at, energy_j")
         .eq("hub_id", hubId)
         .gte("created_at", summaryStart.toISOString())
         .order("created_at", { ascending: true })
@@ -314,11 +318,17 @@ export default function HomeScreen() {
       if (page.length < pageSize) break;
     }
 
+    const seenEvents = new Set<string>();
     const dailyTotals = new Map<
       string,
       { footsteps: number; energyJ: number }
     >();
     for (const log of logs) {
+      const eventKey = log.event_id
+        ? `${log.hub_id}:${log.event_id}`
+        : log.id;
+      if (seenEvents.has(eventKey)) continue;
+      seenEvents.add(eventKey);
       const day = getDateKey(new Date(log.created_at));
       const total = dailyTotals.get(day) ?? { footsteps: 0, energyJ: 0 };
       total.footsteps += 1;
@@ -488,9 +498,11 @@ export default function HomeScreen() {
             data.smoke_alert === "true";
           if (smokeActive !== previousSmokeRef.current) {
             previousSmokeRef.current = smokeActive;
-            void updateSmokeAlarm(
+            updateSmokeAlarm(
               smokeActive,
               typeof data.smoke_zone === "string" ? data.smoke_zone : "",
+              hubId,
+              typeof data.smoke_event_id === "string" ? data.smoke_event_id : "",
             );
           }
 
@@ -521,7 +533,14 @@ export default function HomeScreen() {
           }
 
           if (data.event === "footstep") {
-            void loadGenerationSummary();
+            setTimeout(() => {
+              void loadGenerationSummary().catch((error) => {
+                console.error(
+                  "[dashboard] failed to refresh generation after footstep",
+                  error,
+                );
+              });
+            }, 1_000);
           }
         } catch (error) {
           console.error("[dashboard] could not parse hub telemetry", error);

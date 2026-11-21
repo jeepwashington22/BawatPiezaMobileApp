@@ -3,7 +3,7 @@ import { ActivityIndicator, Alert, DeviceEventEmitter, Pressable, StyleSheet, Vi
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AppText as Text } from '../../components/app-text';
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import { ScreenShell } from '../../components/screen-shell';
 import { TileLoader } from '../../components/tile-loader';
 import { ContentCard } from '../../components/content-card';
@@ -36,6 +36,7 @@ type Item = {
   kind: string;
   title: string;
   detail: string;
+  payload?: Record<string, unknown> | null;
   time: string;
   tone: Tone;
   icon: keyof typeof Ionicons.glyphMap;
@@ -48,6 +49,7 @@ type ApiNotification = {
   type: string;
   title: string;
   body: string | null;
+  payload?: Record<string, unknown> | null;
   reference_id: string | null;
   read_at: string | null;
   created_at: string;
@@ -66,6 +68,7 @@ function mapNotifications(notifications: ApiNotification[]): Item[] {
     const mapped = toneForType(n.type);
     return {
       id: n.id, kind: n.type, title: n.title, detail: n.body ?? '',
+      payload: n.payload,
       time: timeAgo(n.created_at), tone: mapped.tone, icon: mapped.icon,
       refId: n.reference_id, read: n.read_at !== null,
     };
@@ -206,7 +209,7 @@ export default function NotificationsScreen() {
     try {
       const token = await getToken();
       if (!token) throw new Error('Not signed in');
-      const res = await apiFetch('/notifications', { timeoutMs: 1_500, silent: true,
+      const res = await apiFetch('/notifications', { timeoutMs: 8_000, silent: true,
         headers: { Authorization: `Bearer ${token}` },
       });
       const json = (await res.json().catch(() => null)) as {
@@ -271,8 +274,18 @@ export default function NotificationsScreen() {
     }
   }, [getToken, session?.user?.id]);
 
+  useFocusEffect(
+    useCallback(() => {
+      void load();
+    }, [load]),
+  );
+
   useEffect(() => {
-    void load();
+    const subscription = DeviceEventEmitter.addListener(
+      'bawatpieza:refresh-notifications',
+      () => void load(),
+    );
+    return () => subscription.remove();
   }, [load]);
 
   const invites = useMemo(() => items.filter((i) => i.kind === 'share_invite'), [items]);

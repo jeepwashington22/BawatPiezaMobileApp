@@ -46,7 +46,7 @@
         {
           "icon": "./assets/images/LOGO4.png",
           "color": "#F97316",
-          "sounds": []
+          "sounds": ["./assets/sounds/custom_sound.wav"]
         }
       ],
       [

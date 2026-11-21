@@ -375,14 +375,24 @@ export default function HeatmapScreen() {
         }
 
         // 2. Fetch Live Log Records from Supabase
-        const { data, error } = await supabase
+        let query = supabase
           .from("kinetic_logs")
           .select("*")
           .order("created_at", { ascending: false })
           .limit(50);
+        if (hubId) query = query.eq("hub_id", hubId);
+        const { data, error } = await query;
 
         if (data && !error && data.length > 0) {
-          const dbLogs: KineticLog[] = data.map((item) => ({
+          const seenEvents = new Set<string>();
+          const uniqueRows = data.filter((item) => {
+            if (typeof item.event_id !== "string" || !item.event_id) return true;
+            const eventKey = `${item.hub_id}:${item.event_id}`;
+            if (seenEvents.has(eventKey)) return false;
+            seenEvents.add(eventKey);
+            return true;
+          });
+          const dbLogs: KineticLog[] = uniqueRows.map((item) => ({
             id: item.id || `tx-${Date.now()}`,
             tile: item.tile_label || "Tile 1",
             time: new Date(item.created_at).toLocaleTimeString([], {
@@ -475,9 +485,18 @@ export default function HeatmapScreen() {
             const now = new Date();
             const timestamp = `${now.getHours().toString().padStart(2, "0")}:${now.getMinutes().toString().padStart(2, "0")}:${now.getSeconds().toString().padStart(2, "0")}`;
             const tileLabel = data.tile ? `Tile ${data.tile}` : "Tile 1";
+            const eventId =
+              typeof data.event_id === "string" && data.event_id.trim()
+                ? data.event_id.trim()
+                : null;
+            if (!eventId) {
+              console.warn(
+                "[heatmap] footstep MQTT event has no event_id; flash updated firmware for duplicate-safe generation logs",
+              );
+            }
 
             const newStep: KineticLog = {
-              id: `tx-${Date.now()}`,
+              id: eventId ? `mqtt:${hubId}:${eventId}` : `tx-${Date.now()}`,
               tile: tileLabel,
               time: timestamp,
               ms: data.ms ? data.ms.toString() : "0",
@@ -488,6 +507,7 @@ export default function HeatmapScreen() {
             };
 
             setKineticLogs((prev) => {
+              if (prev.some((log) => log.id === newStep.id)) return prev;
               const updated = [newStep, ...prev].slice(0, 50);
               AsyncStorage.setItem(
                 LOGS_STORAGE_KEY,
@@ -495,25 +515,6 @@ export default function HeatmapScreen() {
               ).catch(() => {});
               return updated;
             });
-
-            supabase
-              .from("kinetic_logs")
-              .insert([
-                {
-                  hub_id: hubId,
-                  tile_label: tileLabel,
-                  duration_ms: Number(data.ms) || 0,
-                  avg_v: Number(data.avg_v) || 0,
-                  avg_a: Number(data.avg_a) || 0,
-                  power_w: Number(data.avg_w) || 0,
-                  energy_j: Number(data.joules) || 0,
-                },
-              ])
-              .then(({ error }) => {
-                if (error) {
-                  console.error("Supabase insert error:", error.message);
-                }
-              });
           }
 
           // PERIODIC HUB TELEMETRY PAYLOAD

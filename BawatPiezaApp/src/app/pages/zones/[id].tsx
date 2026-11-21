@@ -118,9 +118,11 @@ export default function ZoneDetailScreen() {
             data.smoke_alert === "true";
           if (smokeActive !== previousSmokeRef.current) {
             previousSmokeRef.current = smokeActive;
-            void updateSmokeAlarm(
+            updateSmokeAlarm(
               smokeActive,
               typeof data.smoke_zone === "string" ? data.smoke_zone : "",
+              hubId,
+              typeof data.smoke_event_id === "string" ? data.smoke_event_id : "",
             );
           }
 
