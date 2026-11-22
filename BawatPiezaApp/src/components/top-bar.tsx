@@ -1,13 +1,21 @@
-import { useCallback, useEffect, useState } from 'react';
-import { Alert, DeviceEventEmitter, Image, Pressable, StyleSheet, View } from 'react-native';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { Alert, DeviceEventEmitter, Image, Modal, Pressable, ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native';
 import { AppText as Text } from './app-text';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { supabase } from '../lib/supabase';
 import { apiFetch } from '../lib/api';
 import { getLocalNotifications, mergeLocalNotifications, markLocalNotificationsRead } from '../lib/local-notifications';
+import {
+  notifyDeviceAccessChanged,
+  refreshSharedDeviceAccess,
+} from './device-status-banner';
+import {
+  InviteResponseModal,
+  type InviteResponseAction,
+  type InviteResponseStage,
+} from './invite-response-modal';
 import { useTheme } from '../theme';
 import { scale } from './glass-ui';
 
@@ -115,6 +123,7 @@ function greeting(): string {
 export function TopBar({ gutter = 18, title, subtitle, showBack = false, showTitleChevron = false, lightContent = false, glass = false }: TopBarProps) {
   const router = useRouter();
   const { colors: c, fonts: f, mode } = useTheme();
+  const { height: windowHeight, width: windowWidth } = useWindowDimensions();
 
   const [name, setName] = useState<string | null>(null);
   const [email, setEmail] = useState<string | null>(null);
@@ -124,8 +133,20 @@ export function TopBar({ gutter = 18, title, subtitle, showBack = false, showTit
   const [feedLoading, setFeedLoading] = useState(true);
   const [unread, setUnread] = useState(0);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [notificationAnchor, setNotificationAnchor] = useState({
+    top: scale(80),
+    buttonCenterX: windowWidth / 2,
+  });
+  const notificationButtonRef = useRef<View>(null);
+  const notificationLoadVersion = useRef(0);
   // Invite id currently being accepted/declined from inside the bell panel.
   const [respondingId, setRespondingId] = useState<string | null>(null);
+  const [inviteDialog, setInviteDialog] = useState<{
+    item: FeedItem;
+    action: InviteResponseAction;
+    stage: InviteResponseStage;
+    message?: string;
+  } | null>(null);
 
   /** Badge number: the live unread count. Hidden while loading or at zero. */
   const badgeCount = unread;
@@ -137,19 +158,77 @@ export function TopBar({ gutter = 18, title, subtitle, showBack = false, showTit
     router.push('/pages/notifications');
   };
 
+  /** Marks notifications read as soon as the bell panel is opened. */
+  async function markNotificationsReadOnOpen(): Promise<void> {
+    try {
+      const { data: authData, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError) throw sessionError;
+      const token = authData.session?.access_token;
+      const userId = authData.session?.user?.id;
+      if (!token || !userId) return;
+
+      let markedRead = false;
+      try {
+        const response = await apiFetch('/notifications/read', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!response.ok) {
+          throw new Error(`Mark-read request failed with ${response.status}`);
+        }
+        markedRead = true;
+      } catch (apiError) {
+        console.warn('Notification read endpoint failed; trying Supabase directly.', apiError);
+      }
+
+      if (!markedRead) {
+        const { error } = await supabase
+          .from('notifications')
+          .update({ read_at: new Date().toISOString() })
+          .eq('user_id', userId)
+          .is('read_at', null);
+        if (error) throw error;
+      }
+
+      await markLocalNotificationsRead(userId);
+      const readFeed = feed.map((notification) => ({ ...notification, read: true }));
+      setFeed(readFeed);
+      setUnread(0);
+      notificationSnapshots.set(userId, {
+        feed: readFeed,
+        unread: 0,
+        fetchedAt: Date.now(),
+      });
+    } catch (error) {
+      console.error('Could not mark notifications as read when opening the bell.', error);
+      Alert.alert('Could not mark notifications read', 'Please check your connection and try again.');
+    }
+  }
+
   /** Opens the panel with a fresh feed, or closes it. */
   const toggleNotifications = () => {
-    if (!notificationsOpen) void loadNotifications();
-    setNotificationsOpen((open) => !open);
+    if (!notificationsOpen) {
+      notificationLoadVersion.current += 1;
+      notificationButtonRef.current?.measureInWindow((x, y, width, height) => {
+        setNotificationAnchor({
+          top: y + height + scale(6),
+          buttonCenterX: x + width / 2,
+        });
+      });
+      setNotificationsOpen(true);
+      void markNotificationsReadOnOpen();
+      return;
+    }
+    setNotificationsOpen(false);
   };
 
   /** Loads the signed-in user's in-app notifications; silent on failure. */
   const loadNotifications = useCallback(async (): Promise<void> => {
-    setFeedLoading(true);
+    const loadVersion = ++notificationLoadVersion.current;
     try {
       const { data: authData } = await supabase.auth.getSession();
       const token = authData.session?.access_token;
-      if (!token) return;
+      if (!token) throw new Error('Not signed in');
       const userId = authData.session?.user?.id;
       if (!userId) return;
       notificationAttempts.set(userId, Date.now());
@@ -177,11 +256,13 @@ export function TopBar({ gutter = 18, title, subtitle, showBack = false, showTit
             } | null
           : null;
         const pendingInviteIds = new Set((invitesJson?.received ?? []).map((invite) => invite.id));
-        const activeNotifications = authoritativeJson.notifications.filter(
-          (notification) =>
-            notification.type !== 'share_invite' ||
-            (notification.reference_id !== null && pendingInviteIds.has(notification.reference_id)),
-        );
+        const activeNotifications = invitesResponse.ok
+          ? authoritativeJson.notifications.filter(
+              (notification) =>
+                notification.type !== 'share_invite' ||
+                (notification.reference_id !== null && pendingInviteIds.has(notification.reference_id)),
+            )
+          : authoritativeJson.notifications;
         const mergedNotifications = await mergeLocalNotifications(userId, activeNotifications);
         const authoritativeItems: FeedItem[] = mergedNotifications.map((n) => {
           const { icon, tone } = toneForType(n.type);
@@ -199,6 +280,7 @@ export function TopBar({ gutter = 18, title, subtitle, showBack = false, showTit
         });
         const authoritativeUnread =
           mergedNotifications.filter((notification) => notification.read_at === null).length;
+        if (loadVersion !== notificationLoadVersion.current) return;
         setFeed(authoritativeItems);
         setUnread(authoritativeUnread);
         notificationSnapshots.set(userId, {
@@ -236,6 +318,7 @@ export function TopBar({ gutter = 18, title, subtitle, showBack = false, showTit
           };
         });
         const unreadCount = notifications.filter((notification) => notification.read_at === null).length;
+        if (loadVersion !== notificationLoadVersion.current) return;
         setFeed(items);
         setUnread(unreadCount);
         notificationSnapshots.set(userId, {
@@ -269,8 +352,9 @@ export function TopBar({ gutter = 18, title, subtitle, showBack = false, showTit
           read: n.read_at !== null,
         };
       });
-      setFeed(items);
       const unreadCount = mergedNotifications.filter((notification) => notification.read_at === null).length;
+      if (loadVersion !== notificationLoadVersion.current) return;
+      setFeed(items);
       setUnread(unreadCount);
       notificationSnapshots.set(userId, {
         feed: items,
@@ -284,6 +368,7 @@ export function TopBar({ gutter = 18, title, subtitle, showBack = false, showTit
         const userId = authData.session?.user?.id;
         if (userId) {
           const localNotifications = await getLocalNotifications(userId);
+          if (loadVersion !== notificationLoadVersion.current) return;
           const items: FeedItem[] = localNotifications.map((n) => {
             const { icon, tone } = toneForType(n.type);
             return {
@@ -311,7 +396,7 @@ export function TopBar({ gutter = 18, title, subtitle, showBack = false, showTit
         console.warn('[notifications] Could not load saved local notifications:', localError, error);
       }
     } finally {
-      setFeedLoading(false);
+      if (loadVersion === notificationLoadVersion.current) setFeedLoading(false);
     }
   }, []);
 
@@ -339,12 +424,14 @@ export function TopBar({ gutter = 18, title, subtitle, showBack = false, showTit
       const nonInviteFeed = cachedNotifications.feed.filter((item) => item.kind !== 'share_invite');
       setFeed(nonInviteFeed);
       setUnread(nonInviteFeed.filter((item) => !item.read).length);
-      if (!cachedNotifications.feed.some((item) => item.kind === 'share_invite')) {
-        setFeedLoading(false);
-        return;
-      }
+      setFeedLoading(false);
     }
     void loadNotifications();
+  }, [loadNotifications]);
+
+  useEffect(() => {
+    const interval = setInterval(() => void loadNotifications(), 15_000);
+    return () => clearInterval(interval);
   }, [loadNotifications]);
 
   /** Accept / decline a shared-user invite without leaving the bell panel. */
@@ -352,53 +439,41 @@ export function TopBar({ gutter = 18, title, subtitle, showBack = false, showTit
     const inviteId = item.refId;
     if (!inviteId || respondingId) return;
     setRespondingId(inviteId);
+    setInviteDialog((current) =>
+      current
+        ? {
+            ...current,
+            stage: 'processing',
+            message: action === 'accept' ? 'Accepting invitation…' : 'Saving your response…',
+          }
+        : current,
+    );
     try {
       const { data: authData } = await supabase.auth.getSession();
       const token = authData.session?.access_token;
-      if (!token) return;
+      if (!token) throw new Error('Not signed in');
       const res = await apiFetch(`/accounts/invites/${inviteId}/${action}`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!res.ok) {
         const response = (await res.json().catch(() => null)) as { message?: string } | null;
-        Alert.alert('Could not respond', response?.message ?? `The server responded ${res.status}.`);
-        return;
+        throw new Error(response?.message ?? `The server responded ${res.status}.`);
       }
       // Remove the answered invite immediately; device discovery must not
       // delay or prevent the notification from disappearing.
       setFeed((prev) => (prev ? prev.filter((n) => n.id !== item.id) : prev));
       setUnread((u) => Math.max(0, u - (item.read ? 0 : 1)));
       if (action === 'accept') {
-        try {
-          // Persist shared-access locally so the device gate lets this
-          // account in even without its own paired hub.
-          try {
-            await AsyncStorage.setItem('bawatpieza_shared_access', '1');
-          } catch {
-            // ignore
-          }
-          // Fetch and store the owner's hub_id so device screens work
-          // immediately for shared users.
-          try {
-            const devRes = await apiFetch('/accounts/device-access', {
-              headers: { Authorization: `Bearer ${token}` },
-              timeoutMs: 8_000,
-            });
-            if (devRes.ok) {
-              const devJson = (await devRes.json().catch(() => null)) as {
-                hub_id?: string | null;
-              } | null;
-              if (devJson?.hub_id) {
-                await AsyncStorage.setItem('bawatpieza_hub_id', devJson.hub_id);
-              }
-            }
-          } catch {
-            // ignore — the gate will retry on next launch.
-          }
-        } catch {
-          // Access is already granted; gate re-checks on next launch.
-        }
+        notifyDeviceAccessChanged(null);
+        setInviteDialog((current) =>
+          current
+            ? { ...current, stage: 'processing', message: 'Connecting to the shared device…' }
+            : current,
+        );
+        void refreshSharedDeviceAccess(token).catch((accessError) => {
+          console.warn('[notifications] Shared device is still loading:', accessError);
+        });
       }
       await supabase
         .from('notifications')
@@ -410,30 +485,36 @@ export function TopBar({ gutter = 18, title, subtitle, showBack = false, showTit
         notificationSnapshots.delete(refreshedAuth.session.user.id);
         notificationAttempts.delete(refreshedAuth.session.user.id);
       }
-      await loadNotifications();
-      if (action === 'accept') router.replace('/home');
-    } catch {
-      Alert.alert('Could not respond', 'Please check your connection and try again.');
+      void loadNotifications();
+      setInviteDialog((current) =>
+        current
+          ? {
+              ...current,
+              stage: 'success',
+              message:
+                action === 'accept'
+                  ? 'Invitation accepted. Continue to your device while it connects.'
+                  : 'Your response has been saved.',
+            }
+          : current,
+      );
+    } catch (error) {
+      setInviteDialog((current) =>
+        current
+          ? {
+              ...current,
+              stage: 'error',
+              message: error instanceof Error ? error.message : 'Please check your connection and try again.',
+            }
+          : current,
+      );
     } finally {
       setRespondingId(null);
     }
   };
 
   const confirmInviteResponse = (item: FeedItem, action: 'accept' | 'decline'): void => {
-    Alert.alert(
-      action === 'accept' ? 'Accept shared access?' : 'Decline shared access?',
-      action === 'accept'
-        ? 'The inviter will be able to share their device with you.'
-        : 'You will not get access to the inviter’s device.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: action === 'accept' ? 'Accept' : 'Decline',
-          style: action === 'decline' ? 'destructive' : 'default',
-          onPress: () => void respondToInvite(item, action),
-        },
-      ],
-    );
+    setInviteDialog({ item, action, stage: 'confirm' });
   };
 
   useEffect(() => {
@@ -538,6 +619,7 @@ export function TopBar({ gutter = 18, title, subtitle, showBack = false, showTit
 
             <View style={styles.actions}>
               <Pressable
+                ref={notificationButtonRef}
                 style={({ pressed }) => [
                   styles.iconButton,
                   { backgroundColor: btnBg, borderColor: btnBorder },
@@ -586,6 +668,7 @@ export function TopBar({ gutter = 18, title, subtitle, showBack = false, showTit
 
               <View style={styles.actions}>
                 <Pressable
+                  ref={notificationButtonRef}
                   style={({ pressed }) => [
                     styles.iconButton,
                     { backgroundColor: btnBg, borderColor: btnBorder },
@@ -627,45 +710,72 @@ export function TopBar({ gutter = 18, title, subtitle, showBack = false, showTit
           </>
         )}
       </View>
-      {notificationsOpen && (
-        <View style={[styles.notificationPanel, { backgroundColor: c.surface, borderColor: c.line }]}>
+      <Modal
+        visible={notificationsOpen}
+        transparent
+        animationType="none"
+        statusBarTranslucent
+        onRequestClose={() => setNotificationsOpen(false)}
+      >
+        <View style={styles.notificationModalRoot}>
+          <Pressable
+            style={StyleSheet.absoluteFill}
+            onPress={() => setNotificationsOpen(false)}
+            accessibilityRole="button"
+            accessibilityLabel="Close notifications"
+          />
+          <View
+            style={[
+              styles.notificationDropdownAnchor,
+              {
+                top: notificationAnchor.top,
+                maxHeight: Math.max(0, windowHeight - notificationAnchor.top - scale(12)),
+              },
+            ]}
+          >
+            <View
+              pointerEvents="none"
+              style={[
+                styles.notificationPointer,
+                {
+                  left: Math.max(
+                    scale(7),
+                    Math.min(
+                      Math.min(scale(350), windowWidth - scale(24)) - scale(21),
+                      notificationAnchor.buttonCenterX -
+                        (windowWidth - Math.min(scale(350), windowWidth - scale(24))) / 2 -
+                        scale(7),
+                    ),
+                  ),
+                  backgroundColor: c.surface,
+                  borderColor: c.line,
+                },
+              ]}
+            />
+            <View
+              style={[
+                styles.notificationPanel,
+                {
+                  maxHeight: Math.max(
+                    0,
+                    windowHeight - notificationAnchor.top - scale(24),
+                  ),
+                  backgroundColor: c.surface,
+                  borderColor: c.line,
+                },
+              ]}
+            >
           <View style={styles.notificationHeader}>
             <View>
               <Text style={[styles.notificationTitle, { color: c.text }]}>Notifications</Text>
               <Text style={[styles.notificationCount, { color: c.muted }]}>
-                {feedLoading
+                {feedLoading && feed.length === 0
                   ? 'Loading notifications...'
                   : `${feed.length} notification${feed.length === 1 ? '' : 's'}${unread ? ` · ${unread} unread` : ''}`}
               </Text>
             </View>
-            <Pressable
-              onPress={async () => {
-                // Persist "read" server-side when the real feed is active.
-                if (unread > 0) {
-                  try {
-                    const { data: authData } = await supabase.auth.getSession();
-                    const token = authData.session?.access_token;
-                    if (token) {
-                      await apiFetch('/notifications/read', {
-                        method: 'POST',
-                        headers: { Authorization: `Bearer ${token}` },
-                      });
-                    }
-                    const userId = authData.session?.user?.id;
-                    if (userId) await markLocalNotificationsRead(userId);
-                  } catch {
-                    // Best-effort — the badge still clears locally.
-                  }
-                  setUnread(0);
-                }
-                setNotificationsOpen(false);
-              }}
-              hitSlop={8}
-            >
-              <Text style={[styles.readAll, { color: c.orange }]}>Mark all read</Text>
-            </Pressable>
           </View>
-          {feedLoading ? (
+          {feedLoading && feed.length === 0 ? (
             <View style={styles.emptyWrap}>
               <Text style={[styles.emptyText, { color: c.muted }]}>Loading notifications...</Text>
             </View>
@@ -675,81 +785,79 @@ export function TopBar({ gutter = 18, title, subtitle, showBack = false, showTit
               <Text style={[styles.emptyText, { color: c.muted }]}>You are all caught up — no notifications yet.</Text>
             </View>
           ) : (
-          feed.map(
-            (notification, index) => {
-            const palette = {
-              danger: { background: '#FCE4E4', icon: '#D14343', text: '#C33D3D' },
-              warning: { background: '#FCEDE4', icon: '#F06421', text: '#B94B20' },
-              notice: { background: '#FFF3DE', icon: '#F5A313', text: '#B47711' },
-              success: { background: '#E5F5E5', icon: '#16A34A', text: '#14843A' },
-            }[notification.tone];
-            // Shared-user invites get inline Accept / Decline — no detour needed.
-            const isInvite = notification.kind === 'share_invite' && !!notification.refId;
-            const busy = isInvite && respondingId === notification.refId;
-            return (
-              <View
-                key={notification.id ?? notification.title}
-                style={[styles.notificationRow, index > 0 && { borderTopColor: c.line, borderTopWidth: 1 }]}
-              >
-                <View style={[styles.notificationIcon, { backgroundColor: palette.background }]}><Ionicons name={notification.icon} size={scale(20)} color={palette.icon} /></View>
-                <View style={styles.notificationCopy}>
-                  <Text numberOfLines={1} style={[styles.notificationItemTitle, { color: notification.tone === 'danger' ? palette.text : c.text }]}>{notification.title}</Text>
-                  <Text numberOfLines={2} style={[styles.notificationDetail, { color: c.muted }]}>{notification.detail}</Text>
-                  <Text style={[styles.notificationTime, { color: c.muted }]}>{notification.time}</Text>
-                  {isInvite ? (
-                    <View style={styles.inviteActions}>
-                      <Pressable
-                        disabled={respondingId !== null}
-                        onPress={() => confirmInviteResponse(notification, 'accept')}
-                        style={({ pressed }) => [
-                          styles.inviteBtn,
-                          styles.inviteAccept,
-                          pressed && { opacity: 0.75 },
-                          respondingId !== null && { opacity: 0.6 },
-                        ]}
-                        accessibilityRole="button"
-                        accessibilityLabel={`Accept invite: ${notification.title}`}
-                      >
-                        <Text style={styles.inviteAcceptText}>
-                          {busy ? 'Accepting...' : 'Accept'}
-                        </Text>
-                      </Pressable>
-                      <Pressable
-                        disabled={respondingId !== null}
-                        onPress={() => confirmInviteResponse(notification, 'decline')}
-                        style={({ pressed }) => [
-                          styles.inviteBtn,
-                          styles.inviteDecline,
-                          { borderColor: c.line },
-                          pressed && { opacity: 0.75 },
-                          respondingId !== null && { opacity: 0.6 },
-                        ]}
-                        accessibilityRole="button"
-                        accessibilityLabel={`Decline invite: ${notification.title}`}
-                      >
-                        <Text style={[styles.inviteDeclineText, { color: c.muted }]}>
-                          {busy ? 'Working...' : 'Decline'}
-                        </Text>
-                      </Pressable>
+            <ScrollView
+              style={styles.notificationFeed}
+              nestedScrollEnabled
+              showsVerticalScrollIndicator
+              keyboardShouldPersistTaps="handled"
+            >
+              {feed.map((notification, index) => {
+                const palette = {
+                  danger: { background: '#FCE4E4', icon: '#D14343', text: '#C33D3D' },
+                  warning: { background: '#FCEDE4', icon: '#F06421', text: '#B94B20' },
+                  notice: { background: '#FFF3DE', icon: '#F5A313', text: '#B47711' },
+                  success: { background: '#E5F5E5', icon: '#16A34A', text: '#14843A' },
+                }[notification.tone];
+                const isInvite = notification.kind === 'share_invite' && !!notification.refId;
+                const busy = isInvite && respondingId === notification.refId;
+                return (
+                  <View
+                    key={notification.id ?? notification.title}
+                    style={[
+                      styles.notificationRow,
+                      { borderLeftColor: palette.icon },
+                      index > 0 && { borderTopColor: c.line, borderTopWidth: 1 },
+                    ]}
+                  >
+                    <View style={[styles.notificationIcon, { backgroundColor: palette.background }]}>
+                      <Ionicons name={notification.icon} size={scale(20)} color={palette.icon} />
                     </View>
-                  ) : (
-                    <Pressable
-                      onPress={() => {
-                        // Non-invite rows still deep-link where they make sense.
-                        setNotificationsOpen(false);
-                        if (notification.title.includes('invited')) {
-                          router.push('/pages/accounts');
-                        }
-                      }}
-                      hitSlop={4}
-                    >
-                      <Text style={[styles.viewLink, { color: c.orange }]}>View</Text>
-                    </Pressable>
-                  )}
-                </View>
-              </View>
-            );
-          })
+                    <View style={styles.notificationCopy}>
+                      <Text numberOfLines={2} style={[styles.notificationItemTitle, { color: notification.tone === 'danger' ? palette.text : c.text }]}>{notification.title}</Text>
+                      <Text numberOfLines={3} style={[styles.notificationDetail, { color: c.muted }]}>{notification.detail}</Text>
+                      <Text style={[styles.notificationTime, { color: c.muted }]}>{notification.time}</Text>
+                      {isInvite ? (
+                        <View style={styles.inviteActions}>
+                          <Pressable
+                            disabled={respondingId !== null}
+                            onPress={() => confirmInviteResponse(notification, 'accept')}
+                            style={({ pressed }) => [
+                              styles.inviteBtn,
+                              styles.inviteAccept,
+                              pressed && { opacity: 0.75 },
+                              respondingId !== null && { opacity: 0.6 },
+                            ]}
+                            accessibilityRole="button"
+                            accessibilityLabel={`Accept invite: ${notification.title}`}
+                          >
+                            <Text style={styles.inviteAcceptText}>
+                              {busy ? 'Accepting...' : 'Accept'}
+                            </Text>
+                          </Pressable>
+                          <Pressable
+                            disabled={respondingId !== null}
+                            onPress={() => confirmInviteResponse(notification, 'decline')}
+                            style={({ pressed }) => [
+                              styles.inviteBtn,
+                              styles.inviteDecline,
+                              { borderColor: c.line },
+                              pressed && { opacity: 0.75 },
+                              respondingId !== null && { opacity: 0.6 },
+                            ]}
+                            accessibilityRole="button"
+                            accessibilityLabel={`Decline invite: ${notification.title}`}
+                          >
+                            <Text style={[styles.inviteDeclineText, { color: c.danger }]}>
+                              {busy ? 'Working...' : 'Decline'}
+                            </Text>
+                          </Pressable>
+                        </View>
+                      ) : null}
+                    </View>
+                  </View>
+                );
+              })}
+            </ScrollView>
           )}
           <Pressable
             style={({ pressed }) => [styles.viewAllButton, { borderTopColor: c.line }, pressed && { opacity: 0.7 }]}
@@ -760,7 +868,30 @@ export function TopBar({ gutter = 18, title, subtitle, showBack = false, showTit
             <Text style={[styles.viewAllText, { color: c.orange }]}>View all notifications</Text>
             <Ionicons name="arrow-forward" size={scale(15)} color={c.orange} />
           </Pressable>
+          </View>
+          </View>
         </View>
+      </Modal>
+      {inviteDialog && (
+        <InviteResponseModal
+          visible
+          inviterName={inviteDialog.item.title}
+          action={inviteDialog.action}
+          stage={inviteDialog.stage}
+          message={inviteDialog.message}
+          onCancel={() => {
+            if (inviteDialog.stage !== 'processing') setInviteDialog(null);
+          }}
+          onConfirm={() => void respondToInvite(inviteDialog.item, inviteDialog.action)}
+          onContinue={() => {
+            const shouldOpenHome = inviteDialog.action === 'accept' && inviteDialog.stage === 'success';
+            setInviteDialog(null);
+            if (shouldOpenHome) {
+              setNotificationsOpen(false);
+              router.replace('/home');
+            }
+          }}
+        />
       )}
     </View>
   );
@@ -771,19 +902,38 @@ const styles = StyleSheet.create({
     position: 'relative',
     zIndex: 20,
   },
+  notificationModalRoot: {
+    flex: 1,
+  },
+  notificationDropdownAnchor: {
+    position: 'absolute',
+    left: scale(12),
+    right: scale(12),
+    alignItems: 'center',
+    flexShrink: 1,
+  },
+  notificationPointer: {
+    position: 'absolute',
+    top: 0,
+    width: scale(14),
+    height: scale(14),
+    borderWidth: 1,
+    transform: [{ rotate: '45deg' }],
+    zIndex: 1,
+  },
   wrap: {
     paddingTop: scale(12),
     paddingBottom: scale(12),
   },
   notificationPanel: {
-    position: 'absolute',
-    top: '100%',
-    right: scale(12),
-    width: scale(350),
-    maxWidth: '92%',
+    width: '100%',
+    maxWidth: scale(350),
+    flexShrink: 1,
+    marginTop: scale(7),
     borderRadius: scale(20),
     borderWidth: 1,
     overflow: 'hidden',
+    zIndex: 2,
     shadowColor: '#0A2A4A',
     shadowOpacity: 0.2,
     shadowRadius: scale(16),
@@ -798,9 +948,13 @@ const styles = StyleSheet.create({
     paddingTop: scale(14),
     paddingBottom: scale(11),
   },
+  notificationFeed: {
+    maxHeight: scale(420),
+    flexGrow: 0,
+    flexShrink: 1,
+  },
   notificationTitle: { fontSize: scale(15), fontFamily: 'Poppins_800ExtraBold' },
-  notificationCount: { fontSize: scale(8.5), marginTop: scale(2), fontFamily: 'Poppins_500Medium' },
-  readAll: { fontSize: scale(8.5), fontFamily: 'Poppins_700Bold' },
+  notificationCount: { fontSize: scale(11), marginTop: scale(3), fontFamily: 'Poppins_500Medium' },
   viewAllButton: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -809,13 +963,13 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     paddingVertical: scale(12),
   },
-  viewAllText: { fontSize: scale(10.5), fontFamily: 'Poppins_800ExtraBold' },
-  notificationRow: { flexDirection: 'row', gap: scale(11), paddingHorizontal: scale(14), paddingVertical: scale(12) },
+  viewAllText: { fontSize: scale(12), fontFamily: 'Poppins_800ExtraBold' },
+  notificationRow: { flexDirection: 'row', gap: scale(11), paddingHorizontal: scale(12), paddingVertical: scale(12), borderLeftWidth: scale(3) },
   notificationIcon: { width: scale(48), height: scale(48), borderRadius: scale(15), alignItems: 'center', justifyContent: 'center' },
   notificationCopy: { flex: 1, paddingTop: scale(1) },
-  notificationItemTitle: { fontSize: scale(10.5), lineHeight: scale(14), fontFamily: 'Poppins_800ExtraBold' },
-  notificationDetail: { fontSize: scale(8.5), lineHeight: scale(12), marginTop: scale(2), fontFamily: 'Poppins_500Medium' },
-  notificationTime: { fontSize: scale(8), marginTop: scale(3), fontFamily: 'Poppins_500Medium' },
+  notificationItemTitle: { fontSize: scale(13), lineHeight: scale(18), fontFamily: 'Poppins_800ExtraBold' },
+  notificationDetail: { fontSize: scale(12), lineHeight: scale(17), marginTop: scale(3), fontFamily: 'Poppins_500Medium' },
+  notificationTime: { fontSize: scale(11), marginTop: scale(4), fontFamily: 'Poppins_500Medium' },
   topRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -876,10 +1030,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   inviteAccept: { backgroundColor: '#16A34A' },
-  inviteAcceptText: { color: '#FFFFFF', fontSize: scale(10.5), fontFamily: 'Poppins_800ExtraBold' },
+  inviteAcceptText: { color: '#FFFFFF', fontSize: scale(12), fontFamily: 'Poppins_800ExtraBold' },
   inviteDecline: { backgroundColor: 'transparent', borderWidth: 1 },
-  inviteDeclineText: { fontSize: scale(10.5), fontFamily: 'Poppins_700Bold' },
-  viewLink: { fontSize: scale(9), marginTop: scale(5), fontFamily: 'Poppins_700Bold' },
+  inviteDeclineText: { fontSize: scale(12), fontFamily: 'Poppins_700Bold' },
   emptyWrap: {
     alignItems: 'center',
     justifyContent: 'center',

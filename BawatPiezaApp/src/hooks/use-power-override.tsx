@@ -11,6 +11,8 @@ import React, {
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import Paho from "paho-mqtt";
 import { updatePowerModeNotification } from "../lib/push-notifications";
+import { apiFetch } from "../lib/api";
+import { supabase } from "../lib/supabase";
 
 /** Power source override chosen from Quick Overrides. `null` = Auto (no override). */
 export type PowerOverride = "grid" | "battery" | "shutdown" | null;
@@ -27,6 +29,9 @@ type PowerOverrideContextValue = {
   closeOverrides: () => void;
   smokeEmergencyActive: boolean;
   smokeEmergencyZone: string;
+  gridUnavailableConfirmationOpen: boolean;
+  confirmGridUnavailable: () => void;
+  cancelGridUnavailable: () => void;
   assertPowerControlsAvailable: () => void;
 };
 
@@ -38,7 +43,34 @@ const STORAGE_KEY = "bawatpieza.power.override";
 const SMOKE_EMERGENCY_STORAGE_KEY = "bawatpieza.smoke.emergency";
 const HUB_STORAGE_KEY = "bawatpieza_hub_id";
 const TELEMETRY_TOPIC_PREFIX = "bawatpieza/devices/";
-const COMMAND_TOPIC_PREFIX = "bawatpieza/devices/";
+
+async function sendPowerModeCommand(
+  hubId: string,
+  mode: Exclude<PowerOverride, null>,
+): Promise<void> {
+  const { data } = await supabase.auth.getSession();
+  const token = data.session?.access_token;
+  if (!token) throw new Error("Your session expired. Please sign in again.");
+
+  const response = await apiFetch(`/api/v1/telemetry/commands/${encodeURIComponent(hubId)}`, {
+    method: "POST",
+    timeoutMs: 10_000,
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ command: `force_${mode}` }),
+  });
+  if (!response.ok) {
+    const result = await response.json().catch(() => null) as {
+      message?: string;
+      error?: string;
+    } | null;
+    throw new Error(
+      result?.message || result?.error || `Power-mode command failed (${response.status}).`,
+    );
+  }
+}
 
 function parse(raw: string | null): PowerOverride {
   if (raw === "grid" || raw === "battery" || raw === "shutdown") return raw;
@@ -48,6 +80,8 @@ function parse(raw: string | null): PowerOverride {
 export function PowerOverrideProvider({ children }: { children: ReactNode }) {
   const [override, setOverrideState] = useState<PowerOverride>(null);
   const [overridesOpen, setOverridesOpen] = useState(false);
+  const [gridAvailable, setGridAvailable] = useState<boolean | null>(null);
+  const [gridUnavailableConfirmationOpen, setGridUnavailableConfirmationOpen] = useState(false);
   const [smokeEmergencyActive, setSmokeEmergencyActive] = useState(false);
   const [smokeEmergencyZone, setSmokeEmergencyZone] = useState("");
   const mqttClientRef = useRef<Paho.Client | null>(null);
@@ -116,14 +150,6 @@ export function PowerOverrideProvider({ children }: { children: ReactNode }) {
     let client: Paho.Client | null = null;
     let checkTimer: ReturnType<typeof setTimeout> | null = null;
 
-    const sendOverride = (hubId: string, mode: PowerOverride) => {
-      if (!mode || smokeEmergencyActiveRef.current || !client?.isConnected()) return false;
-      const message = new Paho.Message(JSON.stringify({ command: `force_${mode}` }));
-      message.destinationName = `${COMMAND_TOPIC_PREFIX}${hubId}/commands`;
-      client.send(message);
-      return true;
-    };
-
     const connectForHub = (hubId: string) => {
       if (!active || hubId === activeHubId && client?.isConnected()) return;
       if (client?.isConnected()) client.disconnect();
@@ -149,9 +175,26 @@ export function PowerOverrideProvider({ children }: { children: ReactNode }) {
             power_mode?: unknown;
             previous_power_mode?: unknown;
             power_mode_event_id?: unknown;
+            grid_ac_available?: unknown;
             smoke_alert?: unknown;
             smoke_zone?: unknown;
           };
+          const gridAvailability = telemetry.grid_ac_available;
+          if (
+            gridAvailability === true ||
+            gridAvailability === 1 ||
+            gridAvailability === "1" ||
+            gridAvailability === "true"
+          ) {
+            setGridAvailable(true);
+          } else if (
+            gridAvailability === false ||
+            gridAvailability === 0 ||
+            gridAvailability === "0" ||
+            gridAvailability === "false"
+          ) {
+            setGridAvailable(false);
+          }
           if (telemetry.smoke_alert !== undefined) {
             smokeTelemetrySeenRef.current = true;
             const smokeActive =
@@ -213,8 +256,14 @@ export function PowerOverrideProvider({ children }: { children: ReactNode }) {
           if (!active || hubIdRef.current !== hubId) return;
           nextClient.subscribe(`${TELEMETRY_TOPIC_PREFIX}${hubId}/telemetry`);
           const pending = pendingOverrideRef.current;
-          if (pending && sendOverride(hubId, pending)) {
-            pendingOverrideRef.current = null;
+          if (pending && !smokeEmergencyActiveRef.current) {
+            void sendPowerModeCommand(hubId, pending)
+              .then(() => {
+                if (pendingOverrideRef.current === pending) pendingOverrideRef.current = null;
+              })
+              .catch((error) => {
+                console.error("[power-override] failed to send queued mode command", error);
+              });
           }
           console.log("background mqtt connected and subscribed to device telemetry");
         },
@@ -274,7 +323,7 @@ export function PowerOverrideProvider({ children }: { children: ReactNode }) {
       });
   }, []);
 
-  const setOverride = useCallback(async (o: PowerOverride) => {
+  const applyOverride = useCallback(async (o: PowerOverride) => {
     try {
       assertPowerControlsAvailable();
     } catch {
@@ -304,16 +353,32 @@ export function PowerOverrideProvider({ children }: { children: ReactNode }) {
       return;
     }
 
-    try {
-      const message = new Paho.Message(JSON.stringify({ command: `force_${o}` }));
-      message.destinationName = `${COMMAND_TOPIC_PREFIX}${hubId}/commands`;
-      client.send(message);
-      pendingOverrideRef.current = null;
-    } catch (error) {
+    void sendPowerModeCommand(hubId, o)
+      .then(() => {
+        if (pendingOverrideRef.current === o) pendingOverrideRef.current = null;
+      })
+      .catch((error) => {
       pendingOverrideRef.current = o;
       console.error("[power-override] failed to send mode to device", error);
-    }
+      });
   }, [assertPowerControlsAvailable]);
+
+  const setOverride = useCallback(async (o: PowerOverride) => {
+    if (o === "grid" && gridAvailable === false) {
+      setGridUnavailableConfirmationOpen(true);
+      return;
+    }
+    await applyOverride(o);
+  }, [applyOverride, gridAvailable]);
+
+  const confirmGridUnavailable = useCallback(() => {
+    setGridUnavailableConfirmationOpen(false);
+    void applyOverride("grid");
+  }, [applyOverride]);
+
+  const cancelGridUnavailable = useCallback(() => {
+    setGridUnavailableConfirmationOpen(false);
+  }, []);
 
   const clearOverride = useCallback(() => setOverride(null), [setOverride]);
 
@@ -331,6 +396,9 @@ export function PowerOverrideProvider({ children }: { children: ReactNode }) {
       closeOverrides,
       smokeEmergencyActive,
       smokeEmergencyZone,
+      gridUnavailableConfirmationOpen,
+      confirmGridUnavailable,
+      cancelGridUnavailable,
       assertPowerControlsAvailable,
     }),
     [
@@ -342,6 +410,9 @@ export function PowerOverrideProvider({ children }: { children: ReactNode }) {
       closeOverrides,
       smokeEmergencyActive,
       smokeEmergencyZone,
+      gridUnavailableConfirmationOpen,
+      confirmGridUnavailable,
+      cancelGridUnavailable,
       assertPowerControlsAvailable,
     ],
   );

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Alert, DeviceEventEmitter, Pressable, StyleSheet, View } from 'react-native';
+import { DeviceEventEmitter, Pressable, StyleSheet, View } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AppText as Text } from '../../components/app-text';
 import { Ionicons } from '@expo/vector-icons';
@@ -7,6 +7,15 @@ import { useFocusEffect, useRouter } from 'expo-router';
 import { ScreenShell } from '../../components/screen-shell';
 import { TileLoader } from '../../components/tile-loader';
 import { ContentCard } from '../../components/content-card';
+import {
+  notifyDeviceAccessChanged,
+  refreshSharedDeviceAccess,
+} from '../../components/device-status-banner';
+import {
+  InviteResponseModal,
+  type InviteResponseAction,
+  type InviteResponseStage,
+} from '../../components/invite-response-modal';
 import { useAuth } from '../../hooks/use-auth';
 import { supabase } from '../../lib/supabase';
 import { apiFetch } from '../../lib/api';
@@ -115,11 +124,11 @@ function timeAgo(iso: string): string {
   return `${d} days ago`;
 }
 
-const PALETTE: Record<Tone, { background: string; icon: string }> = {
-  danger: { background: '#FCE4E4', icon: '#D14343' },
-  warning: { background: '#FCEDE4', icon: '#F06421' },
-  notice: { background: '#FFF3DE', icon: '#F5A313' },
-  success: { background: '#E5F5E5', icon: '#16A34A' },
+const PALETTE: Record<Tone, { background: string; icon: string; label: string }> = {
+  danger: { background: '#FCE4E4', icon: '#D14343', label: 'Emergency' },
+  warning: { background: '#FCEDE4', icon: '#F06421', label: 'Warning' },
+  notice: { background: '#FFF3DE', icon: '#F5A313', label: 'Update' },
+  success: { background: '#E5F5E5', icon: '#16A34A', label: 'Success' },
 };
 
 export default function NotificationsScreen() {
@@ -135,6 +144,12 @@ export default function NotificationsScreen() {
   const [unread, setUnread] = useState(0);
   const [respondingId, setRespondingId] = useState<string | null>(null);
   const [markingRead, setMarkingRead] = useState(false);
+  const [inviteDialog, setInviteDialog] = useState<{
+    item: Item;
+    action: InviteResponseAction;
+    stage: InviteResponseStage;
+    message?: string;
+  } | null>(null);
 
   /** Bearer token for the Express API, or null when signed out. */
   const getToken = useCallback(async () => {
@@ -235,11 +250,13 @@ export default function NotificationsScreen() {
           } | null
         : null;
       const pendingInviteIds = new Set((invitesJson?.received ?? []).map((invite) => invite.id));
-      const serverNotifications = (json?.notifications ?? []).filter(
-        (notification) =>
-          notification.type !== 'share_invite' ||
-          (notification.reference_id !== null && pendingInviteIds.has(notification.reference_id)),
-      );
+      const serverNotifications = invitesRes.ok
+        ? (json?.notifications ?? []).filter(
+            (notification) =>
+              notification.type !== 'share_invite' ||
+              (notification.reference_id !== null && pendingInviteIds.has(notification.reference_id)),
+          )
+        : (json?.notifications ?? []);
       const notifications = cacheKey && session?.user?.id
         ? await mergeLocalNotifications(session.user.id, serverNotifications)
         : serverNotifications;
@@ -320,6 +337,15 @@ export default function NotificationsScreen() {
   async function respond(item: Item, action: 'accept' | 'decline') {
     if (!item.refId || respondingId) return;
     setRespondingId(item.refId);
+    setInviteDialog((current) =>
+      current
+        ? {
+            ...current,
+            stage: 'processing',
+            message: action === 'accept' ? 'Accepting invitation…' : 'Saving your response…',
+          }
+        : current,
+    );
     try {
       const token = await getToken();
       if (!token) throw new Error('Not signed in');
@@ -340,48 +366,44 @@ export default function NotificationsScreen() {
         }
       }
       if (action === 'accept') {
-        await AsyncStorage.setItem('bawatpieza_shared_access', '1');
-        try {
-          const accessRes = await apiFetch('/accounts/device-access', {
-            headers: { Authorization: `Bearer ${token}` },
-            timeoutMs: 8_000,
-          });
-          if (accessRes.ok) {
-            const accessJson = (await accessRes.json().catch(() => null)) as {
-              hub_id?: string | null;
-            } | null;
-            if (accessJson?.hub_id) {
-              await AsyncStorage.setItem('bawatpieza_hub_id', accessJson.hub_id);
-            }
-          }
-        } catch (accessError) {
-          console.warn('[notifications] Could not refresh shared device access:', accessError);
-        }
+        notifyDeviceAccessChanged(null);
       }
-      await load();
-      if (action === 'accept') router.replace('/home');
+      if (action === 'accept') {
+        setInviteDialog((current) =>
+          current
+            ? { ...current, stage: 'processing', message: 'Connecting to the shared device…' }
+            : current,
+        );
+        void refreshSharedDeviceAccess(token).catch((accessError) => {
+          console.warn('[notifications] Shared device is still loading:', accessError);
+        });
+      }
+      void load();
+      setInviteDialog((current) =>
+        current
+          ? {
+              ...current,
+              stage: 'success',
+              message:
+                action === 'accept'
+                  ? 'Invitation accepted. Continue to your device while it connects.'
+                  : json?.message ?? 'Your response has been saved.',
+            }
+          : current,
+      );
     } catch (e) {
-      setError(describeApiFailure(e, 'Could not respond to the invite'));
+      setInviteDialog((current) =>
+        current
+          ? { ...current, stage: 'error', message: describeApiFailure(e, 'Could not respond to the invite') }
+          : current,
+      );
     } finally {
       setRespondingId(null);
     }
   }
 
   function confirmResponse(item: Item, action: 'accept' | 'decline') {
-    Alert.alert(
-      action === 'accept' ? 'Accept shared access?' : 'Decline shared access?',
-      action === 'accept'
-        ? 'The inviter will be able to share their device with you.'
-        : 'You will not get access to the inviter’s device.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: action === 'accept' ? 'Accept' : 'Decline',
-          style: action === 'decline' ? 'destructive' : 'default',
-          onPress: () => void respond(item, action),
-        },
-      ],
-    );
+    setInviteDialog({ item, action, stage: 'confirm' });
   }
 
   async function markAllRead() {
@@ -467,6 +489,24 @@ export default function NotificationsScreen() {
           </>
         )}
       </ContentCard>
+      {inviteDialog && (
+        <InviteResponseModal
+          visible
+          inviterName={inviteDialog.item.title}
+          action={inviteDialog.action}
+          stage={inviteDialog.stage}
+          message={inviteDialog.message}
+          onCancel={() => {
+            if (inviteDialog.stage !== 'processing') setInviteDialog(null);
+          }}
+          onConfirm={() => void respond(inviteDialog.item, inviteDialog.action)}
+          onContinue={() => {
+            const shouldOpenHome = inviteDialog.action === 'accept' && inviteDialog.stage === 'success';
+            setInviteDialog(null);
+            if (shouldOpenHome) router.replace('/home');
+          }}
+        />
+      )}
     </ScreenShell>
   );
 }
@@ -484,13 +524,18 @@ function NotifRow({
   const palette = PALETTE[item.tone];
   const isInvite = item.kind === 'share_invite' && !!item.refId;
   return (
-    <View style={styles.row}>
+    <View style={[styles.row, { borderLeftColor: palette.icon }]}>
       <View style={[styles.icon, { backgroundColor: palette.background }]}>
         <Ionicons name={item.icon} size={20} color={palette.icon} />
       </View>
       <View style={styles.copy}>
         <View style={styles.titleLine}>
-          <Text numberOfLines={2} style={styles.title}>{item.title}</Text>
+          <View style={styles.titleCopy}>
+            <Text style={[styles.typeLabel, { color: palette.icon, fontFamily: fonts.bold }]}>
+              {palette.label}
+            </Text>
+            <Text numberOfLines={2} style={styles.title}>{item.title}</Text>
+          </View>
           {!item.read && <View style={styles.unreadDot} />}
         </View>
         {item.detail ? (
@@ -516,12 +561,13 @@ function NotifRow({
               onPress={onDecline}
               style={({ pressed }) => [
                 styles.inviteBtn, styles.inviteDecline,
+                { borderColor: '#D14343' },
                 pressed && { opacity: 0.75 }, disabled && { opacity: 0.6 },
               ]}
               accessibilityRole="button"
               accessibilityLabel={`Decline invite: ${item.title}`}
             >
-              <Text style={styles.inviteDeclineText}>{busy ? 'Working...' : 'Decline'}</Text>
+              <Text style={[styles.inviteDeclineText, { color: '#D14343' }]}>{busy ? 'Working...' : 'Decline'}</Text>
             </Pressable>
           </View>
         ) : null}
@@ -540,29 +586,39 @@ function makeStyles(c: ThemeColors) {
       alignSelf: 'flex-end', borderRadius: 999, backgroundColor: c.accentSoft,
       paddingHorizontal: 11, paddingVertical: 6, marginBottom: 2,
     },
-    readAllText: { color: c.accent, fontSize: 10, fontFamily: fonts.bold },
+    readAllText: { color: c.accent, fontSize: 12, fontFamily: fonts.bold },
     emptyWrap: { alignItems: 'center', justifyContent: 'center', paddingVertical: 20, gap: 6 },
     emptyText: { fontSize: 11, textAlign: 'center', fontFamily: fonts.medium, lineHeight: 16 },
     sectionLabel: {
-      fontSize: 9, letterSpacing: 1, textTransform: 'uppercase',
+      fontSize: 11, letterSpacing: 1, textTransform: 'uppercase',
       fontFamily: fonts.extrabold, marginTop: 7, marginBottom: 2,
     },
-    row: { flexDirection: 'row', gap: 9, paddingVertical: 8 },
+    row: {
+      flexDirection: 'row',
+      gap: 9,
+      paddingVertical: 10,
+      paddingLeft: 8,
+      borderLeftWidth: 3,
+      borderBottomWidth: 1,
+      borderBottomColor: c.line,
+    },
     icon: { width: 36, height: 36, borderRadius: 11, alignItems: 'center', justifyContent: 'center' },
     copy: { flex: 1 },
     titleLine: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-    title: { flex: 1, color: c.text, fontSize: 12, lineHeight: 16, fontFamily: fonts.extrabold },
+    titleCopy: { flex: 1 },
+    typeLabel: { fontSize: 10, lineHeight: 14, textTransform: 'uppercase', letterSpacing: 0.6 },
+    title: { color: c.text, fontSize: 14, lineHeight: 19, fontFamily: fonts.extrabold },
     unreadDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: c.orange },
-    detail: { color: c.muted, fontSize: 11, lineHeight: 15, marginTop: 2, fontFamily: fonts.medium },
-    time: { color: c.muted, fontSize: 9, marginTop: 3, fontFamily: fonts.medium, opacity: 0.85 },
+    detail: { color: c.muted, fontSize: 13, lineHeight: 18, marginTop: 3, fontFamily: fonts.medium },
+    time: { color: c.muted, fontSize: 11, marginTop: 4, fontFamily: fonts.medium, opacity: 0.85 },
     inviteActions: { flexDirection: 'row', gap: 6, marginTop: 7 },
     inviteBtn: {
       flex: 1, borderRadius: 8, paddingVertical: 7,
       alignItems: 'center', justifyContent: 'center',
     },
     inviteAccept: { backgroundColor: '#16A34A' },
-    inviteAcceptText: { color: '#FFFFFF', fontSize: 10, fontFamily: fonts.extrabold },
+    inviteAcceptText: { color: '#FFFFFF', fontSize: 12, fontFamily: fonts.extrabold },
     inviteDecline: { backgroundColor: 'transparent', borderWidth: 1, borderColor: c.line },
-    inviteDeclineText: { color: c.muted, fontSize: 10, fontFamily: fonts.bold },
+    inviteDeclineText: { color: c.muted, fontSize: 12, fontFamily: fonts.bold },
   });
 }

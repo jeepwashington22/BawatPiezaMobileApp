@@ -54,7 +54,7 @@ const SECTIONS: HubSection[] = [
     title: 'APP SETTINGS',
     items: [
       { icon: 'person-circle-outline', label: 'Profile', sub: 'Edit account', href: '/pages/edit-profile' },
-      { icon: 'options-outline', label: 'Preferences', sub: 'Theme, units & notifications', href: '/pages/preferences' },
+      { icon: 'options-outline', label: 'Preferences', sub: 'Theme, text & notification sounds', href: '/pages/preferences' },
       { icon: 'information-circle-outline', label: 'About app', sub: 'Version, components & credits', href: '/pages/about' },
       { icon: 'help-circle-outline', label: 'FAQ', sub: 'Frequently asked questions', href: '/pages/faq' as Href },
     ],

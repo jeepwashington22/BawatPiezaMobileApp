@@ -5,7 +5,7 @@
     "newArchEnabled": false,
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/images/LOGO4.png",
+    "icon": "./assets/images/notification-icon.png",
     "scheme": "bawatpieza",
     "userInterfaceStyle": "light",
     "ios": {
@@ -46,7 +46,16 @@
         {
           "icon": "./assets/images/LOGO4.png",
           "color": "#F97316",
-          "sounds": ["./assets/sounds/custom_sound.wav"]
+          "sounds": [
+            "./assets/sounds/bell_notification.wav",
+            "./assets/sounds/clear_announce_tones.wav",
+            "./assets/sounds/confirmation_tone.wav",
+            "./assets/sounds/correct_tone.wav",
+            "./assets/sounds/default_tone.wav",
+            "./assets/sounds/emergency.wav",
+            "./assets/sounds/option_preference_tone.wav",
+            "./assets/sounds/wrong_answer_fail.wav"
+          ]
         }
       ],
       [

@@ -12,16 +12,80 @@ import { apiFetch } from '../lib/api';
 const DEVICE_STORAGE_KEY = 'bawatpieza_hub_id';
 const SHARED_ACCESS_KEY = 'bawatpieza_shared_access';
 export const DEVICE_ACCESS_CHANGED_EVENT = 'bawatpieza:device-access-changed';
+const SHARED_ACCESS_RETRY_INTERVAL_MS = 1_000;
+const SHARED_ACCESS_RETRY_TIMEOUT_MS = 30_000;
 
 let lastKnownDeviceAccess: boolean | null = null;
+let sharedDeviceAccessPending = false;
 
-function publishDeviceAccessChanged(hasDevice: boolean) {
+function publishDeviceAccessChanged(hasDevice: boolean | null) {
   lastKnownDeviceAccess = hasDevice;
+  if (hasDevice !== null) sharedDeviceAccessPending = false;
   DeviceEventEmitter.emit(DEVICE_ACCESS_CHANGED_EVENT, hasDevice);
 }
 
-export function notifyDeviceAccessChanged(hasDevice: boolean) {
+export function notifyDeviceAccessChanged(hasDevice: boolean | null) {
+  if (hasDevice === null) sharedDeviceAccessPending = true;
   publishDeviceAccessChanged(hasDevice);
+}
+
+export async function refreshSharedDeviceAccess(accessToken: string): Promise<string> {
+  sharedDeviceAccessPending = true;
+  publishDeviceAccessChanged(null);
+  return refreshSharedDeviceAccessAttempt(accessToken, Date.now());
+}
+
+function requestSharedDeviceAccess(accessToken: string) {
+  return apiFetch('/accounts/device-access', {
+    headers: { Authorization: `Bearer ${accessToken}` },
+    timeoutMs: 8_000,
+  });
+}
+
+async function refreshSharedDeviceAccessAttempt(
+  accessToken: string,
+  startedAt: number,
+): Promise<string> {
+  let response: Response;
+  try {
+    response = await requestSharedDeviceAccess(accessToken);
+  } catch (error) {
+    if (Date.now() - startedAt < SHARED_ACCESS_RETRY_TIMEOUT_MS) {
+      await new Promise((resolve) => setTimeout(resolve, SHARED_ACCESS_RETRY_INTERVAL_MS));
+      return refreshSharedDeviceAccessAttempt(accessToken, startedAt);
+    }
+    sharedDeviceAccessPending = false;
+    throw error;
+  }
+  if (!response.ok) {
+    const error = new Error(`Could not load shared device access (${response.status}).`);
+    if (Date.now() - startedAt < SHARED_ACCESS_RETRY_TIMEOUT_MS) {
+      await new Promise((resolve) => setTimeout(resolve, SHARED_ACCESS_RETRY_INTERVAL_MS));
+      return refreshSharedDeviceAccessAttempt(accessToken, startedAt);
+    }
+    sharedDeviceAccessPending = false;
+    throw error;
+  }
+  const access = (await response.json()) as {
+    access_granted?: boolean;
+    hub_id?: string | null;
+  };
+  if (!access.access_granted || !access.hub_id) {
+    if (Date.now() - startedAt < SHARED_ACCESS_RETRY_TIMEOUT_MS) {
+      await new Promise((resolve) => setTimeout(resolve, SHARED_ACCESS_RETRY_INTERVAL_MS));
+      return refreshSharedDeviceAccessAttempt(accessToken, startedAt);
+    }
+    sharedDeviceAccessPending = false;
+    publishDeviceAccessChanged(false);
+    throw new Error('The invitation was accepted, but shared device access is still syncing.');
+  }
+
+  await Promise.all([
+    AsyncStorage.setItem(DEVICE_STORAGE_KEY, access.hub_id),
+    AsyncStorage.setItem(SHARED_ACCESS_KEY, '1'),
+  ]);
+  publishDeviceAccessChanged(true);
+  return access.hub_id;
 }
 
 export function useDeviceConnection() {
@@ -33,7 +97,7 @@ export function useDeviceConnection() {
   useEffect(() => {
     const subscription = DeviceEventEmitter.addListener(
       DEVICE_ACCESS_CHANGED_EVENT,
-      (nextHasDevice: boolean) => {
+      (nextHasDevice: boolean | null) => {
         accessVersionRef.current += 1;
         setHasDevice(nextHasDevice);
       },
@@ -82,6 +146,7 @@ export function useDeviceConnection() {
         };
         const accessGranted = Boolean(json.access_granted && json.hub_id);
         if (cancelled || accessVersion !== accessVersionRef.current) return;
+        if (!accessGranted && sharedDeviceAccessPending) return;
         if (accessGranted && json.hub_id) {
           await AsyncStorage.setItem(DEVICE_STORAGE_KEY, json.hub_id);
           if (json.can_unlink === false) {
@@ -101,7 +166,11 @@ export function useDeviceConnection() {
       } catch (error) {
         console.warn('[device-status] failed to refresh device access', error);
         void AsyncStorage.getItem(DEVICE_STORAGE_KEY).then((cachedHubId) => {
-          if (!cancelled && accessVersion === accessVersionRef.current) {
+          if (
+            !cancelled &&
+            accessVersion === accessVersionRef.current &&
+            !sharedDeviceAccessPending
+          ) {
             publishDeviceAccessChanged(Boolean(cachedHubId));
           }
         });

@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
-import { DeviceEventEmitter, View } from "react-native";
+import { DeviceEventEmitter, Modal, Pressable, StyleSheet, View } from "react-native";
 import { Stack, usePathname } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
+import { Ionicons } from "@expo/vector-icons";
 import {
   useFonts,
   Poppins_400Regular,
@@ -11,7 +12,7 @@ import {
   Poppins_800ExtraBold,
 } from "@expo-google-fonts/poppins";
 
-import { ThemeProvider } from "../theme";
+import { ThemeProvider, useTheme } from "../theme";
 import { AuthProvider, useAuth } from "../hooks/use-auth";
 import { PowerOverrideProvider, usePowerOverride } from "../hooks/use-power-override";
 import { AuthGate } from "../hooks/use-auth-gate";
@@ -20,6 +21,7 @@ import { NetworkBanner } from "../components/network-banner";
 import { QuickOverridesModal } from "../components/quick-overrides-modal";
 import { SmokeEmergencyModal } from "../components/smoke-emergency-modal";
 import { AppTourOverlay } from "../components/app-tour-overlay";
+import { AppText as Text } from "../components/app-text";
 
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { supabase } from "../lib/supabase";
@@ -204,6 +206,7 @@ function AuthedShell({ fontsLoaded }: { fontsLoaded: boolean }) {
         />
       </Stack>
       <GlobalOverridesSheet />
+      <GlobalGridUnavailableConfirmation />
       <GlobalSmokeEmergency />
       {isLoggedIn && (currentRoute === "/home" || currentRoute === "/") && (
         <AppTourOverlay />
@@ -217,7 +220,108 @@ function GlobalOverridesSheet() {
   return <QuickOverridesModal visible={overridesOpen} onClose={closeOverrides} />;
 }
 
+function GlobalGridUnavailableConfirmation() {
+  const { colors: c, fonts: f } = useTheme();
+  const {
+    gridUnavailableConfirmationOpen,
+    confirmGridUnavailable,
+    cancelGridUnavailable,
+  } = usePowerOverride();
+
+  return (
+    <Modal
+      visible={gridUnavailableConfirmationOpen}
+      transparent
+      animationType="fade"
+      statusBarTranslucent
+      onRequestClose={cancelGridUnavailable}
+    >
+      <View style={gridConfirmationStyles.overlay}>
+        <View
+          style={[
+            gridConfirmationStyles.card,
+            { backgroundColor: c.surface, borderColor: c.line },
+          ]}
+          accessibilityViewIsModal
+        >
+          <View style={[gridConfirmationStyles.iconWrap, { backgroundColor: `${c.orange}18` }]}>
+            <Ionicons name="warning-outline" size={30} color={c.orange} />
+          </View>
+          <Text style={[gridConfirmationStyles.title, { color: c.text, fontFamily: f.extrabold }]}>
+            Grid power is unavailable
+          </Text>
+          <Text style={[gridConfirmationStyles.message, { color: c.muted, fontFamily: f.regular }]}>
+            The hub currently reports no grid input. Trying to switch to Grid may leave the
+            system on Battery. Do you want to continue?
+          </Text>
+          <View style={gridConfirmationStyles.actions}>
+            <Pressable
+              onPress={cancelGridUnavailable}
+              style={({ pressed }) => [
+                gridConfirmationStyles.button,
+                gridConfirmationStyles.cancelButton,
+                { borderColor: c.line },
+                pressed && gridConfirmationStyles.pressed,
+              ]}
+              accessibilityRole="button"
+            >
+              <Text style={{ color: c.text, fontFamily: f.semibold }}>Cancel</Text>
+            </Pressable>
+            <Pressable
+              onPress={confirmGridUnavailable}
+              style={({ pressed }) => [
+                gridConfirmationStyles.button,
+                { backgroundColor: c.orange },
+                pressed && gridConfirmationStyles.pressed,
+              ]}
+              accessibilityRole="button"
+            >
+              <Text style={{ color: "#FFFFFF", fontFamily: f.bold }}>Try Grid</Text>
+            </Pressable>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
 function GlobalSmokeEmergency() {
   const { smokeEmergencyActive, smokeEmergencyZone } = usePowerOverride();
   return <SmokeEmergencyModal visible={smokeEmergencyActive} zone={smokeEmergencyZone} />;
 }
+
+const gridConfirmationStyles = StyleSheet.create({
+  overlay: {
+    flex: 1,
+    justifyContent: "center",
+    paddingHorizontal: 24,
+    backgroundColor: "rgba(10, 15, 20, 0.58)",
+  },
+  card: {
+    alignItems: "center",
+    borderWidth: 1,
+    borderRadius: 22,
+    padding: 22,
+  },
+  iconWrap: {
+    width: 58,
+    height: 58,
+    borderRadius: 20,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 14,
+  },
+  title: { fontSize: 18, textAlign: "center" },
+  message: { fontSize: 14, lineHeight: 21, textAlign: "center", marginTop: 8 },
+  actions: { flexDirection: "row", gap: 10, width: "100%", marginTop: 22 },
+  button: {
+    flex: 1,
+    minHeight: 46,
+    borderRadius: 13,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 14,
+  },
+  cancelButton: { backgroundColor: "transparent", borderWidth: 1 },
+  pressed: { opacity: 0.75 },
+});

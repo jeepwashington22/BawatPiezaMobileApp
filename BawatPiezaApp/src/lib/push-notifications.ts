@@ -1,4 +1,4 @@
-import Constants from "expo-constants";
+import Constants, { AppOwnership } from "expo-constants";
 import * as Device from "expo-device";
 import { AppState, DeviceEventEmitter, Platform, Vibration } from "react-native";
 import { apiFetch } from "./api";
@@ -7,6 +7,54 @@ import { supabase } from "./supabase";
 
 type NotificationModule = typeof import("expo-notifications");
 
+export type NotificationSoundId =
+  | "system"
+  | "bell_notification"
+  | "clear_announce_tones"
+  | "confirmation_tone"
+  | "correct_tone"
+  | "default_tone"
+  | "emergency"
+  | "option_preference_tone"
+  | "wrong_answer_fail";
+export type NotificationSoundPreferences = {
+  emergency: NotificationSoundId;
+  default: NotificationSoundId;
+};
+
+export const DEFAULT_NOTIFICATION_SOUND_PREFERENCES: NotificationSoundPreferences = {
+  emergency: "emergency",
+  default: "default_tone",
+};
+
+export const NOTIFICATION_SOUND_OPTIONS: Record<
+  keyof NotificationSoundPreferences,
+  { id: NotificationSoundId; label: string; description: string }[]
+> = {
+  emergency: [
+    { id: "system", label: "System default", description: "Use your device's notification sound" },
+    { id: "bell_notification", label: "Bell notification", description: "bell-notification.wav" },
+    { id: "clear_announce_tones", label: "Clear announce tones", description: "clear announce tones.wav" },
+    { id: "confirmation_tone", label: "Confirmation tone", description: "confirmation_tone.wav" },
+    { id: "correct_tone", label: "Correct tone", description: "correct_tone.wav" },
+    { id: "default_tone", label: "Default tone", description: "default.wav" },
+    { id: "emergency", label: "Emergency tone", description: "emergency.wav" },
+    { id: "option_preference_tone", label: "Option preference", description: "Option_Preference.wav" },
+    { id: "wrong_answer_fail", label: "Wrong answer fail", description: "wrong answer fail.wav" },
+  ],
+  default: [
+    { id: "system", label: "System default", description: "Use your device's notification sound" },
+    { id: "bell_notification", label: "Bell notification", description: "bell-notification.wav" },
+    { id: "clear_announce_tones", label: "Clear announce tones", description: "clear announce tones.wav" },
+    { id: "confirmation_tone", label: "Confirmation tone", description: "confirmation_tone.wav" },
+    { id: "correct_tone", label: "Correct tone", description: "correct_tone.wav" },
+    { id: "default_tone", label: "Default tone", description: "default.wav" },
+    { id: "emergency", label: "Emergency tone", description: "emergency.wav" },
+    { id: "option_preference_tone", label: "Option preference", description: "Option_Preference.wav" },
+    { id: "wrong_answer_fail", label: "Wrong answer fail", description: "wrong answer fail.wav" },
+  ],
+};
+
 let Notifications: NotificationModule | null = null;
 let feedRefreshTimeout: ReturnType<typeof setTimeout> | null = null;
 let lastSmokeNotificationEventId: string | null = null;
@@ -14,9 +62,115 @@ let lastSmokeNotificationSource: "local" | "remote" | null = null;
 let lastPowerModeNotificationEventId: string | null = null;
 let lastPowerModeNotificationSource: "local" | "remote" | null = null;
 let smokeLocalNotificationShown = false;
+export const supportsCustomNotificationSounds = Constants.appOwnership !== AppOwnership.Expo;
+const supportsCustomSounds = supportsCustomNotificationSounds;
+let soundPreferences = DEFAULT_NOTIFICATION_SOUND_PREFERENCES;
 const pendingSmokePersist = new Map<string, Promise<void>>();
 const persistedSmokeEvents = new Set<string>();
 const notifiedPowerModeEvents = new Set<string>();
+
+function soundFile(sound: NotificationSoundId): string | undefined {
+  if (sound === "system") return undefined;
+  return `${sound}.wav`;
+}
+
+function effectiveSound(sound: NotificationSoundId): NotificationSoundId {
+  return supportsCustomSounds ? sound : "system";
+}
+
+export async function fetchNotificationSoundPreferences(
+  accessToken: string,
+): Promise<NotificationSoundPreferences> {
+  const response = await apiFetch("/notifications/sound-preferences", {
+    headers: { Authorization: `Bearer ${accessToken}` },
+    timeoutMs: 8_000,
+  });
+  const responseText = await response.text();
+  if (!response.ok) {
+    throw new Error(
+      `Could not load notification sound preferences (${response.status})${responseText ? `: ${responseText.slice(0, 300)}` : ""}`,
+    );
+  }
+  let result: { preferences?: Partial<NotificationSoundPreferences> } | null = null;
+  try {
+    result = JSON.parse(responseText) as { preferences?: Partial<NotificationSoundPreferences> };
+  } catch {
+    throw new Error("Backend returned invalid notification sound preferences");
+  }
+  const emergency = result?.preferences?.emergency;
+  const defaultSound = result?.preferences?.default;
+  if (
+    !isNotificationSoundId(emergency) ||
+    !isNotificationSoundId(defaultSound)
+  ) {
+    throw new Error("Backend returned unsupported notification sound preferences");
+  }
+  return { emergency, default: defaultSound };
+}
+
+export async function saveNotificationSoundPreferences(
+  accessToken: string,
+  preferences: NotificationSoundPreferences,
+): Promise<void> {
+  const response = await apiFetch("/notifications/sound-preferences", {
+    method: "PUT",
+    timeoutMs: 8_000,
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(preferences),
+  });
+  if (!response.ok) {
+    const responseText = await response.text();
+    throw new Error(
+      `Could not save notification sound preferences (${response.status})${responseText ? `: ${responseText.slice(0, 300)}` : ""}`,
+    );
+  }
+}
+
+function isNotificationSoundId(value: unknown): value is NotificationSoundId {
+  return value === "system" || NOTIFICATION_SOUND_OPTIONS.emergency.some(({ id }) => id === value);
+}
+
+async function configureNotificationChannels(): Promise<void> {
+  if (Platform.OS !== "android" || !Notifications) return;
+  const emergencySound = effectiveSound(soundPreferences.emergency);
+  const defaultSound = effectiveSound(soundPreferences.default);
+  const emergencyFile = soundFile(emergencySound);
+  const defaultFile = soundFile(defaultSound);
+  await Notifications.setNotificationChannelAsync(
+    `smoke-alert-v8-${emergencySound}`,
+    {
+      name: "Emergency alerts",
+      importance: Notifications.AndroidImportance.MAX,
+      ...(emergencyFile ? { sound: emergencyFile } : {}),
+      vibrationPattern: [500, 500, 500, 500, 1000, 500],
+      enableVibrate: true,
+      lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+      bypassDnd: true,
+      showBadge: true,
+    },
+  );
+  await Notifications.setNotificationChannelAsync(
+    `default-notification-v2-${defaultSound}`,
+    {
+      name: "Notifications",
+      importance: Notifications.AndroidImportance.MAX,
+      ...(defaultFile ? { sound: defaultFile } : {}),
+      enableVibrate: true,
+      lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+      showBadge: true,
+    },
+  );
+}
+
+export async function applyNotificationSoundPreferences(
+  preferences: NotificationSoundPreferences,
+): Promise<void> {
+  soundPreferences = preferences;
+  await configureNotificationChannels();
+}
 
 function signalNotificationFeedRefresh(): void {
   if (feedRefreshTimeout) clearTimeout(feedRefreshTimeout);
@@ -258,25 +412,13 @@ try {
 export async function registerPushNotifications(accessToken: string): Promise<void> {
   if (Platform.OS === "web" || !Notifications) return;
 
-  if (Platform.OS === "android") {
-    await Notifications.setNotificationChannelAsync("smoke-alert-v6", {
-      name: "Smoke and safety alerts",
-      importance: Notifications.AndroidImportance.MAX,
-      sound: "custom_sound.wav",
-      vibrationPattern: [500, 500, 500, 500, 1000, 500],
-      enableVibrate: true,
-      lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
-      bypassDnd: true,
-      showBadge: true,
-    });
-    await Notifications.setNotificationChannelAsync("power-mode-alert-v1", {
-      name: "Power source changes",
-      importance: Notifications.AndroidImportance.MAX,
-      sound: "custom_sound.wav",
-      enableVibrate: true,
-      lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
-      showBadge: true,
-    });
+  soundPreferences = await fetchNotificationSoundPreferences(accessToken);
+  await configureNotificationChannels();
+
+  if (!supportsCustomSounds) {
+    console.info(
+      "[push-notifications] Expo Go uses the system notification sound; install a rebuilt development app to use bundled sounds.",
+    );
   }
 
   const { status: existingStatus } = await Notifications.getPermissionsAsync();
@@ -304,6 +446,7 @@ export async function registerPushNotifications(accessToken: string): Promise<vo
     body: JSON.stringify({
       expoPushToken: token.data,
       platform: Platform.OS,
+      supportsCustomSounds,
     }),
   });
   if (!response.ok) {
@@ -339,13 +482,15 @@ export function updatePowerModeNotification(
     : `Your device is now using ${modeName.toLowerCase()} power (previously using ${previousMode}).`;
   lastPowerModeNotificationEventId = eventId;
   lastPowerModeNotificationSource = "local";
+  const defaultSound = effectiveSound(soundPreferences.default);
+  const defaultSoundFile = soundFile(defaultSound);
 
   if (Notifications) {
     void Notifications.scheduleNotificationAsync({
       content: {
         title,
         body,
-        sound: "custom_sound.wav",
+        sound: defaultSoundFile ?? "default",
         priority: Notifications.AndroidNotificationPriority.MAX,
         data: {
           type: "power_mode_changed",
@@ -357,7 +502,9 @@ export function updatePowerModeNotification(
           title,
           body,
         },
-        ...(Platform.OS === "android" ? { channelId: "power-mode-alert-v1" } : {}),
+        ...(Platform.OS === "android"
+          ? { channelId: `default-notification-v2-${defaultSound}` }
+          : {}),
       },
       trigger: null,
     }).then((notificationId) => {
@@ -405,11 +552,13 @@ export function updateSmokeAlarm(
     smokeLocalNotificationShown = true;
     lastSmokeNotificationEventId = eventId || null;
     lastSmokeNotificationSource = "local";
+    const emergencySound = effectiveSound(soundPreferences.emergency);
+    const emergencySoundFile = soundFile(emergencySound);
     void Notifications.scheduleNotificationAsync({
       content: {
         title: "Smoke detected — device shut down",
         body: `Smoke detected in ${zone || "the device enclosure"}. The hub turned off its relays and power outputs. Check the device physically before restoring power.`,
-        sound: "custom_sound.wav",
+        sound: emergencySoundFile ?? "default",
         priority: Notifications.AndroidNotificationPriority.MAX,
         data: {
           type: "smoke_detected",
@@ -421,7 +570,7 @@ export function updateSmokeAlarm(
           zone: zone || "the device enclosure",
         },
         ...(Platform.OS === "android"
-          ? { channelId: "smoke-alert-v6" }
+          ? { channelId: `smoke-alert-v8-${emergencySound}` }
           : {}),
       },
       trigger: null,

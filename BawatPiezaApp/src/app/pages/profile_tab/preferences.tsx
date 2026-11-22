@@ -1,10 +1,10 @@
-import { useState } from 'react';
 import { Pressable, StyleSheet, Switch, View } from 'react-native';
+import { useState } from 'react';
 import { AppText as Text } from '../../../components/app-text';
 import { Ionicons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
 import { ScreenShell } from '../../../components/screen-shell';
-import { ContentCard } from '../../../components/content-card';
-import { FONT_SIZE_OPTIONS, fonts, useTheme, type FontSizeOption } from '../../../theme';
+import { FONT_SIZE_OPTIONS, useTheme, type FontSizeOption } from '../../../theme';
 
 type Pref = { key: string; icon: keyof typeof Ionicons.glyphMap; label: string; sub: string; value: boolean };
 
@@ -17,6 +17,7 @@ const INITIAL: Pref[] = [
 
 export default function PreferencesScreen() {
   const { colors: c, fonts: f, mode, toggleMode, fontSize, setFontSize, fs } = useTheme();
+  const router = useRouter();
   const [prefs, setPrefs] = useState(INITIAL);
 
   const toggle = (key: string) =>
@@ -24,9 +25,9 @@ export default function PreferencesScreen() {
 
   return (
     <ScreenShell title="Preferences" showBack>
-      {/* Theme */}
-      <ContentCard eyebrow="Theme" title="Appearance">
-        <View style={[styles.themeRow, { backgroundColor: c.surfaceMuted, borderColor: c.line }]}>
+      <View style={styles.section}>
+        <Text style={[styles.sectionTitle, { color: c.muted, fontFamily: f.extrabold }]}>APPEARANCE</Text>
+        <View style={[styles.themeRow, { backgroundColor: c.surface, borderColor: c.line }]}>
           <View style={[styles.themeIcon, { backgroundColor: c.accentSoft }]}>
             <Ionicons name={mode === 'dark' ? 'moon' : 'sunny'} size={18} color={c.onAccentSoft} />
           </View>
@@ -47,10 +48,10 @@ export default function PreferencesScreen() {
             ios_backgroundColor={c.line}
           />
         </View>
-      </ContentCard>
+      </View>
 
-      {/* Font size — body-text base (16 / 20 / 24), persisted device-wide */}
-      <ContentCard eyebrow="Font size" title="Text size">
+      <View style={styles.section}>
+        <Text style={[styles.sectionTitle, { color: c.muted, fontFamily: f.extrabold }]}>TEXT SIZE</Text>
         <View style={styles.sizeRow}>
           {FONT_SIZE_OPTIONS.map((o) => {
             const active = fontSize === o.value;
@@ -64,7 +65,7 @@ export default function PreferencesScreen() {
                 style={[
                   styles.sizeCard,
                   {
-                    backgroundColor: active ? c.accent : c.surfaceMuted,
+                    backgroundColor: active ? c.accent : c.surface,
                     borderColor: active ? c.accent : c.line,
                   },
                 ]}
@@ -101,17 +102,47 @@ export default function PreferencesScreen() {
             );
           })}
         </View>
-        <View style={[styles.previewBox, { backgroundColor: c.surfaceMuted, borderColor: c.line }]}>
+        <View style={[styles.previewBox, { backgroundColor: c.surface, borderColor: c.line }]}>
           <Text style={{ color: c.text, fontFamily: f.regular, fontSize: fs(14), lineHeight: fs(14) * 1.5 }}>
             Body text renders at {fontSize}px. Headings stay fixed so hierarchy is preserved.
           </Text>
         </View>
-      </ContentCard>
+      </View>
 
-      {/* General preferences */}
-      <ContentCard eyebrow="Settings">
-        {prefs.map((p, i) => (
-          <View key={p.key} style={[styles.row, { borderBottomColor: c.line }, i === prefs.length - 1 ? styles.rowLast : null]}>
+      <View style={styles.section}>
+        <Text style={[styles.sectionTitle, { color: c.muted, fontFamily: f.extrabold }]}>NOTIFICATIONS</Text>
+        <Pressable
+          onPress={() => router.push('/pages/notification-sounds')}
+          accessibilityRole="button"
+          accessibilityLabel="Choose notification sounds"
+          style={({ pressed }) => [
+            styles.soundLink,
+            {
+              backgroundColor: c.surface,
+              borderColor: c.line,
+              opacity: pressed ? 0.7 : 1,
+            },
+          ]}
+        >
+          <View style={[styles.soundLinkIcon, { backgroundColor: c.accentSoft }]}>
+            <Ionicons name="musical-notes-outline" size={18} color={c.onAccentSoft} />
+          </View>
+          <View style={styles.text}>
+            <Text style={[styles.label, { color: c.text, fontFamily: f.semibold }]}>
+              Choose notification sounds
+            </Text>
+            <Text style={[styles.sub, { color: c.muted, fontFamily: f.regular }]}>
+              Set different tones for emergencies and other notifications
+            </Text>
+          </View>
+          <Ionicons name="chevron-forward" size={18} color={c.muted} />
+        </Pressable>
+      </View>
+
+      <View style={styles.section}>
+        <Text style={[styles.sectionTitle, { color: c.muted, fontFamily: f.extrabold }]}>GENERAL PREFERENCES</Text>
+        {prefs.map((p) => (
+          <View key={p.key} style={[styles.row, { backgroundColor: c.surface, borderColor: c.line }]}>
             <View style={[styles.icon, { backgroundColor: c.accentSoft }]}>
               <Ionicons name={p.icon} size={17} color={c.onAccentSoft} />
             </View>
@@ -122,12 +153,13 @@ export default function PreferencesScreen() {
             <Switch
               value={p.value}
               onValueChange={() => toggle(p.key)}
-              trackColor={{ false: c.line, true: c.butter }}
+              trackColor={{ false: c.line, true: c.accent }}
               thumbColor={p.value ? c.accent : '#FFFFFF'}
+              ios_backgroundColor={c.line}
             />
           </View>
         ))}
-      </ContentCard>
+      </View>
       <Text style={[styles.hint, { color: c.muted, fontFamily: f.regular }]}>
         Theme and text size are saved on this device and applied across the whole app.
       </Text>
@@ -136,6 +168,13 @@ export default function PreferencesScreen() {
 }
 
 const styles = StyleSheet.create({
+  section: { marginBottom: 2 },
+  sectionTitle: {
+    fontSize: 11,
+    letterSpacing: 1.2,
+    marginTop: 10,
+    marginBottom: 8,
+  },
   modeLabel: { fontSize: 14 },
   modeSub: { fontSize: 10, lineHeight: 14 },
   themeRow: {
@@ -143,7 +182,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderRadius: 16,
     borderWidth: 1,
-    padding: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+    marginBottom: 8,
+    minHeight: 62,
   },
   themeIcon: {
     width: 38,
@@ -156,36 +198,59 @@ const styles = StyleSheet.create({
   sizeRow: { flexDirection: 'row', gap: 10 },
   sizeCard: {
     flex: 1,
-    borderRadius: 14,
+    borderRadius: 16,
     borderWidth: 2,
-    padding: 12,
+    padding: 10,
     alignItems: 'center',
     gap: 2,
   },
   sizePreview: { lineHeight: 30 },
+  soundLink: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    borderWidth: 1,
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+    marginBottom: 8,
+    minHeight: 62,
+  },
+  soundLinkIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   previewBox: {
     marginTop: 10,
-    borderRadius: 12,
+    borderRadius: 16,
     borderWidth: 1,
-    padding: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    marginBottom: 8,
   },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 10,
-    borderBottomWidth: 1,
+    borderRadius: 16,
+    borderWidth: 1,
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+    marginBottom: 8,
+    minHeight: 62,
   },
-  rowLast: { borderBottomWidth: 0 },
   icon: {
-    width: 32,
-    height: 32,
+    width: 30,
+    height: 30,
     borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 12,
+    marginRight: 10,
   },
   text: { flex: 1 },
-  label: { fontSize: 14 },
-  sub: { fontSize: 11, marginTop: 1 },
-  hint: { fontSize: 11, textAlign: 'center', marginTop: 4 },
+  label: { fontSize: 12 },
+  sub: { fontSize: 10, marginTop: 2 },
+  hint: { fontSize: 10, textAlign: 'center', marginTop: 4 },
 });

@@ -9,6 +9,7 @@ import { styles } from "./styles";
 import { SectionLabel, ActionButton, ZoneCard } from "./shared";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { supabase } from "../../lib/supabase";
+import { apiFetch } from "../../lib/api";
 import {
   getChannelPriorityOption,
   type ChannelPriority,
@@ -261,6 +262,28 @@ export function Allocation({
       throw new Error("No configured channels are available for allocation.");
     }
 
+    const { data: authData } = await supabase.auth.getSession();
+    const token = authData.session?.access_token;
+    if (!token) throw new Error("Your session expired. Please sign in again.");
+    const modeResponse = await apiFetch(`/api/v1/telemetry/commands/${encodeURIComponent(hubId)}`, {
+      method: "POST",
+      timeoutMs: 10_000,
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ command: "force_battery" }),
+    });
+    if (!modeResponse.ok) {
+      const result = await modeResponse.json().catch(() => null) as {
+        message?: string;
+        error?: string;
+      } | null;
+      throw new Error(
+        result?.message || result?.error || `Power-mode command failed (${modeResponse.status}).`,
+      );
+    }
+
     await new Promise<void>((resolve, reject) => {
       const client = new Paho.Client(
         "broker.hivemq.com",
@@ -289,7 +312,6 @@ export function Allocation({
             assertPowerControlsAvailable();
             const topic = `bawatpieza/devices/${hubId}/commands`;
             const commands = [
-              { command: "force_battery" },
               ...channelsToPower.map((channel) => {
                 const share = channelShares.get(channel.channel);
                 return {

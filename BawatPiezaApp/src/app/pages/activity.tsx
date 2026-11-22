@@ -1,41 +1,76 @@
-import { useMemo, useState } from 'react';
-import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useEffect, useMemo, useState } from 'react';
+import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { ScreenShell } from '../../components/screen-shell';
 import { fonts, useTheme, type ThemeColors } from '../../theme';
 import { scale } from '../../components/glass-ui';
+import { useAuth } from '../../hooks/use-auth';
+import { apiFetch } from '../../lib/api';
 
 type Activity = {
-  icon: keyof typeof Ionicons.glyphMap;
-  title: string;
-  time: string;
-  tone: 'blue' | 'orange' | 'red' | 'slate';
-};
-
-const ACTIVITIES: Activity[] = [
-  { icon: 'person-outline', title: 'Admin changed lighting schedule', time: '11:32 PM', tone: 'blue' },
-  { icon: 'flash-outline', title: 'System switched to grid', time: '11:03 PM', tone: 'orange' },
-  { icon: 'warning-outline', title: 'Emergency override activated', time: '11:45 AM', tone: 'red' },
-  { icon: 'flash-outline', title: 'Battery Bank A reached 80% — switched to battery', time: '9:14 AM', tone: 'blue' },
-  { icon: 'color-wand-outline', title: 'Maintenance staff acknowledged tile inspection alert', time: 'Yesterday · 4:52 PM', tone: 'slate' },
-];
-
-const TONES = {
-  blue: { background: '#E3EFFB', icon: '#1764B0' },
-  orange: { background: '#FFF0DC', icon: '#F59E0B' },
-  red: { background: '#FDEAE2', icon: '#F97316' },
-  slate: { background: '#EEF1F6', icon: '#244578' },
+  id: string;
+  hub_id: string;
+  actor_name: string;
+  target_mode: 'grid' | 'battery' | 'shutdown';
+  command_status: 'requested' | 'sent' | 'failed';
+  created_at: string;
 };
 
 export default function ActivityScreen() {
   const { colors: c } = useTheme();
   const styles = makeStyles(c);
+  const { session } = useAuth();
   const [tab, setTab] = useState<'history' | 'activity'>('activity');
   const [query, setQuery] = useState('');
+  const [auditEvents, setAuditEvents] = useState<Activity[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadAudit = async () => {
+      setLoading(true);
+      setLoadError(null);
+      try {
+        const token = session?.access_token;
+        if (!token) throw new Error('You must be signed in to view the audit trail.');
+        const response = await apiFetch('/api/v1/telemetry/power-mode-audit', {
+          timeoutMs: 8_000,
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const result = await response.json().catch(() => null) as {
+          events?: Activity[];
+          message?: string;
+          error?: string;
+        } | null;
+        if (!response.ok) {
+          throw new Error(result?.message || result?.error || `Audit log request failed (${response.status}).`);
+        }
+        if (!cancelled) setAuditEvents(result?.events ?? []);
+      } catch (error) {
+        if (!cancelled) {
+          setLoadError(error instanceof Error ? error.message : 'Failed to load power-mode activity.');
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+    void loadAudit();
+    return () => {
+      cancelled = true;
+    };
+  }, [session?.access_token]);
+
   const activities = useMemo(() => {
     const value = query.trim().toLowerCase();
-    return value ? ACTIVITIES.filter((item) => item.title.toLowerCase().includes(value)) : ACTIVITIES;
-  }, [query]);
+    return value
+      ? auditEvents.filter((item) =>
+          `${item.actor_name} ${item.target_mode} ${item.hub_id} ${item.command_status}`
+            .toLowerCase()
+            .includes(value),
+        )
+      : auditEvents;
+  }, [auditEvents, query]);
 
   return (
     <ScreenShell title="Audit Trail" showBack>
@@ -50,18 +85,31 @@ export default function ActivityScreen() {
 
       {tab === 'history' ? <HistoryLog styles={styles} /> : (
         <>
-          <Text style={styles.intro}>Every admin action and automated system event, timestamped, in order.</Text>
+          <Text style={styles.intro}>Power-mode commands requested by you and other users with access. Automatic ATS changes are not attributed to a user.</Text>
           <View style={styles.searchBox}>
             <Ionicons name="search-outline" size={17} color={c.muted} />
             <TextInput value={query} onChangeText={setQuery} placeholder="Search activity..." placeholderTextColor={c.muted} style={styles.searchInput} accessibilityLabel="Search activity log" />
           </View>
           <View style={styles.listCard}>
-            {activities.length ? activities.map((activity, index) => {
-              const tone = TONES[activity.tone];
+            {loading ? (
+              <View style={styles.loadingWrap}><ActivityIndicator color="#F97316" /><Text style={styles.emptyText}>Loading power-mode audit...</Text></View>
+            ) : loadError ? (
+              <Text style={styles.errorText}>{loadError}</Text>
+            ) : activities.length ? activities.map((activity, index) => {
+              const statusLabel = activity.command_status === 'sent'
+                ? 'Command sent via MQTT'
+                : activity.command_status === 'failed'
+                  ? 'Command failed to send'
+                  : 'Request recorded';
+              const modeName = activity.target_mode.charAt(0).toUpperCase() + activity.target_mode.slice(1);
               return (
-                <View key={`${activity.title}-${activity.time}`} style={[styles.activityRow, index > 0 && styles.activityBorder]}>
-                  <View style={[styles.activityIcon, { backgroundColor: tone.background }]}><Ionicons name={activity.icon} size={17} color={tone.icon} /></View>
-                  <View style={styles.activityCopy}><Text style={styles.activityTitle}>{activity.title}</Text><Text style={styles.activityTime}>{activity.time}</Text></View>
+                <View key={activity.id} style={[styles.activityRow, index > 0 && styles.activityBorder]}>
+                  <View style={[styles.activityIcon, { backgroundColor: '#FFF0DC' }]}><Ionicons name="flash-outline" size={17} color="#F59E0B" /></View>
+                  <View style={styles.activityCopy}>
+                    <Text style={styles.activityTitle}>{activity.actor_name} requested {modeName} mode</Text>
+                    <Text style={styles.activityMeta}>{activity.hub_id} · {statusLabel}</Text>
+                    <Text style={styles.activityTime}>{new Date(activity.created_at).toLocaleString()}</Text>
+                  </View>
                 </View>
               );
             }) : <Text style={styles.emptyText}>No activity matches your search.</Text>}
@@ -111,8 +159,11 @@ const makeStyles = (c: ThemeColors) => StyleSheet.create({
   activityIcon: { width: scale(42), height: scale(42), borderRadius: scale(13), alignItems: 'center', justifyContent: 'center', marginRight: scale(12) },
   activityCopy: { flex: 1 },
   activityTitle: { color: c.text, fontSize: scale(12), lineHeight: scale(16), fontFamily: fonts.extrabold },
+  activityMeta: { color: c.text, fontSize: scale(10), lineHeight: scale(14), fontFamily: fonts.medium, marginTop: scale(2) },
   activityTime: { color: c.muted, fontSize: scale(10), fontFamily: fonts.medium, marginTop: scale(2) },
   emptyText: { color: c.muted, textAlign: 'center', fontSize: scale(12), paddingVertical: scale(24), fontFamily: fonts.medium },
+  errorText: { color: '#C33D3D', textAlign: 'center', fontSize: scale(11), paddingVertical: scale(20), fontFamily: fonts.medium },
+  loadingWrap: { minHeight: scale(120), alignItems: 'center', justifyContent: 'center' },
   rangeTabs: { flexDirection: 'row', justifyContent: 'space-around', backgroundColor: c.surface, borderRadius: scale(12), paddingVertical: scale(10), marginBottom: scale(10) },
   rangeText: { color: c.muted, fontSize: scale(10), fontFamily: fonts.bold },
   rangeSelected: { color: '#F97316' },
