@@ -1,12 +1,14 @@
 import React from "react";
 import { Animated, Pressable, View } from "react-native";
-import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { AppText as Text } from "../app-text";
 import { Card, LiveDot, scale } from "../glass-ui";
 import { CountUpText } from "../count-up-text";
 import { TourSpot } from "../app-tour-overlay";
 import { TileLoader } from "../tile-loader";
+import { getHeatmapTileColor } from "../heatmap-tile-grid";
+import { TileHeatScene } from "./tile-heat-scene";
+import type { DashboardZone } from "./dashboard-actions";
 import Svg, {
   Defs,
   LinearGradient as SvgGradient,
@@ -79,6 +81,11 @@ type Props = {
   setRangeMenuOpen: React.Dispatch<React.SetStateAction<boolean>>;
   stats: Stat[];
   openOverrides: () => void;
+  installedTileCount?: number;
+  footsteps?: number;
+  activeTile?: number | null;
+  onOpenHeatmap?: () => void;
+  zones?: DashboardZone[];
 };
 export function DashboardStats({
   c,
@@ -112,6 +119,11 @@ export function DashboardStats({
   setRangeMenuOpen,
   stats,
   openOverrides,
+  installedTileCount = 0,
+  footsteps = 0,
+  activeTile = null,
+  onOpenHeatmap,
+  zones = [],
 }: Props) {
   const maxGeneration = Math.max(...generationTrend, 0);
   const generationPoints = generationTrend.map((value, index) => {
@@ -223,97 +235,152 @@ export function DashboardStats({
               },
             ]}
           >
-            <LinearGradient
-              colors={
-                isActive || isLoading
-                  ? ["#F5A220", "#E6641F"]
-                  : ["#475569", "#64748B", "#94A3B8"]
-              }
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={st.scCard}
-            >
-              {isLoading ? (
-                <TileLoader label="Loading dashboard data..." size="sm" />
-              ) : (
-                <>
-              <View style={st.scTop}>
-                <View style={st.scTopData}>
-                  <Text style={st.scEyebrow}>
-                    {selectedConsumption.label}&apos;s generation
-                  </Text>
-                  <View style={st.scKwhRow}>
-                    <Text style={st.scKwh}>
-                      {isActive ? selectedConsumption.kwh.toFixed(4) : "--"}
+            {isLoading ? (
+              <TileLoader label="Loading dashboard data..." size="sm" />
+            ) : (
+              <>
+                <View style={st.hsLegendRow}>
+                  <View style={st.hsLegendLeft}>
+                    <Text style={[st.hsLegendText, { color: c.muted }]}>
+                      less
                     </Text>
-                    <Text style={st.scKwhUnit}>kWh</Text>
-                  </View>
-                  <View style={[st.scSavings, !isActive && { opacity: 0.5 }]}>
-                    <Ionicons
-                      name="footsteps"
-                      size={scale(11)}
-                      color="#FFFFFF"
-                    />
-                    <Text
-                      style={[st.scSavingsText, { color: BRAND_ORANGE_DARK }]}
+                    <View
+                      style={[st.hsLegendSwatches, !isActive && { opacity: 0.4 }]}
                     >
-                      {isActive ? selectedConsumption.detail : "--"}
+                      {[0.1, 0.35, 0.6, 0.82, 0.98].map((v, i) => (
+                        <View
+                          key={i}
+                          style={[
+                            st.hsLegendSwatch,
+                            { backgroundColor: getHeatmapTileColor(v) },
+                          ]}
+                        />
+                      ))}
+                    </View>
+                    <Text style={[st.hsLegendText, { color: c.muted }]}>
+                      more
                     </Text>
                   </View>
-                </View>
-                {(isBatteryMode || usingGrid || isShutdown) && (
-                  <View style={[st.scDelta, !isActive && { opacity: 0.5 }]}>
+                  <Pressable
+                    onPress={onOpenHeatmap}
+                    hitSlop={8}
+                    accessibilityRole="button"
+                    accessibilityLabel="Full heatmap"
+                    style={st.hsLink}
+                  >
+                    <Text style={[st.hsLinkText, { color: activeOrangeDark }]}>
+                      Full heatmap
+                    </Text>
                     <Ionicons
-                      name="battery-charging"
-                      size={scale(14)}
-                      color="#FFFFFF"
+                      name="chevron-forward"
+                      size={scale(11)}
+                      color={activeOrangeDark}
                     />
-                    <View>
-                      <Text style={st.scDeltaValue}>
-                        {batteryPct !== null
-                          ? `${Math.floor(batteryPct)}%`
-                          : "--%"}
+                  </Pressable>
+                </View>
+
+                <TileHeatScene
+                  mode={mode}
+                  isActive={isActive}
+                  installedTileCount={installedTileCount}
+                  footsteps={footsteps}
+                  batteryPct={batteryPct}
+                  activeTile={activeTile}
+                  bulbs={zones.map((zone) => isActive && zone.on)}
+                  roomNames={zones.map((zone) => zone.name)}
+                  powerMode={powerMode}
+                  gridVoltage={gridVoltage}
+                  gridPower={gridPower}
+                />
+
+                <View style={st.hsTop}>
+                  <View style={st.hsTopData}>
+                    <Text style={[st.hsEyebrow, { color: c.text }]}>
+                      {selectedConsumption.label}&apos;s generation
+                    </Text>
+                    <View style={st.hsKwhRow}>
+                      <Text style={[st.hsKwh, { color: c.text }]}>
+                        {isActive ? selectedConsumption.kwh.toFixed(4) : "--"}
                       </Text>
-                      <Text style={st.scDeltaLabel}>Battery charge</Text>
+                      <Text style={[st.hsKwhUnit, { color: c.text }]}>kWh</Text>
+                    </View>
+                    <View style={[st.hsSteps, !isActive && { opacity: 0.5 }]}>
+                      <Ionicons
+                        name="footsteps"
+                        size={scale(11)}
+                        color={c.muted}
+                      />
+                      <Text style={[st.hsStepsText, { color: c.muted }]}>
+                        {isActive ? selectedConsumption.detail : "--"}
+                      </Text>
                     </View>
                   </View>
-                )}
-              </View>
-              <View style={st.scTiles}>
-                {stats.map((s, i) => {
-                  const icon = (
-                    {
-                      Voltage: "flash",
-                      Power: "speedometer",
-                      Footsteps: "footsteps",
-                    } as const
-                  )[s.label as "Voltage" | "Power" | "Footsteps"];
-                  return (
-                    <View
-                      key={s.label}
-                      style={[st.scTile, i > 0 && st.scTileDivider]}
-                    >
-                      <View style={st.scTileIcon}>
+                  {(isBatteryMode || usingGrid || isShutdown) && (
+                    <View style={[st.hsBattery, !isActive && { opacity: 0.5 }]}>
+                      <Ionicons
+                        name="battery-charging"
+                        size={scale(14)}
+                        color={c.muted}
+                      />
+                      <View>
+                        <Text style={[st.hsBatteryValue, { color: c.text }]}>
+                          {batteryPct !== null
+                            ? `${Math.floor(batteryPct)}%`
+                            : "--%"}
+                        </Text>
+                        <Text style={[st.hsBatteryLabel, { color: c.muted }]}>
+                          Battery charge
+                        </Text>
+                      </View>
+                    </View>
+                  )}
+                </View>
+
+                <View style={[st.hsTiles, { borderTopColor: c.line }]}>
+                  {stats.map((s, i) => {
+                    const icon = (
+                      {
+                        Voltage: "flash",
+                        Power: "speedometer",
+                        Footsteps: "footsteps",
+                      } as const
+                    )[s.label as "Voltage" | "Power" | "Footsteps"];
+                    return (
+                      <View
+                        key={s.label}
+                        style={[
+                          st.hsTile,
+                          i > 0 && [
+                            st.hsTileDivider,
+                            { borderLeftColor: c.line },
+                          ],
+                        ]}
+                      >
                         <Ionicons
                           name={icon}
-                          size={scale(17)}
-                          color={activeOrangeDark}
+                          size={scale(16)}
+                          color={c.muted}
                         />
-                      </View>
-                      <View style={st.scTileValueRow}>
-                        <Text style={st.scTileValue} numberOfLines={1}>
-                          {s.value}
+                        <View style={st.hsTileValueRow}>
+                          <Text
+                            style={[st.hsTileValue, { color: c.text }]}
+                            numberOfLines={1}
+                          >
+                            {s.value}
+                          </Text>
+                          <Text style={[st.hsTileUnit, { color: c.muted }]}>
+                            {s.unit}
+                          </Text>
+                        </View>
+                        <Text style={[st.hsTileLabel, { color: c.muted }]}>
+                          {s.label}
                         </Text>
-                        <Text style={st.scTileUnit}>{s.unit}</Text>
                       </View>
-                      <Text style={st.scTileLabel}>{s.label}</Text>
-                    </View>
-                  );
-                })}
-              </View>
-                </>
-              )}
-            </LinearGradient>
+                    );
+                  })}
+                </View>
+              </>
+            )}
           </Animated.View>
         </TourSpot>
       </EnterView>

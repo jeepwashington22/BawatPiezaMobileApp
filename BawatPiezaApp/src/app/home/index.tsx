@@ -922,6 +922,11 @@ export default function HomeScreen() {
           setRangeMenuOpen={setRangeMenuOpen}
           stats={stats}
           openOverrides={openOverrides}
+          installedTileCount={installedTileCount}
+          footsteps={footsteps}
+          activeTile={activeTile}
+          onOpenHeatmap={() => router.push("/pages/heatmap")}
+          zones={zones}
         />
         <DashboardActions
           c={c}
