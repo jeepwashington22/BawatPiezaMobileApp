@@ -23,6 +23,15 @@ import {
 import { LinearGradient } from "expo-linear-gradient";
 import { SafeAreaView } from "react-native-safe-area-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import {
+  Circle,
+  Defs,
+  G,
+  LinearGradient as SvgGradient,
+  Path,
+  Stop,
+  Svg,
+} from "react-native-svg";
 
 import { scale } from "./glass-ui";
 import { fonts, useTheme, type Mode, type ThemeColors } from "../theme";
@@ -76,12 +85,9 @@ function themePalette(mode: Mode, c: ThemeColors) {
   return {
     liveDot: dark ? "#FFFFFF" : "#5CE08A",
     liveDotRing: dark ? "#000000" : "#12406E",
-    cta: (dark ? ["#FFFFFF", "#D9D9D9"] : ["#F5C245", "#E0A315"]) as [
-      string,
-      string,
-    ],
-    ctaInk: dark ? "#000000" : "#0A2A4A",
-    ctaShadow: dark ? "#FFFFFF" : "#B87C05",
+    cta: ["#0A2A4A", "#123E68"] as [string, string],
+    ctaInk: "#FFFFFF",
+    ctaShadow: "#061A30",
     scanCorner: dark ? "#FFFFFF" : c.butter,
   };
 }
@@ -414,17 +420,7 @@ export function ProvisioningScreen() {
               >
                 <Ionicons name="arrow-back" size={fs(17)} color={c.text} />
               </Pressable>
-              <View style={[styles.brandMark, { backgroundColor: c.accent }]}>
-                <Ionicons name="flash" size={fs(19)} color={c.onAccent} />
-              </View>
-              <View style={styles.topLabelWrap}>
-                <View
-                  style={[styles.liveDot, { backgroundColor: p.liveDot }]}
-                />
-                <Text style={[styles.topLabel, { color: c.muted }]}>
-                  DEVICE SETUP
-                </Text>
-              </View>
+              <View style={styles.headerSpacer} />
               <Pressable
                 onPress={() => void skipProvisioning()}
                 accessibilityRole="button"
@@ -444,14 +440,62 @@ export function ProvisioningScreen() {
               <Text style={[styles.eyebrow, { color: c.orange }]}>
                 WELCOME TO BAWATPIEZA
               </Text>
-              <Text style={[styles.title, { color: c.text }]}>
-                Connect your energy hub
+              <Text style={[styles.title, { color: c.text }]} numberOfLines={1}>
+                Connect your hub
               </Text>
               <Text style={[styles.subtitle, { color: c.muted }]}>
-                A few quick steps to bring your smart floor online.
+                Follow these quick steps to get connected.
               </Text>
             </View>
 
+            <View
+              style={[
+                styles.heroVisual,
+                { backgroundColor: c.surfaceMuted, borderColor: c.line },
+              ]}
+              accessible
+              accessibilityLabel="Illustration of an energy hub connecting to a Wi-Fi network"
+            >
+              <Svg
+                width="100%"
+                height={scale(88)}
+                viewBox="0 0 360 132"
+                fill="none"
+              >
+                <Defs>
+                  <SvgGradient id="hubTop" x1="0" y1="0" x2="1" y2="1">
+                    <Stop offset="0" stopColor={c.accent} />
+                    <Stop offset="1" stopColor={c.orange} />
+                  </SvgGradient>
+                  <SvgGradient id="hubSide" x1="0" y1="0" x2="1" y2="1">
+                    <Stop offset="0" stopColor={c.accentSoft} />
+                    <Stop offset="1" stopColor={c.accent} />
+                  </SvgGradient>
+                  <SvgGradient id="hubFront" x1="0" y1="0" x2="0" y2="1">
+                    <Stop offset="0" stopColor={c.surface} />
+                    <Stop offset="1" stopColor={c.surfaceMuted} />
+                  </SvgGradient>
+                </Defs>
+                <Path d="M64 103c45 15 184 15 232-1" stroke={c.line} strokeWidth="2" strokeLinecap="round" opacity={0.8} />
+                <G opacity={0.9}>
+                  <Path d="M73 48 111 29l38 19-38 20-38-20Z" fill="url(#hubTop)" stroke={c.text} strokeOpacity={0.12} />
+                  <Path d="M73 48v34l38 21V68L73 48Z" fill="url(#hubFront)" stroke={c.text} strokeOpacity={0.12} />
+                  <Path d="m149 48-38 20v55l38-22V48Z" fill="url(#hubSide)" stroke={c.text} strokeOpacity={0.12} />
+                  <Path d="m92 57 19 10 19-10" stroke={c.text} strokeOpacity={0.2} strokeWidth="2" />
+                  <Circle cx="111" cy="83" r="5" fill={p.liveDot} />
+                  <Circle cx="111" cy="83" r="10" stroke={p.liveDot} strokeOpacity={0.25} />
+                </G>
+                <Path d="M169 62c20-22 45-22 64 0 12 14 27 14 42 2" stroke={c.accent} strokeWidth="2.5" strokeLinecap="round" strokeDasharray="5 7" />
+                <Circle cx="174" cy="60" r="5" fill={c.accent} />
+                <Circle cx="281" cy="64" r="5" fill={c.orange} />
+                <Circle cx="249" cy="35" r="17" fill={c.surface} stroke={c.line} />
+                <Path d="M241 35c4-7 12-7 16 0M244 40c2-4 8-4 10 0" stroke={c.accent} strokeWidth="2" strokeLinecap="round" />
+                <Circle cx="249" cy="44" r="1.8" fill={c.accent} />
+                <Path d="M292 87c7-7 17-7 24 0M296 93c5-5 11-5 16 0M303 99h2" stroke={c.muted} strokeWidth="2" strokeLinecap="round" />
+              </Svg>
+            </View>
+
+            <Text style={[styles.quickStepsLabel, { color: c.orange }]}>QUICK STEPS TO CONNECT</Text>
             <View style={styles.steps}>
               {STEPS.map((step, index) => {
                 const active = index === ACTIVE_STEP;
@@ -512,7 +556,12 @@ export function ProvisioningScreen() {
               })}
             </View>
 
-            <View style={styles.formSection}>
+            <View
+              style={[
+                styles.formSection,
+                { backgroundColor: c.surface, borderColor: c.line },
+              ]}
+            >
               <View style={styles.cardHead}>
                 <View style={styles.cardHeadCopy}>
                   <Text style={[styles.cardEyebrow, { color: c.orange }]}>
@@ -1049,6 +1098,7 @@ const styles = StyleSheet.create({
     letterSpacing: 1.6,
     fontFamily: fonts.extrabold,
   },
+  headerSpacer: { flex: 1 },
   skipPill: {
     flexDirection: "row",
     alignItems: "center",
@@ -1060,28 +1110,48 @@ const styles = StyleSheet.create({
   },
   skipText: { fontSize: fs(12), fontFamily: fonts.bold },
 
+  /* centered visual anchor */
+  heroVisual: {
+    height: scale(88),
+    borderRadius: scale(24),
+    borderWidth: 1,
+    overflow: "hidden",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: scale(12),
+  },
+
   /* intro */
-  intro: { marginBottom: scale(18) },
+  intro: {
+    marginBottom: scale(18),
+    paddingHorizontal: scale(2),
+  },
   eyebrow: { fontSize: fs(11), letterSpacing: 2, fontFamily: fonts.extrabold },
   title: {
-    fontSize: fs(27),
-    lineHeight: fs(33),
+    fontSize: fs(20),
+    lineHeight: fs(24),
     letterSpacing: -0.5,
     marginTop: scale(6),
     fontFamily: fonts.extrabold,
   },
   subtitle: {
-    fontSize: fs(13.5),
-    lineHeight: fs(20),
-    marginTop: scale(7),
+    fontSize: fs(12),
+    lineHeight: fs(17),
+    marginTop: scale(4),
     fontFamily: fonts.medium,
   },
 
   /* step indicator */
   steps: {
     flexDirection: "row",
-    marginTop: scale(18),
-    marginBottom: scale(20),
+    marginTop: scale(6),
+    marginBottom: scale(10),
+  },
+  quickStepsLabel: {
+    fontSize: fs(9),
+    letterSpacing: 1.3,
+    marginTop: scale(2),
+    fontFamily: fonts.extrabold,
   },
   stepItem: { flex: 1, alignItems: "center", paddingHorizontal: scale(2) },
   stepRail: { width: "100%", alignItems: "center" },
@@ -1093,8 +1163,8 @@ const styles = StyleSheet.create({
     height: StyleSheet.hairlineWidth,
   },
   stepBadge: {
-    width: scale(30),
-    height: scale(30),
+    width: scale(26),
+    height: scale(26),
     borderRadius: 99,
     borderWidth: 1,
     alignItems: "center",
@@ -1103,19 +1173,24 @@ const styles = StyleSheet.create({
   stepNumber: {
     fontSize: fs(9),
     letterSpacing: 1.2,
-    marginTop: scale(7),
+    marginTop: scale(4),
     fontFamily: fonts.extrabold,
   },
   stepLabel: {
-    fontSize: fs(10.5),
-    lineHeight: fs(14),
+    fontSize: fs(9.5),
+    lineHeight: fs(12),
     marginTop: scale(2),
     textAlign: "center",
     fontFamily: fonts.bold,
   },
 
   /* network form */
-  formSection: { paddingVertical: scale(2) },
+  formSection: {
+    paddingHorizontal: scale(12),
+    paddingVertical: scale(10),
+    borderWidth: 1,
+    borderRadius: scale(24),
+  },
   cardHead: { flexDirection: "row", alignItems: "flex-start", gap: scale(12) },
   cardHeadCopy: { flex: 1 },
   cardEyebrow: {
@@ -1124,21 +1199,21 @@ const styles = StyleSheet.create({
     fontFamily: fonts.extrabold,
   },
   cardTitle: {
-    fontSize: fs(17),
+    fontSize: fs(15),
     marginTop: scale(3),
     fontFamily: fonts.extrabold,
   },
   secureBadge: {
-    width: scale(38),
-    height: scale(38),
+    width: scale(32),
+    height: scale(32),
     borderRadius: scale(13),
     alignItems: "center",
     justifyContent: "center",
   },
   cardCopy: {
-    fontSize: fs(11.5),
-    lineHeight: fs(17),
-    marginTop: scale(8),
+    fontSize: fs(10),
+    lineHeight: fs(14),
+    marginTop: scale(5),
     fontFamily: fonts.medium,
   },
 
@@ -1147,16 +1222,16 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: scale(8),
-    marginTop: scale(14),
-    padding: scale(10),
+    marginTop: scale(10),
+    padding: scale(8),
     borderWidth: 1,
     borderRadius: scale(10),
   },
   disclaimerText: {
     flex: 1,
-    fontSize: fs(10),
+    fontSize: fs(9),
     fontFamily: fonts.medium,
-    lineHeight: fs(14),
+    lineHeight: fs(12),
   },
 
   outlineButton: {
@@ -1164,8 +1239,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     gap: scale(8),
-    height: scale(50),
-    borderRadius: scale(16),
+    height: scale(42),
+    borderRadius: scale(13),
     borderWidth: 1,
     marginTop: scale(16),
   },
@@ -1173,17 +1248,17 @@ const styles = StyleSheet.create({
 
   /* fields */
   fieldLabel: {
-    fontSize: fs(10),
+    fontSize: fs(9),
     letterSpacing: 1.2,
-    marginTop: scale(18),
-    marginBottom: scale(7),
+    marginTop: scale(12),
+    marginBottom: scale(5),
     fontFamily: fonts.extrabold,
   },
   inputRow: {
     flexDirection: "row",
     alignItems: "center",
-    minHeight: scale(52),
-    borderRadius: scale(16),
+    minHeight: scale(46),
+    borderRadius: scale(13),
     borderWidth: 1,
     paddingLeft: scale(14),
     paddingRight: scale(8),
@@ -1191,8 +1266,8 @@ const styles = StyleSheet.create({
   },
   input: {
     flex: 1,
-    fontSize: fs(13.5),
-    paddingVertical: scale(12),
+    fontSize: fs(12),
+    paddingVertical: scale(9),
     fontFamily: fonts.medium,
   },
   inputAction: {
@@ -1215,10 +1290,10 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     gap: scale(9),
-    height: scale(54),
-    borderRadius: scale(18),
+    height: scale(48),
+    borderRadius: scale(14),
     overflow: "hidden",
-    marginTop: scale(20),
+    marginTop: scale(14),
     shadowOpacity: 0.28,
     shadowRadius: scale(12),
     shadowOffset: { width: 0, height: scale(6) },
@@ -1231,7 +1306,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     gap: scale(6),
-    marginTop: scale(14),
+    marginTop: scale(9),
   },
   note: { fontSize: fs(10), fontFamily: fonts.medium },
 
@@ -1240,7 +1315,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "flex-start",
     gap: scale(8),
-    marginTop: scale(16),
+    marginTop: scale(10),
     paddingHorizontal: scale(2),
   },
   helperText: {

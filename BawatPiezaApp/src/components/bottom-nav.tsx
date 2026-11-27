@@ -33,17 +33,18 @@ const RIGHT: NavItem[] = [
 ];
 const CENTER = { label: 'Quick overrides' };
 
-/** Brand orange — drives the active tab and the raised Quick Overrides action. */
+/** Power-mode colors drive active tabs and the raised Quick Overrides action. */
 const ORANGE = '#F97316';
 const ORANGE_DEEP = '#EA580C';
 const GRID_GREEN = '#16A34A';
 const GRID_GREEN_DARK = '#15803D';
+const SHUTDOWN_RED_DARK = '#B91C1C';
 
 export function BottomNav({ hasDevice }: { hasDevice: boolean | null }) {
   const router = useRouter();
   const pathname = usePathname();
   const { colors: c, fonts: f } = useTheme();
-  const { usingGrid } = usePowerOverride();
+  const { usingGrid, override } = usePowerOverride();
   const { registerTarget, unregisterTarget } = useAppTour();
   const insets = useSafeAreaInsets();
   const [showOverrides, setShowOverrides] = React.useState(false);
@@ -58,8 +59,13 @@ export function BottomNav({ hasDevice }: { hasDevice: boolean | null }) {
     href === '/home'
       ? pathname === '/home'
       : pathname === href || pathname.startsWith(`${href}/`);
-  const activeColor = usingGrid ? GRID_GREEN : ORANGE;
-  const centerShadow = usingGrid ? GRID_GREEN_DARK : ORANGE_DEEP;
+  const shutdownActive = override === 'shutdown';
+  const activeColor = shutdownActive ? c.danger : usingGrid ? GRID_GREEN : ORANGE;
+  const centerShadow = shutdownActive
+    ? SHUTDOWN_RED_DARK
+    : usingGrid
+      ? GRID_GREEN_DARK
+      : ORANGE_DEEP;
 
   const renderItem = ({ label, href, icon, activeIcon }: NavItem) => {
     const active = isActive(href);

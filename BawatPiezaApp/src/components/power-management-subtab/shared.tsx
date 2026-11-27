@@ -1,8 +1,8 @@
-import { Pressable, StyleSheet, View } from "react-native";
+import { Modal, Pressable, StyleSheet, View } from "react-native";
 import { AppText as Text } from "../app-text";
 import { Ionicons } from "@expo/vector-icons";
 import { Card, scale } from "../glass-ui";
-import { type Mode, type ThemeColors } from "../../theme";
+import { fonts, useTheme, type Mode, type ThemeColors } from "../../theme";
 import { styles } from "./styles";
 import {
   getChannelPriorityOption,
@@ -109,7 +109,7 @@ export function ScheduleRow({
 }: {
   title: string;
   note: string;
-  time: string;
+  time?: string | null;
   c: ThemeColors;
   mode: Mode;
 }) {
@@ -138,8 +138,81 @@ export function ScheduleRow({
         <Text style={[styles.smallBold, { color: c.text }]}>{title}</Text>
         <Text style={[styles.cardCopy, { color: c.muted }]}>{note}</Text>
       </View>
-      <Text style={[styles.scheduleTime, { color: c.orange }]}>{time}</Text>
+      <Text style={[styles.scheduleTime, { color: c.orange }]}>
+        {typeof time === "string" && time.trim() ? time : "--"}
+      </Text>
     </View>
+  );
+}
+
+export type AllocationRecoveryReason = "stopped" | "setup_required";
+
+export function AllocationRecoveryModal({
+  visible,
+  reason,
+  c,
+  onContinue,
+}: {
+  visible: boolean;
+  reason: AllocationRecoveryReason;
+  c: ThemeColors;
+  onContinue: () => void;
+}) {
+  const stopped = reason === "stopped";
+  return (
+    <Modal
+      visible={visible}
+      transparent
+      animationType="fade"
+      statusBarTranslucent
+      onRequestClose={onContinue}
+    >
+      <View style={recoveryModalStyles.overlay}>
+        <View
+          style={[
+            recoveryModalStyles.card,
+            { backgroundColor: c.surface, borderColor: c.line },
+          ]}
+          accessibilityViewIsModal
+        >
+          <View
+            style={[
+              recoveryModalStyles.icon,
+              { backgroundColor: stopped ? `${c.orange}18` : c.accentSoft },
+            ]}
+          >
+            <Ionicons
+              name={stopped ? "stop-circle-outline" : "options-outline"}
+              size={scale(25)}
+              color={stopped ? c.orange : c.accent}
+            />
+          </View>
+          <Text style={[recoveryModalStyles.title, { color: c.text }]}>
+            {stopped
+              ? "Previous allocation stopped"
+              : "System Allocation setup required"}
+          </Text>
+          <Text style={[recoveryModalStyles.copy, { color: c.muted }]}>
+            {stopped
+              ? "Return to setup, calculate a fresh runtime plan, then start the allocation again."
+              : "Set up each room and calculate a runtime plan before starting the system allocation."}
+          </Text>
+          <Pressable
+            onPress={onContinue}
+            style={({ pressed }) => [
+              recoveryModalStyles.button,
+              { backgroundColor: c.accent },
+              pressed && recoveryModalStyles.pressed,
+            ]}
+            accessibilityRole="button"
+          >
+            <Text style={[recoveryModalStyles.buttonText, { color: c.onAccent }]}>
+              Go to setup
+            </Text>
+          </Pressable>
+        </View>
+      </View>
+    </Modal>
   );
 }
 
@@ -152,6 +225,8 @@ export function ActionButton({
   disabled?: boolean;
   onPress?: () => void;
 }) {
+  const { colors: c } = useTheme();
+
   return (
     <Pressable
       onPress={onPress}
@@ -167,19 +242,70 @@ export function ActionButton({
       <View
         style={[
           StyleSheet.absoluteFill,
-          { backgroundColor: disabled ? "#AAB1C2" : "#F5A220" },
+          { backgroundColor: disabled ? "#AAB1C2" : c.accent },
         ]}
       />
-      <Text style={styles.actionText}>{label}</Text>
+      <Text style={[styles.actionText, { color: c.onAccent }]}>{label}</Text>
     </Pressable>
   );
 }
+
+const recoveryModalStyles = StyleSheet.create({
+  overlay: {
+    flex: 1,
+    justifyContent: "center",
+    paddingHorizontal: scale(24),
+    backgroundColor: "rgba(10, 15, 20, 0.62)",
+  },
+  card: {
+    alignItems: "center",
+    borderWidth: 1,
+    borderRadius: scale(22),
+    padding: scale(22),
+  },
+  icon: {
+    width: scale(56),
+    height: scale(56),
+    borderRadius: scale(18),
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: scale(14),
+  },
+  title: {
+    fontSize: scale(18),
+    fontFamily: fonts.extrabold,
+    textAlign: "center",
+  },
+  copy: {
+    fontSize: scale(13),
+    lineHeight: scale(20),
+    fontFamily: fonts.regular,
+    textAlign: "center",
+    marginTop: scale(9),
+  },
+  button: {
+    minHeight: scale(46),
+    borderRadius: scale(13),
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: scale(20),
+    marginTop: scale(20),
+    alignSelf: "stretch",
+  },
+  buttonText: {
+    fontSize: scale(14),
+    fontFamily: fonts.bold,
+  },
+  pressed: { opacity: 0.76 },
+});
 
 export function ZoneCard({
   c,
   mode,
   zone,
   channel,
+  startDate,
+  startTime,
   priority,
   allocationPct,
   wantedHours,
@@ -191,6 +317,8 @@ export function ZoneCard({
   mode: Mode;
   zone: string;
   channel: number;
+  startDate: string;
+  startTime: string;
   priority: ChannelPriority;
   allocationPct: number;
   wantedHours: number;
@@ -200,6 +328,21 @@ export function ZoneCard({
 }) {
   const progress =
     wantedHours > 0 ? Math.min(1, assignedHours / wantedHours) : 0;
+  const formattedAssignedHours = Number(assignedHours.toFixed(1));
+  const formattedWantedHours = Number(wantedHours.toFixed(1));
+  const [year, month, day] = startDate.split("-").map(Number);
+  const [hour, minute] = startTime.split(":").map(Number);
+  const scheduledStart = new Date(year, month - 1, day, hour, minute);
+  const scheduledStartLabel = Number.isNaN(scheduledStart.getTime())
+    ? `${startDate} ${startTime}`
+    : `${scheduledStart.toLocaleDateString(undefined, {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+      })}\n${scheduledStart.toLocaleTimeString(undefined, {
+        hour: "numeric",
+        minute: "2-digit",
+      })}`;
 
   return (
     <Card mode={mode} style={styles.zoneCard}>
@@ -236,7 +379,7 @@ export function ZoneCard({
       </View>
 
       <Text style={[styles.cardCopy, { color: c.muted }]}>
-        Receives up to {wantedHours.toFixed(1)}h/day from the battery pool.
+        Receives up to {formattedWantedHours.toFixed(1)}h/day from the battery pool.
       </Text>
 
       <View style={styles.allocationControlRow}>
@@ -257,7 +400,7 @@ export function ZoneCard({
             <Ionicons name="remove" size={scale(16)} color={c.text} />
           </Pressable>
           <Text style={[styles.assignedHours, { color: c.text }]}>
-            {assignedHours}h
+            {formattedAssignedHours.toFixed(1)}h
           </Text>
           <Pressable
             onPress={() => {
@@ -286,8 +429,9 @@ export function ZoneCard({
         </View>
       </View>
       <Text style={[styles.assignedCopy, { color: c.muted }]}>
-        {assignedHours}h {assignedHours === 1 ? "is" : "are"} assigned of{" "}
-        {wantedHours}h wanted
+        {formattedAssignedHours.toFixed(1)}h{" "}
+        {formattedAssignedHours === 1 ? "is" : "are"} assigned of{" "}
+        {formattedWantedHours.toFixed(1)}h wanted
       </Text>
 
       <View
@@ -301,18 +445,28 @@ export function ZoneCard({
           },
         ]}
       >
-        <View>
+        <View style={{ flex: 1, minWidth: 0 }}>
           <Text style={[styles.startTitle, { color: c.muted }]}>
-            starts drawing from battery at
+            Scheduled start
           </Text>
           <Text style={[styles.startHint, { color: c.muted }]}>
             {assignedHours > 0
-              ? "battery schedule is ready"
+              ? "Bulb waits until this time"
               : "not drawing from battery yet"}
           </Text>
         </View>
-        <View style={[styles.timePill, { backgroundColor: c.surfaceMuted }]}>
-          <Text style={[styles.timeText, { color: c.text }]}>8:00 am</Text>
+        <View
+          style={[
+            styles.timePill,
+            { backgroundColor: c.surfaceMuted, maxWidth: "48%" },
+          ]}
+        >
+          <Text
+            style={[styles.timeText, { color: c.text }]}
+            numberOfLines={2}
+          >
+            {scheduledStartLabel}
+          </Text>
         </View>
       </View>
     </Card>

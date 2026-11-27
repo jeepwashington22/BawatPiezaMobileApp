@@ -316,7 +316,7 @@ export async function apiFetch(
       return (await request).clone();
     } catch (err) {
       lastError = err;
-      if (!silent) {
+      if (!silent && tried.length < baseUrls.length) {
         console.warn('[api] Unreachable, trying the next address:', url, (err as Error)?.message);
       }
     }

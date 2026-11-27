@@ -26,6 +26,14 @@ Frontend applications must call this API and must not import Supabase clients,
 service-role credentials, or database migrations. Keep all database access
 behind `src/config/database.ts` and feature modules in this service.
 
+## Hardware testing
+
+Apply `supabase/migrations/057_hardware_test_settings.sql` to enable the
+admin-only hardware test settings API. Admins can configure a shared UTC test
+clock and battery percentage; authenticated mobile users read those values
+through the API. Test mode affects the mobile dashboard display only and never
+changes hardware telemetry.
+
 ## Local development
 
 1. Copy `.env.example` to `.env` and provide backend-only credentials.

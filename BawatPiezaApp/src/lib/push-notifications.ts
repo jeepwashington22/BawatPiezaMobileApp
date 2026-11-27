@@ -57,17 +57,38 @@ export const NOTIFICATION_SOUND_OPTIONS: Record<
 
 let Notifications: NotificationModule | null = null;
 let feedRefreshTimeout: ReturnType<typeof setTimeout> | null = null;
-let lastSmokeNotificationEventId: string | null = null;
-let lastSmokeNotificationSource: "local" | "remote" | null = null;
+type SafetyAlertType = "smoke_detected" | "short_circuit_detected";
+type SafetyAlertState = {
+  lastEventId: string | null;
+  lastSource: "local" | "remote" | null;
+  localNotificationShown: boolean;
+  missingEventIdLogged: boolean;
+};
+const safetyAlertState: Record<SafetyAlertType, SafetyAlertState> = {
+  smoke_detected: {
+    lastEventId: null,
+    lastSource: null,
+    localNotificationShown: false,
+    missingEventIdLogged: false,
+  },
+  short_circuit_detected: {
+    lastEventId: null,
+    lastSource: null,
+    localNotificationShown: false,
+    missingEventIdLogged: false,
+  },
+};
 let lastPowerModeNotificationEventId: string | null = null;
 let lastPowerModeNotificationSource: "local" | "remote" | null = null;
-let smokeLocalNotificationShown = false;
+const activeSafetyVibrations = new Set<SafetyAlertType>();
 export const supportsCustomNotificationSounds = Constants.appOwnership !== AppOwnership.Expo;
 const supportsCustomSounds = supportsCustomNotificationSounds;
 let soundPreferences = DEFAULT_NOTIFICATION_SOUND_PREFERENCES;
-const pendingSmokePersist = new Map<string, Promise<void>>();
-const persistedSmokeEvents = new Set<string>();
+const pendingSafetyPersist = new Map<string, Promise<void>>();
+const persistedSafetyEvents = new Set<string>();
 const notifiedPowerModeEvents = new Set<string>();
+const notifiedAllocationEndEvents = new Set<string>();
+const locallyScheduledAllocationEndEvents = new Set<string>();
 
 function soundFile(sound: NotificationSoundId): string | undefined {
   if (sound === "system") return undefined;
@@ -180,40 +201,46 @@ function signalNotificationFeedRefresh(): void {
   }, 1_000);
 }
 
-async function persistSmokeEvent(
+async function persistSafetyEvent(
   hubId: string,
   eventId: string,
   zone: string,
+  type: SafetyAlertType,
 ): Promise<void> {
-  const key = `${hubId}:${eventId}`;
-  if (persistedSmokeEvents.has(key)) return;
-  const pending = pendingSmokePersist.get(key);
+  const key = `${type}:${hubId}:${eventId}`;
+  if (persistedSafetyEvents.has(key)) return;
+  const pending = pendingSafetyPersist.get(key);
   if (pending) return pending;
 
   const request = (async () => {
     const { data } = await supabase.auth.getSession();
     const accessToken = data.session?.access_token;
-    if (!accessToken) throw new Error("Cannot persist smoke alert while signed out");
+    if (!accessToken) throw new Error(`Cannot persist ${type} alert while signed out`);
 
-    const response = await apiFetch("/notifications/smoke-event", {
-      method: "POST",
-      timeoutMs: 8_000,
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        "Content-Type": "application/json",
+    const response = await apiFetch(
+      type === "smoke_detected"
+        ? "/notifications/smoke-event"
+        : "/notifications/short-circuit-event",
+      {
+        method: "POST",
+        timeoutMs: 8_000,
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ hubId, eventId, zone }),
       },
-      body: JSON.stringify({ hubId, eventId, zone }),
-    });
+    );
     const responseText = await response.text();
-    type SmokeEventResponse = {
+    type SafetyEventResponse = {
       error?: string;
       message?: string;
       details?: unknown;
       notification?: { id?: string };
     };
-    let result: SmokeEventResponse | null = null;
+    let result: SafetyEventResponse | null = null;
     try {
-      result = JSON.parse(responseText) as SmokeEventResponse;
+      result = JSON.parse(responseText) as SafetyEventResponse;
     } catch {
       // Preserve non-JSON responses below so proxy and parser errors are visible.
     }
@@ -223,27 +250,40 @@ async function persistSmokeEvent(
         : ` details=${JSON.stringify(result.details).slice(0, 500)}`;
       const responseSummary = result?.error || result?.message || responseText.trim().slice(0, 300);
       throw new Error(
-        `Smoke notification save failed (${response.status})${responseSummary ? `: ${responseSummary}` : ""}${details}`,
+        `${type === "smoke_detected" ? "Smoke" : "Short-circuit"} notification save failed (${response.status})${responseSummary ? `: ${responseSummary}` : ""}${details}`,
       );
     }
     if (!result?.notification?.id) {
-      throw new Error("Backend did not return the saved smoke notification");
+      throw new Error(`Backend did not return the saved ${type} notification`);
     }
-    persistedSmokeEvents.add(key);
-    if (persistedSmokeEvents.size > 100) {
-      const oldest = persistedSmokeEvents.values().next().value;
-      if (oldest) persistedSmokeEvents.delete(oldest);
+    persistedSafetyEvents.add(key);
+    if (persistedSafetyEvents.size > 100) {
+      const oldest = persistedSafetyEvents.values().next().value;
+      if (oldest) persistedSafetyEvents.delete(oldest);
     }
     console.info(
-      `[push-notifications] smoke event saved event_id=${eventId} notification_id=${result.notification.id}`,
+      `[push-notifications] ${type} event saved event_id=${eventId} notification_id=${result.notification.id}`,
     );
     signalNotificationFeedRefresh();
   })();
-  pendingSmokePersist.set(key, request);
+  pendingSafetyPersist.set(key, request);
   try {
     await request;
   } finally {
-    if (pendingSmokePersist.get(key) === request) pendingSmokePersist.delete(key);
+    if (pendingSafetyPersist.get(key) === request) pendingSafetyPersist.delete(key);
+  }
+}
+
+function updateSafetyVibration(type: SafetyAlertType, active: boolean): void {
+  const wasActive = activeSafetyVibrations.has(type);
+  if (wasActive === active) return;
+  if (active) activeSafetyVibrations.add(type);
+  else activeSafetyVibrations.delete(type);
+
+  if (activeSafetyVibrations.size > 0) {
+    Vibration.vibrate([500, 500, 500, 500, 1000, 500], true);
+  } else {
+    Vibration.cancel();
   }
 }
 
@@ -317,14 +357,154 @@ async function persistPowerModeEvent(
   signalNotificationFeedRefresh();
 }
 
+export async function notifySystemAllocationEnded(
+  hubId: string,
+  eventId: string,
+  reason: "runtime_complete" | "force_stop",
+): Promise<void> {
+  if (!hubId.trim() || !eventId.trim()) {
+    throw new Error("System allocation end notification requires a hub and event ID.");
+  }
+  const eventKey = `${hubId}:${eventId}`;
+  if (notifiedAllocationEndEvents.has(eventKey)) return;
+  notifiedAllocationEndEvents.add(eventKey);
+  if (notifiedAllocationEndEvents.size > 100) {
+    const oldest = notifiedAllocationEndEvents.values().next().value;
+    if (oldest) notifiedAllocationEndEvents.delete(oldest);
+  }
+
+  const title = "System allocation ended";
+  const body =
+    reason === "force_stop"
+      ? "The system allocation was force-stopped. All configured room relays were confirmed off."
+      : "The scheduled system allocation has ended. All scheduled room relays were confirmed off.";
+  const createdAt = new Date().toISOString();
+  const localId = `local:system_allocation_ended:${encodeURIComponent(hubId)}:${encodeURIComponent(eventId)}`;
+  if (Notifications) {
+    const defaultSound = effectiveSound(soundPreferences.default);
+    const defaultSoundFile = soundFile(defaultSound);
+    try {
+      await configureNotificationChannels();
+      const notificationId = await Notifications.scheduleNotificationAsync({
+        content: {
+          title,
+          body,
+          sound: defaultSoundFile ?? "default",
+          priority: Notifications.AndroidNotificationPriority.MAX,
+          data: {
+            type: "system_allocation_ended",
+            source: "allocation_local",
+            eventId,
+            hubId,
+            reason,
+            title,
+            body,
+          },
+          ...(Platform.OS === "android"
+            ? { channelId: `default-notification-v2-${defaultSound}` }
+            : {}),
+        },
+        trigger: null,
+      });
+      locallyScheduledAllocationEndEvents.add(eventKey);
+      if (locallyScheduledAllocationEndEvents.size > 100) {
+        const oldest = locallyScheduledAllocationEndEvents.values().next().value;
+        if (oldest) locallyScheduledAllocationEndEvents.delete(oldest);
+      }
+      console.info(
+        `[push-notifications] allocation heads-up notification scheduled hub=${hubId} event_id=${eventId} notification_id=${notificationId}`,
+      );
+    } catch (error) {
+      console.error("[push-notifications] Failed to show allocation heads-up notification", error);
+    }
+  } else {
+    console.warn("[push-notifications] Native notifications are unavailable for allocation completion.");
+  }
+
+  let userId: string | undefined;
+  let accessToken: string | undefined;
+  try {
+    const { data: sessionData, error: sessionError } =
+      await supabase.auth.getSession();
+    if (sessionError) throw sessionError;
+    userId = sessionData.session?.user.id;
+    accessToken = sessionData.session?.access_token;
+  } catch (error) {
+    console.error(
+      "[push-notifications] Could not load session for allocation notification",
+      error,
+    );
+  }
+
+  if (userId) {
+    try {
+      await saveLocalNotification(userId, {
+        id: localId,
+        type: "system_allocation_ended",
+        title,
+        body,
+        payload: { type: "system_allocation_ended", eventId, hubId, reason },
+        reference_id: null,
+        read_at: null,
+        created_at: createdAt,
+      });
+    } catch (error) {
+      console.error("[push-notifications] Failed to save allocation notification locally", error);
+    }
+  }
+  signalNotificationFeedRefresh();
+
+  if (!accessToken || !userId) {
+    console.warn("[push-notifications] Allocation ended, but no signed-in session is available to sync the notification.");
+    return;
+  }
+  const response = await apiFetch("/notifications/system-allocation-ended", {
+    method: "POST",
+    timeoutMs: 8_000,
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ hubId, eventId, reason }),
+  });
+  const responseText = await response.text();
+  if (!response.ok) {
+    throw new Error(
+      `Could not sync allocation notification (${response.status})${responseText ? `: ${responseText.slice(0, 300)}` : ""}`,
+    );
+  }
+  let result: { notification?: { id?: string } } | null = null;
+  try {
+    result = JSON.parse(responseText) as { notification?: { id?: string } };
+  } catch {
+    throw new Error("Backend returned an invalid allocation notification response.");
+  }
+  if (!result?.notification?.id) {
+    throw new Error("Backend did not return the saved allocation notification.");
+  }
+  try {
+    await removeLocalNotification(userId, localId);
+  } catch (error) {
+    console.warn("[push-notifications] Failed to clear synced allocation inbox alert", error);
+  }
+  signalNotificationFeedRefresh();
+}
+
 try {
   Notifications = require("expo-notifications") as NotificationModule;
   Notifications.setNotificationHandler({
     handleNotification: async (notification) => {
       const content = notification.request.content;
-      const isSmokeAlert = content.data?.type === "smoke_detected";
+      const safetyType = content.data?.type === "smoke_detected"
+        ? "smoke_detected"
+        : content.data?.type === "short_circuit_detected"
+          ? "short_circuit_detected"
+          : null;
+      const isSafetyAlert = safetyType !== null;
       const isPowerModeAlert = content.data?.type === "power_mode_changed";
-      const isLocalSmokeAlert = content.data?.source === "mqtt_local";
+      const isAllocationEndAlert =
+        content.data?.type === "system_allocation_ended";
+      const isLocalSafetyAlert = content.data?.source === "mqtt_local";
       const isLocalPowerModeAlert = content.data?.source === "mqtt_local";
       const eventId =
         typeof content.data?.eventId === "string" ? content.data.eventId : null;
@@ -334,11 +514,12 @@ try {
         ? `${hubId}:${eventId}`
         : null;
       if (
-        isSmokeAlert &&
-        !isLocalSmokeAlert &&
+        isSafetyAlert &&
+        safetyType &&
+        !isLocalSafetyAlert &&
         eventId &&
-        lastSmokeNotificationEventId === eventId &&
-        lastSmokeNotificationSource === "local"
+        safetyAlertState[safetyType].lastEventId === eventId &&
+        safetyAlertState[safetyType].lastSource === "local"
       ) {
         return {
           shouldShowBanner: false,
@@ -361,6 +542,19 @@ try {
         };
       }
       if (
+        isAllocationEndAlert &&
+        content.data?.source !== "allocation_local" &&
+        eventId &&
+        locallyScheduledAllocationEndEvents.has(`${hubId}:${eventId}`)
+      ) {
+        return {
+          shouldShowBanner: false,
+          shouldShowList: false,
+          shouldPlaySound: false,
+          shouldSetBadge: true,
+        };
+      }
+      if (
         isPowerModeAlert &&
         !isLocalPowerModeAlert &&
         eventId &&
@@ -374,9 +568,9 @@ try {
           shouldSetBadge: true,
         };
       }
-      if (isSmokeAlert) {
-        lastSmokeNotificationEventId = eventId;
-        lastSmokeNotificationSource = isLocalSmokeAlert ? "local" : "remote";
+      if (isSafetyAlert && safetyType) {
+        safetyAlertState[safetyType].lastEventId = eventId;
+        safetyAlertState[safetyType].lastSource = isLocalSafetyAlert ? "local" : "remote";
       }
       if (isPowerModeAlert) {
         if (powerModeEventKey) {
@@ -519,55 +713,69 @@ export function updatePowerModeNotification(
   });
 }
 
-export function updateSmokeAlarm(
+function updateSafetyAlarm(
+  type: SafetyAlertType,
   active: boolean,
   zone = "",
   hubId = "",
   eventId = "",
 ): void {
+  const state = safetyAlertState[type];
+  const isSmoke = type === "smoke_detected";
+  const defaultZone = "the device enclosure";
+  const location = zone || defaultZone;
+  const title = isSmoke
+    ? "Smoke detected — device shut down"
+    : "Short circuit detected — device shut down";
+  const body = isSmoke
+    ? `Smoke detected in ${location}. The hub turned off its relays and power outputs. Check the device physically before restoring power.`
+    : `A short circuit was detected in ${location}. The hub turned off its relays and power outputs. Inspect the physical device and wiring before resetting the hub.`;
+
+  updateSafetyVibration(type, active);
   if (active) {
-    Vibration.vibrate([500, 500, 500, 500, 1000, 500], true);
     if (hubId && eventId) {
-      void persistSmokeEvent(hubId, eventId, zone || "the device enclosure").catch((error) => {
+      state.missingEventIdLogged = false;
+      void persistSafetyEvent(hubId, eventId, location, type).catch((error) => {
         console.error(
-          `[push-notifications] failed to persist smoke event hub=${hubId} event_id=${eventId}`,
+          `[push-notifications] failed to persist ${type} event hub=${hubId} event_id=${eventId}`,
           error,
         );
       });
-    } else {
+    } else if (!state.missingEventIdLogged) {
+      state.missingEventIdLogged = true;
       console.error(
-        `[push-notifications] cannot persist active smoke event without hub/event ID (hub=${hubId || "missing"}, event=${eventId || "missing"})`,
+        `[push-notifications] cannot persist active ${type} event without hub/event ID (hub=${hubId || "missing"}, event=${eventId || "missing"})`,
       );
     }
-    if (!Notifications || smokeLocalNotificationShown) return;
+    if (!Notifications || state.localNotificationShown) return;
     if (
-      lastSmokeNotificationSource === "remote" &&
+      state.lastSource === "remote" &&
       eventId &&
-      lastSmokeNotificationEventId === eventId
+      state.lastEventId === eventId
     ) {
-      smokeLocalNotificationShown = true;
+      state.localNotificationShown = true;
       return;
     }
 
-    smokeLocalNotificationShown = true;
-    lastSmokeNotificationEventId = eventId || null;
-    lastSmokeNotificationSource = "local";
+    state.localNotificationShown = true;
+    state.lastEventId = eventId || null;
+    state.lastSource = "local";
     const emergencySound = effectiveSound(soundPreferences.emergency);
     const emergencySoundFile = soundFile(emergencySound);
     void Notifications.scheduleNotificationAsync({
       content: {
-        title: "Smoke detected — device shut down",
-        body: `Smoke detected in ${zone || "the device enclosure"}. The hub turned off its relays and power outputs. Check the device physically before restoring power.`,
+        title,
+        body,
         sound: emergencySoundFile ?? "default",
         priority: Notifications.AndroidNotificationPriority.MAX,
         data: {
-          type: "smoke_detected",
+          type,
           source: "mqtt_local",
-          title: "Smoke detected — device shut down",
-          body: `Smoke detected in ${zone || "the device enclosure"}. The hub turned off its relays and power outputs. Check the device physically before restoring power.`,
+          title,
+          body,
           ...(eventId ? { eventId } : {}),
           hubId,
-          zone: zone || "the device enclosure",
+          zone: location,
         },
         ...(Platform.OS === "android"
           ? { channelId: `smoke-alert-v8-${emergencySound}` }
@@ -577,18 +785,36 @@ export function updateSmokeAlarm(
     })
       .then((notificationId) => {
         console.info(
-          `[push-notifications] local smoke alert scheduled event_id=${eventId || "missing"} notification_id=${notificationId}`,
+          `[push-notifications] local ${type} alert scheduled event_id=${eventId || "missing"} notification_id=${notificationId}`,
         );
       })
       .catch((error) => {
-        smokeLocalNotificationShown = false;
-        console.error("[push-notifications] failed to schedule local smoke alert", error);
+        state.localNotificationShown = false;
+        console.error(`[push-notifications] failed to schedule local ${type} alert`, error);
       });
     setTimeout(signalNotificationFeedRefresh, 2_500);
   } else {
-    Vibration.cancel();
-    smokeLocalNotificationShown = false;
-    lastSmokeNotificationEventId = null;
-    lastSmokeNotificationSource = null;
+    state.localNotificationShown = false;
+    state.lastEventId = null;
+    state.lastSource = null;
+    state.missingEventIdLogged = false;
   }
+}
+
+export function updateSmokeAlarm(
+  active: boolean,
+  zone = "",
+  hubId = "",
+  eventId = "",
+): void {
+  updateSafetyAlarm("smoke_detected", active, zone, hubId, eventId);
+}
+
+export function updateShortCircuitAlarm(
+  active: boolean,
+  zone = "",
+  hubId = "",
+  eventId = "",
+): void {
+  updateSafetyAlarm("short_circuit_detected", active, zone, hubId, eventId);
 }

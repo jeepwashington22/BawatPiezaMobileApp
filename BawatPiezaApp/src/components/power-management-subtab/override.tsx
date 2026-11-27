@@ -9,7 +9,13 @@ import { styles } from "./styles";
 import { SectionLabel, ThresholdCard, ScheduleRow, ActionButton, ZoneCard } from "./shared";
 
 export function Override({ c }: { c: ThemeColors }) {
-  const { override, setOverride, smokeEmergencyActive } = usePowerOverride();
+  const {
+    override,
+    setOverride,
+    smokeEmergencyActive,
+    shortCircuitActive,
+  } = usePowerOverride();
+  const safetyEmergencyActive = smokeEmergencyActive || shortCircuitActive;
   const options = [
     {
       value: "grid" as const,
@@ -62,34 +68,69 @@ export function Override({ c }: { c: ThemeColors }) {
       <View style={styles.overrideOptions}>
         {options.map((option) => {
           const active = override === option.value;
+          const shutdownOption = option.value === "shutdown";
+          const shutdownActive = active && option.value === "shutdown";
           return (
             <Pressable
               key={option.value}
               onPress={() => setOverride(option.value)}
-              disabled={smokeEmergencyActive}
+              disabled={safetyEmergencyActive}
               style={[
                 styles.overrideOption,
                 {
-                  backgroundColor: active ? c.accentSoft : c.surface,
-                  borderColor: active ? option.color : c.line,
+                  backgroundColor: shutdownActive
+                    ? c.danger
+                    : shutdownOption
+                      ? "rgba(220,38,38,0.1)"
+                    : active
+                      ? c.accentSoft
+                      : c.surface,
+                  borderColor: shutdownOption
+                    ? c.danger
+                    : active
+                      ? option.color
+                      : c.line,
                 },
               ]}
               accessibilityRole="radio"
               accessibilityLabel={option.label}
-              accessibilityState={{ selected: active, disabled: smokeEmergencyActive }}
+              accessibilityState={{ selected: active, disabled: safetyEmergencyActive }}
             >
               <Ionicons
                 name={option.icon}
                 size={scale(21)}
-                color={option.color}
+                color={
+                  shutdownActive
+                    ? "#FFFFFF"
+                    : option.color
+                }
               />
-              <Text style={[styles.overrideOptionText, { color: c.text }]}>
+              <Text
+                style={[
+                  styles.overrideOptionText,
+                  {
+                    color: shutdownActive
+                      ? "#FFFFFF"
+                      : shutdownOption
+                        ? c.danger
+                        : c.text,
+                  },
+                ]}
+              >
                 {option.label}
               </Text>
               <Ionicons
                 name={active ? "radio-button-on" : "radio-button-off"}
                 size={scale(18)}
-                color={active ? option.color : c.muted}
+                color={
+                  shutdownActive
+                    ? "#FFFFFF"
+                    : shutdownOption
+                      ? c.danger
+                    : active
+                      ? option.color
+                      : c.muted
+                }
               />
             </Pressable>
           );

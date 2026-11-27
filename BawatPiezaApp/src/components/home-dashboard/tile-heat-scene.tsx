@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   Animated,
   Easing,
+  Pressable,
   View,
 } from "react-native";
 import Svg, { Circle, G, Line, Polygon, Text as SvgText } from "react-native-svg";
@@ -9,6 +10,7 @@ import { AppText as Text } from "../app-text";
 import { getHeatmapTileColor } from "../heatmap-tile-grid";
 import { scale } from "../glass-ui";
 import type { Mode } from "../../theme";
+import { ROOM_PALETTE, roomKind, type RoomKind } from "./room-kind";
 
 /**
  * UI-only 3D "sandbox" scene (no data / telemetry logic lives here).
@@ -136,22 +138,6 @@ function darken(c: string, k: number): string | null {
   return out;
 }
 
-/* room kinds (picked from the zone name) */
-type RoomKind = "classroom" | "office" | "bedroom" | "dining";
-function roomKind(name?: string): RoomKind {
-  const t = (name ?? "").toLowerCase();
-  if (/bed|dorm|sleep|master|guest/.test(t)) return "bedroom";
-  if (/office|admin|work|study|library|faculty|principal|lab|clinic/.test(t))
-    return "office";
-  if (/kitchen|canteen|dining|cafeteria|pantry|cafe/.test(t)) return "dining";
-  return "classroom";
-}
-const ROOM_PALETTE: Record<RoomKind, { floor: string; wall: string }> = {
-  classroom: { floor: "#C9D3E0", wall: "#EEF3F8" },
-  office: { floor: "#A9B8CC", wall: "#F2F0EA" },
-  bedroom: { floor: "#D3B78F", wall: "#F4E9E4" },
-  dining: { floor: "#D9CBB0", wall: "#F6EFDC" },
-};
 
 const disc = (x: number, y: number, rad: number, z: number, seg = 18): V3[] =>
   Array.from({ length: seg }, (_, k) => {
@@ -432,10 +418,15 @@ type Props = {
   bulbs?: boolean[];
   /** zone names (same order as `bulbs`) - picks the room interior */
   roomNames?: string[];
+  /** selected place types, parallel to `roomNames` */
+  roomKinds?: (RoomKind | "auto" | undefined)[];
   /** which provider is feeding the bulbs right now */
   powerMode?: string | null;
   gridVoltage?: number | null;
   gridPower?: number | null;
+  /** tap on a room's in-scene switch (index matches `bulbs` / `roomNames`) */
+  onToggleRoom?: (index: number) => void;
+  roomSwitchDisabled?: boolean;
 };
 
 export function TileHeatScene({
@@ -447,9 +438,12 @@ export function TileHeatScene({
   activeTile,
   bulbs = [],
   roomNames = [],
+  roomKinds = [],
   powerMode = null,
   gridVoltage = null,
   gridPower = null,
+  onToggleRoom,
+  roomSwitchDisabled = false,
 }: Props) {
   const traffic = useMemo(
     () => buildHeatTraffic(installedTileCount, isActive),
@@ -964,7 +958,11 @@ export function TileHeatScene({
   rooms.forEach((r, i) => {
     const on = roomList[i];
     const lamp = lampAnims.current[i];
-    const kind = roomKind(roomNames[i]);
+    const selectedKind = roomKinds[i];
+    const kind =
+      selectedKind && selectedKind !== "auto"
+        ? selectedKind
+        : roomKind(roomNames[i]);
     const pal = ROOM_PALETTE[kind];
     const rcx = (r.x0 + r.x1) / 2;
     const rcy = (r.y0 + r.y1) / 2;
@@ -981,6 +979,22 @@ export function TileHeatScene({
     const floorFaces = boxFaces(`room${i}f`, r.x0, r.y0, 0, ROOM_W, ROOM_D, FLOOR_T, (nv) =>
       nv[2] > 0 ? dim(pal.floor) : "#B9AE9C",
     );
+    if (kind === "hallway") {
+      // carpet runner + edge lines down the middle of the corridor
+      const rz = zf + 0.0005;
+      const strip = (key: string, ya: number, yb: number, fill: string, dz: number): Face => ({
+        key,
+        n: UP,
+        noShade: true,
+        fill,
+        pts: [[ix0, ya, rz + dz], [ix1, ya, rz + dz], [ix1, yb, rz + dz], [ix0, yb, rz + dz]],
+      });
+      floorFaces.push(
+        strip(`room${i}-run`, rcy - 0.3, rcy + 0.3, dim("#8FA3BC"), 0),
+        strip(`room${i}-run-a`, rcy - 0.3, rcy - 0.275, "#E2E8F0", 0.0003),
+        strip(`room${i}-run-b`, rcy + 0.275, rcy + 0.3, "#E2E8F0", 0.0003),
+      );
+    }
     floorFaces.push(
       {
         key: `room${i}-lit`,
@@ -1092,6 +1106,22 @@ export function TileHeatScene({
               quadY(`${k}-wb`, yy, rcx - 0.4, rcx + 0.4, 0.42, 0.78, 1, { fill: "#F8FAFC", stroke: "#7B8494", sw: 1 }),
               quadY(`${k}-sh1`, yy, rcx + 0.5, rcx + 0.78, 0.5, 0.52, 1, { fill: "#8B6B4A" }),
             );
+          } else if (kind === "hallway") {
+            for (let g = 0; g < 5; g += 1) {
+              const lx = ix0 + 0.08 + g * 0.2;
+              faces.push(
+                quadY(`${k}-lk${g}`, yy, lx, lx + 0.18, 0.07, 0.75, 1, {
+                  fill: g % 2 ? "#7C8CA3" : "#64748B",
+                  stroke: "#334155",
+                  sw: 0.8,
+                }),
+              );
+            }
+            faces.push(
+              quadY(`${k}-exd`, yy, rcx + 0.35, rcx + 0.75, FLOOR_T, 0.82, 1, { fill: "#8B5E3C", stroke: "#5B3A22", sw: 1 }),
+              quadY(`${k}-exk`, yy - 0.002, rcx + 0.66, rcx + 0.7, 0.42, 0.46, 1, { fill: "#F5D27A" }),
+              quadY(`${k}-exs`, yy, rcx + 0.4, rcx + 0.7, 0.88, 0.96, 1, { fill: "#16A34A" }),
+            );
           } else {
             faces.push(
               quadY(`${k}-sh1`, yy, rcx - 0.7, rcx + 0.7, 0.62, 0.65, 1, { fill: "#8B6B4A" }),
@@ -1172,6 +1202,10 @@ export function TileHeatScene({
         furn("blk", bx + 0.02, by + 0.36, 0.66, 0.6, 0.03, "#60A5FA", "#3B82F6", FLOOR_T + 0.1);
         furn("ns", bx + 0.78, by, 0.22, 0.22, 0.15, "#C79A66", "#9C7248");
         furn("wd", ix1 - 0.3, iy0 + 0.3, 0.26, 0.5, 0.55, "#D9C3A0", "#B59E78");
+      } else if (kind === "hallway") {
+        furn("bench", rcx - 0.55, iy1 - 0.36, 0.8, 0.16, 0.12, "#C79A66", "#9C7248");
+        furn("plant", ix1 - 0.22, iy0 + 0.08, 0.14, 0.14, 0.32, "#22C55E", "#B45309");
+        furn("bin", ix0 + 0.06, iy1 - 0.3, 0.14, 0.14, 0.2, "#94A3B8", "#64748B");
       } else {
         furn("ctr", ix0 + 0.1, iy0 + 0.04, ix1 - ix0 - 0.2, 0.24, 0.2, "#CBD5E1", "#94A3B8");
         furn("tbl", rcx - 0.4, rcy - 0.02, 0.8, 0.46, 0.17, "#D9B382", "#A8814F");
@@ -1460,6 +1494,59 @@ export function TileHeatScene({
           </Text>
         ) : null}
       </View>
+
+      {/* in-scene light switch for every room (same action as the switch below) */}
+      {rooms.map((r, i) => {
+        const [lx, ly] = pr([(r.x0 + r.x1) / 2, r.y0, CEIL_Z + 0.2]);
+        const on = !!bulbs[i];
+        const off = roomSwitchDisabled || !onToggleRoom;
+        const TW = scale(26);
+        const TH = scale(14);
+        const K = scale(10);
+        const PADK = (TH - K) / 2;
+        return (
+          <Pressable
+            key={`sw${i}`}
+            disabled={off}
+            onPress={() => onToggleRoom?.(i)}
+            hitSlop={scale(8)}
+            accessibilityRole="switch"
+            accessibilityLabel={`${roomNames[i] || `Room ${i + 1}`} light`}
+            accessibilityState={{ checked: on, disabled: off }}
+            style={{
+              position: "absolute",
+              left: `${(lx / VB_W) * 100}%`,
+              top: `${((ly + 3) / VB_H) * 100}%`,
+              marginLeft: -TW / 2,
+            }}
+          >
+            <View
+              style={{
+                width: TW,
+                height: TH,
+                borderRadius: TH / 2,
+                justifyContent: "center",
+                opacity: off ? 0.5 : 1,
+                backgroundColor: on
+                  ? BRAND_ORANGE
+                  : dark
+                    ? "rgba(255,255,255,0.28)"
+                    : "rgba(10,42,74,0.22)",
+              }}
+            >
+              <View
+                style={{
+                  width: K,
+                  height: K,
+                  borderRadius: K / 2,
+                  backgroundColor: "#FFFFFF",
+                  marginLeft: on ? TW - K - PADK : PADK,
+                }}
+              />
+            </View>
+          </Pressable>
+        );
+      })}
 
       <Text
         pointerEvents="none"

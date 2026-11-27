@@ -8,6 +8,7 @@ import { AppText as Text } from './app-text';
 import { useTheme } from '../theme';
 import { supabase } from '../lib/supabase';
 import { apiFetch } from '../lib/api';
+import { isDeviceSetupPending } from '../lib/device-setup';
 
 const DEVICE_STORAGE_KEY = 'bawatpieza_hub_id';
 const SHARED_ACCESS_KEY = 'bawatpieza_shared_access';
@@ -124,10 +125,15 @@ export function useDeviceConnection() {
         const token = data.session?.access_token;
         if (!token) {
           if (cancelled || accessVersion !== accessVersionRef.current) return;
-          await Promise.all([
-            AsyncStorage.removeItem(DEVICE_STORAGE_KEY),
-            AsyncStorage.removeItem(SHARED_ACCESS_KEY),
-          ]);
+          const setupPending = await isDeviceSetupPending(
+            data.session?.user.id,
+          );
+          if (!setupPending) {
+            await Promise.all([
+              AsyncStorage.removeItem(DEVICE_STORAGE_KEY),
+              AsyncStorage.removeItem(SHARED_ACCESS_KEY),
+            ]);
+          }
           if (!cancelled && accessVersion === accessVersionRef.current) {
             publishDeviceAccessChanged(false);
           }
@@ -155,10 +161,15 @@ export function useDeviceConnection() {
             await AsyncStorage.removeItem(SHARED_ACCESS_KEY);
           }
         } else {
-          await Promise.all([
-            AsyncStorage.removeItem(DEVICE_STORAGE_KEY),
-            AsyncStorage.removeItem(SHARED_ACCESS_KEY),
-          ]);
+          const setupPending = await isDeviceSetupPending(
+            data.session?.user.id,
+          );
+          if (!setupPending) {
+            await Promise.all([
+              AsyncStorage.removeItem(DEVICE_STORAGE_KEY),
+              AsyncStorage.removeItem(SHARED_ACCESS_KEY),
+            ]);
+          }
         }
         if (!cancelled && accessVersion === accessVersionRef.current) {
           publishDeviceAccessChanged(accessGranted);
@@ -193,8 +204,44 @@ export function useDeviceConnection() {
 export function NoDeviceNotice({ hasDevice }: { hasDevice: boolean | null }) {
   const { colors: c, fonts: f } = useTheme();
   const router = useRouter();
+  const [pendingSetupHubId, setPendingSetupHubId] = useState<string | null>(
+    null,
+  );
+  const [checkingSetup, setCheckingSetup] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadPendingSetup = async () => {
+      try {
+        const { data, error } = await supabase.auth.getSession();
+        if (error) throw error;
+        const userId = data.session?.user.id;
+        const [setupPending, cachedHubId] = await Promise.all([
+          isDeviceSetupPending(userId),
+          AsyncStorage.getItem(DEVICE_STORAGE_KEY),
+        ]);
+        if (!cancelled) {
+          setPendingSetupHubId(
+            setupPending && cachedHubId && !cachedHubId.startsWith('hub-f1-')
+              ? cachedHubId
+              : null,
+          );
+        }
+      } catch (error) {
+        console.warn('[device-status] failed to check for pending setup', error);
+      } finally {
+        if (!cancelled) setCheckingSetup(false);
+      }
+    };
+
+    void loadPendingSetup();
+    return () => {
+      cancelled = true;
+    };
+  }, [hasDevice]);
 
   if (hasDevice !== false) return null;
+  const canContinueSetup = Boolean(pendingSetupHubId);
 
   return (
     <View style={styles.emptyState}>
@@ -202,19 +249,50 @@ export function NoDeviceNotice({ hasDevice }: { hasDevice: boolean | null }) {
         <Ionicons name="hardware-chip-outline" size={34} color={c.orange} />
       </View>
       <Text style={[styles.title, { color: c.text, fontFamily: f.semibold }]}>
-        No device connected
+        {canContinueSetup ? 'Device setup in progress' : 'No device connected'}
       </Text>
       <Text style={[styles.hint, { color: c.muted }]}>
-        Connect a device to view data and manage your IoT controls.
+        {checkingSetup
+          ? 'Checking for an existing ESP setup...'
+          : canContinueSetup
+            ? 'Your ESP is already connected. Continue setup to finish pairing it with the app.'
+            : 'Connect a device to view data and manage your IoT controls.'}
       </Text>
       <Pressable
-        onPress={() => router.push('/pages/device' as Href)}
-        style={[styles.connectButton, { backgroundColor: c.orange }]}
+        onPress={() => {
+          if (pendingSetupHubId) {
+            router.push({
+              pathname: '/pages/device-setup',
+              params: { hubId: pendingSetupHubId },
+            });
+          } else {
+            router.push('/pages/device' as Href);
+          }
+        }}
+        disabled={checkingSetup}
+        style={({ pressed }) => [
+          styles.connectButton,
+          { backgroundColor: c.accent },
+          checkingSetup && { opacity: 0.72 },
+          pressed && !checkingSetup && { opacity: 0.82 },
+        ]}
         accessibilityRole="button"
-        accessibilityLabel="Connect a device"
+        accessibilityLabel={
+          canContinueSetup ? 'Continue device setup' : 'Connect a device'
+        }
+        accessibilityState={{ disabled: checkingSetup }}
       >
-        <Text style={[styles.connectButtonText, { fontFamily: f.semibold }]}>
-          Connect a device
+        <Text
+          style={[
+            styles.connectButtonText,
+            { color: c.onAccent, fontFamily: f.semibold },
+          ]}
+        >
+          {checkingSetup
+            ? 'Checking setup...'
+            : canContinueSetup
+              ? 'Continue Setup'
+              : 'Connect a device'}
         </Text>
       </Pressable>
     </View>

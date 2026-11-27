@@ -20,12 +20,15 @@ import { AppTourProvider } from "../hooks/use-app-tour";
 import { NetworkBanner } from "../components/network-banner";
 import { QuickOverridesModal } from "../components/quick-overrides-modal";
 import { SmokeEmergencyModal } from "../components/smoke-emergency-modal";
+import { ShortCircuitEmergencyModal } from "../components/short-circuit-emergency-modal";
+import { BatteryReserveModal } from "../components/battery-reserve-modal";
 import { AppTourOverlay } from "../components/app-tour-overlay";
 import { AppText as Text } from "../components/app-text";
 
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { supabase } from "../lib/supabase";
 import { apiFetch } from "../lib/api";
+import { isDeviceSetupPending } from "../lib/device-setup";
 import { DEVICE_ACCESS_CHANGED_EVENT } from "../components/device-status-banner";
 import { registerPushNotifications } from "../lib/push-notifications";
 
@@ -114,10 +117,15 @@ function AuthedShell({ fontsLoaded }: { fontsLoaded: boolean }) {
         const token = data.session?.access_token ?? null;
         if (!token) {
           if (cancelled || accessVersion !== accessVersionRef.current) return;
-          await Promise.all([
-            AsyncStorage.removeItem(DEVICE_STORAGE_KEY),
-            AsyncStorage.removeItem(SHARED_ACCESS_KEY),
-          ]);
+          const setupPending = await isDeviceSetupPending(
+            data.session?.user.id,
+          );
+          if (!setupPending) {
+            await Promise.all([
+              AsyncStorage.removeItem(DEVICE_STORAGE_KEY),
+              AsyncStorage.removeItem(SHARED_ACCESS_KEY),
+            ]);
+          }
           return;
         }
 
@@ -143,10 +151,15 @@ function AuthedShell({ fontsLoaded }: { fontsLoaded: boolean }) {
             await AsyncStorage.removeItem(SHARED_ACCESS_KEY);
           }
         } else {
-          await Promise.all([
-            AsyncStorage.removeItem(DEVICE_STORAGE_KEY),
-            AsyncStorage.removeItem(SHARED_ACCESS_KEY),
-          ]);
+          const setupPending = await isDeviceSetupPending(
+            data.session?.user.id,
+          );
+          if (!setupPending) {
+            await Promise.all([
+              AsyncStorage.removeItem(DEVICE_STORAGE_KEY),
+              AsyncStorage.removeItem(SHARED_ACCESS_KEY),
+            ]);
+          }
         }
       } catch (error) {
         console.warn("[device-access] failed to refresh access", error);
@@ -207,7 +220,11 @@ function AuthedShell({ fontsLoaded }: { fontsLoaded: boolean }) {
       </Stack>
       <GlobalOverridesSheet />
       <GlobalGridUnavailableConfirmation />
+      <GlobalAllocationStopConfirmation />
+      <GlobalShutdownConfirmation />
+      <GlobalShortCircuitEmergency />
       <GlobalSmokeEmergency />
+      <GlobalBatteryReserveWarning />
       {isLoggedIn && (currentRoute === "/home" || currentRoute === "/") && (
         <AppTourOverlay />
       )}
@@ -224,7 +241,6 @@ function GlobalGridUnavailableConfirmation() {
   const { colors: c, fonts: f } = useTheme();
   const {
     gridUnavailableConfirmationOpen,
-    confirmGridUnavailable,
     cancelGridUnavailable,
   } = usePowerOverride();
 
@@ -236,47 +252,228 @@ function GlobalGridUnavailableConfirmation() {
       statusBarTranslucent
       onRequestClose={cancelGridUnavailable}
     >
-      <View style={gridConfirmationStyles.overlay}>
+      <View style={confirmationStyles.overlay}>
         <View
           style={[
-            gridConfirmationStyles.card,
+            confirmationStyles.card,
             { backgroundColor: c.surface, borderColor: c.line },
           ]}
           accessibilityViewIsModal
         >
-          <View style={[gridConfirmationStyles.iconWrap, { backgroundColor: `${c.orange}18` }]}>
+          <View style={[confirmationStyles.iconWrap, { backgroundColor: `${c.orange}18` }]}>
             <Ionicons name="warning-outline" size={30} color={c.orange} />
           </View>
-          <Text style={[gridConfirmationStyles.title, { color: c.text, fontFamily: f.extrabold }]}>
+          <Text style={[confirmationStyles.title, { color: c.text, fontFamily: f.extrabold }]}>
             Grid power is unavailable
           </Text>
-          <Text style={[gridConfirmationStyles.message, { color: c.muted, fontFamily: f.regular }]}>
-            The hub currently reports no grid input. Trying to switch to Grid may leave the
-            system on Battery. Do you want to continue?
+          <Text style={[confirmationStyles.message, { color: c.muted, fontFamily: f.regular }]}>
+            The hub currently detects no grid input. Check the grid connection; Grid mode will be
+            available when power is restored.
           </Text>
-          <View style={gridConfirmationStyles.actions}>
+          <View style={confirmationStyles.actions}>
             <Pressable
               onPress={cancelGridUnavailable}
               style={({ pressed }) => [
-                gridConfirmationStyles.button,
-                gridConfirmationStyles.cancelButton,
+                confirmationStyles.button,
+                { backgroundColor: c.orange },
+                pressed && confirmationStyles.pressed,
+              ]}
+              accessibilityRole="button"
+            >
+              <Text style={{ color: "#FFFFFF", fontFamily: f.bold }}>Okay, I get it</Text>
+            </Pressable>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+function GlobalShutdownConfirmation() {
+  const { colors: c, fonts: f } = useTheme();
+  const {
+    shutdownConfirmationOpen,
+    shutdownConfirmationPercentage,
+    confirmShutdown,
+    cancelShutdown,
+  } = usePowerOverride();
+  const batteryLabel = shutdownConfirmationPercentage === null
+    ? null
+    : `${Math.round(shutdownConfirmationPercentage)}%`;
+
+  return (
+    <Modal
+      visible={shutdownConfirmationOpen}
+      transparent
+      animationType="fade"
+      statusBarTranslucent
+      onRequestClose={cancelShutdown}
+    >
+      <View style={confirmationStyles.overlay}>
+        <View
+          style={[
+            confirmationStyles.card,
+            { backgroundColor: c.surface, borderColor: c.line },
+          ]}
+          accessibilityViewIsModal
+        >
+          <View style={[confirmationStyles.iconWrap, { backgroundColor: `${c.danger}18` }]}>
+            <Ionicons name="power-outline" size={30} color={c.danger} />
+          </View>
+          <Text style={[confirmationStyles.title, { color: c.text, fontFamily: f.extrabold }]}>
+            Confirm force shutdown
+          </Text>
+          <Text style={[confirmationStyles.message, { color: c.muted, fontFamily: f.regular }]}>
+            {batteryLabel === null
+              ? "This will turn off both Grid and Battery outputs. The hub will stay shut down until you choose another power mode."
+              : `Battery is at ${batteryLabel}. This will turn off both Grid and Battery outputs. The hub will stay shut down until you choose another power mode.`}
+          </Text>
+          {shutdownConfirmationPercentage !== null &&
+            shutdownConfirmationPercentage <= 20 && (
+              <Text style={[confirmationStyles.message, { color: c.danger, fontFamily: f.semibold }]}>
+                The low-battery shutdown threshold is active.
+              </Text>
+            )}
+          <View style={confirmationStyles.actions}>
+            <Pressable
+              onPress={cancelShutdown}
+              style={({ pressed }) => [
+                confirmationStyles.button,
+                confirmationStyles.cancelButton,
                 { borderColor: c.line },
-                pressed && gridConfirmationStyles.pressed,
+                pressed && confirmationStyles.pressed,
               ]}
               accessibilityRole="button"
             >
               <Text style={{ color: c.text, fontFamily: f.semibold }}>Cancel</Text>
             </Pressable>
             <Pressable
-              onPress={confirmGridUnavailable}
+              onPress={confirmShutdown}
               style={({ pressed }) => [
-                gridConfirmationStyles.button,
-                { backgroundColor: c.orange },
-                pressed && gridConfirmationStyles.pressed,
+                confirmationStyles.button,
+                { backgroundColor: c.danger },
+                pressed && confirmationStyles.pressed,
               ]}
               accessibilityRole="button"
             >
-              <Text style={{ color: "#FFFFFF", fontFamily: f.bold }}>Try Grid</Text>
+              <Text style={{ color: "#FFFFFF", fontFamily: f.bold }}>Force Shutdown</Text>
+            </Pressable>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+function GlobalAllocationStopConfirmation() {
+  const { colors: c, fonts: f } = useTheme();
+  const {
+    allocationStopConfirmationOpen,
+    allocationStopActionLabel,
+    allocationStopError,
+    allocationStopInProgress,
+    shutdownConfirmationPercentage,
+    confirmAllocationForceStop,
+    cancelAllocationForceStop,
+  } = usePowerOverride();
+  const stoppingForShutdown =
+    /shutdown|shutting down/i.test(allocationStopActionLabel);
+  const batteryLabel = shutdownConfirmationPercentage === null
+    ? null
+    : `${Math.round(shutdownConfirmationPercentage)}%`;
+
+  return (
+    <Modal
+      visible={allocationStopConfirmationOpen}
+      transparent
+      animationType="fade"
+      statusBarTranslucent
+      onRequestClose={cancelAllocationForceStop}
+    >
+      <View style={confirmationStyles.overlay}>
+        <View
+          style={[
+            confirmationStyles.card,
+            { backgroundColor: c.surface, borderColor: c.line },
+          ]}
+          accessibilityViewIsModal
+        >
+          <View
+            style={[
+              confirmationStyles.iconWrap,
+              {
+                backgroundColor: `${stoppingForShutdown ? c.danger : c.orange}18`,
+              },
+            ]}
+          >
+            <Ionicons
+              name={stoppingForShutdown ? "power-outline" : "stop-circle-outline"}
+              size={30}
+              color={stoppingForShutdown ? c.danger : c.orange}
+            />
+          </View>
+          <Text style={[confirmationStyles.title, { color: c.text, fontFamily: f.extrabold }]}>
+            {stoppingForShutdown
+              ? "Stop allocation and shut down?"
+              : "Stop system allocation?"}
+          </Text>
+          <Text style={[confirmationStyles.message, { color: c.muted, fontFamily: f.regular }]}>
+            {stoppingForShutdown
+              ? batteryLabel === null
+                ? "This will turn off both Grid and Battery outputs after all allocated room relays are confirmed off. The hub will stay shut down until you choose another power mode."
+                : `Battery is at ${batteryLabel}. Both Grid and Battery outputs will turn off after all allocated room relays are confirmed off. The hub will stay shut down until you choose another power mode.`
+              : `You are ${allocationStopActionLabel}. All allocated room relays must be confirmed off before that action continues. You will need to calculate a new allocation plan before starting again.`}
+          </Text>
+          {stoppingForShutdown &&
+          shutdownConfirmationPercentage !== null &&
+          shutdownConfirmationPercentage <= 20 ? (
+            <Text style={[confirmationStyles.message, { color: c.danger, fontFamily: f.semibold }]}>
+              The low-battery shutdown threshold is active.
+            </Text>
+          ) : null}
+          {stoppingForShutdown ? (
+            <Text style={[confirmationStyles.message, { color: c.muted, fontFamily: f.regular }]}>
+              A new allocation plan will be required before starting another system allocation.
+            </Text>
+          ) : null}
+          {allocationStopError ? (
+            <Text style={[confirmationStyles.message, { color: c.danger, fontFamily: f.semibold }]}>
+              {allocationStopError}
+            </Text>
+          ) : null}
+          <View style={confirmationStyles.actions}>
+            <Pressable
+              onPress={cancelAllocationForceStop}
+              disabled={allocationStopInProgress}
+              style={({ pressed }) => [
+                confirmationStyles.button,
+                confirmationStyles.cancelButton,
+                { borderColor: c.line },
+                pressed && confirmationStyles.pressed,
+              ]}
+              accessibilityRole="button"
+            >
+              <Text style={{ color: c.text, fontFamily: f.semibold }}>Cancel</Text>
+            </Pressable>
+            <Pressable
+              onPress={() => void confirmAllocationForceStop()}
+              disabled={allocationStopInProgress}
+              style={({ pressed }) => [
+                confirmationStyles.button,
+                { backgroundColor: stoppingForShutdown ? c.danger : c.orange },
+                pressed && confirmationStyles.pressed,
+              ]}
+              accessibilityRole="button"
+            >
+              <Text style={{ color: "#FFFFFF", fontFamily: f.bold }}>
+                {allocationStopInProgress
+                  ? stoppingForShutdown
+                    ? "Stopping and shutting down..."
+                    : "Stopping..."
+                  : stoppingForShutdown
+                    ? "Force Stop & Shutdown"
+                    : "Force Stop & Continue"}
+              </Text>
             </Pressable>
           </View>
         </View>
@@ -290,7 +487,31 @@ function GlobalSmokeEmergency() {
   return <SmokeEmergencyModal visible={smokeEmergencyActive} zone={smokeEmergencyZone} />;
 }
 
-const gridConfirmationStyles = StyleSheet.create({
+function GlobalShortCircuitEmergency() {
+  const { shortCircuitActive, shortCircuitZone } = usePowerOverride();
+  return (
+    <ShortCircuitEmergencyModal
+      visible={shortCircuitActive}
+      zone={shortCircuitZone}
+    />
+  );
+}
+
+function GlobalBatteryReserveWarning() {
+  const {
+    batteryReservePercentage,
+    dismissBatteryReserveWarning,
+  } = usePowerOverride();
+  return (
+    <BatteryReserveModal
+      visible={batteryReservePercentage !== null}
+      percentage={batteryReservePercentage}
+      onDismiss={dismissBatteryReserveWarning}
+    />
+  );
+}
+
+const confirmationStyles = StyleSheet.create({
   overlay: {
     flex: 1,
     justifyContent: "center",

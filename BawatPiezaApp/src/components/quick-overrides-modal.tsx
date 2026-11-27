@@ -1,4 +1,13 @@
-import { Modal, Pressable, StyleSheet, Text, View } from "react-native";
+import {
+  Animated,
+  Easing,
+  Modal,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+  useWindowDimensions,
+} from "react-native";
 import React from "react";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
@@ -36,7 +45,21 @@ export function QuickOverridesModal({ visible, onClose, liveMode }: Props) {
   const router = useRouter();
   const { colors: c } = useTheme();
   const insets = useSafeAreaInsets();
-  const { override, setOverride, smokeEmergencyActive } = usePowerOverride();
+  const { height: windowHeight } = useWindowDimensions();
+  const [modalPresented, setModalPresented] = React.useState(visible);
+  const modalPresentedRef = React.useRef(visible);
+  const sheetHeight = React.useRef(0);
+  const sheetTranslateY = React.useRef(
+    new Animated.Value(windowHeight),
+  ).current;
+  const animationRef = React.useRef<Animated.CompositeAnimation | null>(null);
+  const {
+    override,
+    setOverride,
+    smokeEmergencyActive,
+    shortCircuitActive,
+  } = usePowerOverride();
+  const safetyEmergencyActive = smokeEmergencyActive || shortCircuitActive;
 
   const currentMode = liveMode ?? override;
   const gridActive = currentMode === "grid";
@@ -47,6 +70,48 @@ export function QuickOverridesModal({ visible, onClose, liveMode }: Props) {
       ? SHUTDOWN_STOPS
       : ORANGE_STOPS;
 
+  React.useEffect(() => {
+    animationRef.current?.stop();
+
+    if (visible) {
+      modalPresentedRef.current = true;
+      setModalPresented(true);
+      sheetTranslateY.setValue(sheetHeight.current || windowHeight);
+      const frame = requestAnimationFrame(() => {
+        const opening = Animated.timing(sheetTranslateY, {
+          toValue: 0,
+          duration: 280,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
+        });
+        animationRef.current = opening;
+        opening.start();
+      });
+
+      return () => {
+        cancelAnimationFrame(frame);
+        animationRef.current?.stop();
+      };
+    }
+
+    if (!modalPresentedRef.current) return;
+    const closing = Animated.timing(sheetTranslateY, {
+      toValue: sheetHeight.current || windowHeight,
+      duration: 220,
+      easing: Easing.in(Easing.cubic),
+      useNativeDriver: true,
+    });
+    animationRef.current = closing;
+    closing.start(({ finished }) => {
+      if (finished) {
+        modalPresentedRef.current = false;
+        setModalPresented(false);
+      }
+    });
+
+    return () => closing.stop();
+  }, [visible, windowHeight, sheetTranslateY]);
+
   const handleOverride = (mode: PowerMode) => {
     void setOverride(mode);
     onClose();
@@ -54,7 +119,7 @@ export function QuickOverridesModal({ visible, onClose, liveMode }: Props) {
 
   return (
     <Modal
-      visible={visible}
+      visible={modalPresented}
       transparent
       animationType="none"
       onRequestClose={onClose}
@@ -62,109 +127,124 @@ export function QuickOverridesModal({ visible, onClose, liveMode }: Props) {
       navigationBarTranslucent
     >
       <Pressable style={styles.backdrop} onPress={onClose}>
-        <Pressable
+        <Animated.View
+          onLayout={({ nativeEvent }) => {
+            sheetHeight.current = nativeEvent.layout.height;
+          }}
           style={[
-            styles.sheet,
-            {
-              backgroundColor: c.surface,
-              borderColor: c.line,
-              paddingBottom: insets.bottom + scale(22),
-            },
+            styles.sheetMotion,
+            { transform: [{ translateY: sheetTranslateY }] },
           ]}
-          onPress={(event) => event.stopPropagation()}
         >
-          <View style={[styles.handle, { backgroundColor: c.muted }]} />
-
-          <View style={styles.header}>
-            <LinearGradient
-              colors={powerStops}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={styles.headerIcon}
-            >
-              <Ionicons name="flash" size={scale(16)} color="#FFFFFF" />
-            </LinearGradient>
-            <View style={styles.headerCopy}>
-              <Text style={[styles.title, { color: c.text }]}>
-                Quick Overrides
-              </Text>
-              <Text style={[styles.subtitle, { color: c.muted }]}>
-                Tap for all zones · hold to choose which zones.
-              </Text>
-            </View>
-            <Pressable
-              onPress={onClose}
-              hitSlop={8}
-              style={[styles.closeBtn, { borderColor: c.line }]}
-              accessibilityRole="button"
-              accessibilityLabel="Close quick overrides"
-            >
-              <Ionicons name="close" size={scale(15)} color={c.muted} />
-            </Pressable>
-          </View>
-
-          <View style={styles.row}>
-            <OverrideButton
-              icon="arrow-back"
-              label="Force Grid"
-              active={currentMode === "grid"}
-              disabled={smokeEmergencyActive}
-              color={GRID_GREEN}
-              iconBg="rgba(22, 163, 74, 0.14)"
-              onPress={() => handleOverride("grid")}
-            />
-            <OverrideButton
-              icon="flash"
-              label="Force Battery"
-              active={currentMode === "battery"}
-              disabled={smokeEmergencyActive}
-              color={ORANGE}
-              iconBg="rgba(249, 115, 22, 0.14)"
-              onPress={() => handleOverride("battery")}
-            />
-            <OverrideButton
-              icon="power"
-              label="Shutdown"
-              active={currentMode === "shutdown"}
-              disabled={smokeEmergencyActive}
-              color={SHUTDOWN_RED}
-              iconBg="rgba(220, 38, 38, 0.14)"
-              onPress={() => handleOverride("shutdown")}
-            />
-          </View>
-
           <Pressable
-            onPress={() => {
-              if (smokeEmergencyActive) return;
-              onClose();
-              router.push("/pages/power-management");
-            }}
-            style={({ pressed }) => [
-              styles.ctaWrap,
+            style={[
+              styles.sheet,
               {
-                shadowColor: gridActive
-                  ? GRID_GREEN
-                  : shutdownActive
-                    ? SHUTDOWN_RED
-                    : "#EA580C",
+                backgroundColor: c.surface,
+                borderColor: c.line,
+                paddingBottom: insets.bottom + scale(22),
               },
-              pressed && { opacity: 0.92 },
             ]}
-            accessibilityRole="button"
-            accessibilityLabel="Open full power management"
-            disabled={smokeEmergencyActive}
+            onPress={(event) => event.stopPropagation()}
           >
-            <LinearGradient
-              colors={powerStops}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 0 }}
-              style={styles.cta}
+            <View style={[styles.handle, { backgroundColor: c.muted }]} />
+
+            <View style={styles.header}>
+              <LinearGradient
+                colors={powerStops}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={styles.headerIcon}
+              >
+                <Ionicons name="flash" size={scale(16)} color="#FFFFFF" />
+              </LinearGradient>
+              <View style={styles.headerCopy}>
+                <Text style={[styles.title, { color: c.text }]}>
+                  Quick Overrides
+                </Text>
+                <Text style={[styles.subtitle, { color: c.muted }]}>
+                  Tap for all zones · hold to choose which zones.
+                </Text>
+              </View>
+              <Pressable
+                onPress={onClose}
+                hitSlop={8}
+                style={[styles.closeBtn, { borderColor: c.line }]}
+                accessibilityRole="button"
+                accessibilityLabel="Close quick overrides"
+              >
+                <Ionicons name="close" size={scale(15)} color={c.muted} />
+              </Pressable>
+            </View>
+
+            <View style={styles.row}>
+              <OverrideButton
+                icon="arrow-back"
+                label="Force Grid"
+                active={currentMode === "grid"}
+                disabled={safetyEmergencyActive}
+                color={GRID_GREEN}
+                iconBg="rgba(22, 163, 74, 0.14)"
+                onPress={() => handleOverride("grid")}
+              />
+              <OverrideButton
+                icon="flash"
+                label="Force Battery"
+                active={currentMode === "battery"}
+                disabled={safetyEmergencyActive}
+                color={ORANGE}
+                iconBg="rgba(249, 115, 22, 0.14)"
+                onPress={() => handleOverride("battery")}
+              />
+              <OverrideButton
+                icon="power"
+                label="Shutdown"
+                active={currentMode === "shutdown"}
+                disabled={safetyEmergencyActive}
+                color={SHUTDOWN_RED}
+                iconBg="rgba(220, 38, 38, 0.14)"
+                danger
+                onPress={() => handleOverride("shutdown")}
+              />
+            </View>
+
+            <Pressable
+              onPress={() => {
+                if (safetyEmergencyActive) return;
+                onClose();
+                router.push("/pages/power-management");
+              }}
+              style={({ pressed }) => [
+                styles.ctaWrap,
+                {
+                  shadowColor: gridActive
+                    ? GRID_GREEN
+                    : shutdownActive
+                      ? SHUTDOWN_RED
+                      : "#EA580C",
+                },
+                pressed && { opacity: 0.92 },
+              ]}
+              accessibilityRole="button"
+              accessibilityLabel="Open full power management"
+              disabled={safetyEmergencyActive}
             >
-              <Text style={styles.ctaText}>Open Full Power Management</Text>
-              <Ionicons name="arrow-forward" size={scale(16)} color="#FFFFFF" />
-            </LinearGradient>
+              <LinearGradient
+                colors={powerStops}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={styles.cta}
+              >
+                <Text style={styles.ctaText}>Open Full Power Management</Text>
+                <Ionicons
+                  name="arrow-forward"
+                  size={scale(16)}
+                  color="#FFFFFF"
+                />
+              </LinearGradient>
+            </Pressable>
           </Pressable>
-        </Pressable>
+        </Animated.View>
       </Pressable>
     </Modal>
   );
@@ -177,6 +257,7 @@ function OverrideButton({
   disabled = false,
   color,
   iconBg,
+  danger = false,
   onPress,
 }: {
   icon: keyof typeof Ionicons.glyphMap;
@@ -185,6 +266,7 @@ function OverrideButton({
   disabled?: boolean;
   color: string;
   iconBg: string;
+  danger?: boolean;
   onPress: () => void;
 }) {
   const { colors: c } = useTheme();
@@ -197,8 +279,12 @@ function OverrideButton({
       style={({ pressed }) => [
         styles.overrideButton,
         {
-          backgroundColor: c.surfaceMuted,
-          borderColor: active ? color : c.line,
+          backgroundColor: danger
+            ? active
+              ? SHUTDOWN_RED
+              : "rgba(220,38,38,0.1)"
+            : c.surfaceMuted,
+          borderColor: danger ? SHUTDOWN_RED : active ? color : c.line,
         },
         active && {
           shadowColor: color,
@@ -211,10 +297,35 @@ function OverrideButton({
         disabled && { opacity: 0.45 },
       ]}
     >
-      <View style={[styles.icon, { backgroundColor: iconBg }]}>
-        <Ionicons name={icon} size={scale(15)} color={color} />
+      <View
+        style={[
+          styles.icon,
+          {
+            backgroundColor:
+              danger && active ? "rgba(255,255,255,0.18)" : iconBg,
+          },
+        ]}
+      >
+        <Ionicons
+          name={icon}
+          size={scale(15)}
+          color={danger && active ? "#FFFFFF" : color}
+        />
       </View>
-      <Text style={[styles.buttonText, { color: c.text }]}>{label}</Text>
+      <Text
+        style={[
+          styles.buttonText,
+          {
+            color: danger
+              ? active
+                ? "#FFFFFF"
+                : SHUTDOWN_RED
+              : c.text,
+          },
+        ]}
+      >
+        {label}
+      </Text>
     </Pressable>
   );
 }
@@ -223,7 +334,10 @@ const styles = StyleSheet.create({
   backdrop: {
     flex: 1,
     justifyContent: "flex-end",
-    backgroundColor: "rgba(4, 10, 20, 0.5)",
+    backgroundColor: "transparent",
+  },
+  sheetMotion: {
+    width: "100%",
   },
   sheet: {
     borderTopLeftRadius: scale(28),

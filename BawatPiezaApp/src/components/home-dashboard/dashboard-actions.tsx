@@ -3,15 +3,12 @@ import { Animated, Pressable, ScrollView, View } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { AppText as Text } from "../app-text";
-import {
-  getHeatmapTileColor,
-  HeatmapTileGrid,
-} from "../heatmap-tile-grid";
-import { Card, SectionHead, scale, NAVY } from "../glass-ui";
+import { scale } from "../glass-ui";
 import { TourSpot } from "../app-tour-overlay";
 import { Mode, ThemeColors, fonts } from "../../theme";
 import { st } from "./home-styles";
 import { useRouter, type Href } from "expo-router";
+import type { SiteSpec } from "./room-kind";
 
 const BRAND_ORANGE = "#F5A220";
 const BRAND_ORANGE_DARK = "#E6641F";
@@ -162,6 +159,7 @@ export type DashboardZone = {
   detail: string;
   on: boolean;
   channel?: number;
+  site?: SiteSpec;
 };
 
 type Props = {
@@ -173,19 +171,11 @@ type Props = {
   activeOrange: string;
   activeOrangeDark: string;
   activeAccent: string;
-  activeAccentSoft: string;
   gridActive: boolean;
   isActive: boolean;
-  installedTileCount: number;
-  tileSetupLoaded: boolean;
   router: ReturnType<typeof useRouter>;
   zones: DashboardZone[];
   onZoneToggle: (zoneId: string) => void;
-  activeTile: number | null;
-  setActiveTile: React.Dispatch<React.SetStateAction<number | null>>;
-  footsteps: number;
-  dynamicKwhHarvested: string;
-  accent: (alpha?: number) => string;
 };
 
 export function DashboardActions({
@@ -197,36 +187,12 @@ export function DashboardActions({
   activeOrange,
   activeOrangeDark,
   activeAccent,
-  activeAccentSoft,
   gridActive,
   isActive,
-  installedTileCount,
-  tileSetupLoaded,
   router,
   zones,
   onZoneToggle,
-  activeTile,
-  setActiveTile,
-  footsteps,
-  dynamicKwhHarvested,
-  accent,
 }: Props) {
-  const heatTiles = Array.from(
-    { length: Math.min(installedTileCount, 60) },
-    (_, index) => {
-      const wave = Math.sin(index / 2.6) * 0.3 + Math.cos(index / 5) * 0.2;
-      return Math.min(
-        1,
-        Math.max(0.06, 0.45 + wave + ((index * 2654435761) % 100) / 500),
-      );
-    },
-  );
-  const heatmapTiles = heatTiles.map((traffic, index) => ({
-    id: index + 1,
-    label: `Tile ${index + 1}`,
-    traffic: isActive ? traffic : 0.05,
-  }));
-
   return (
     <>
       {smokeDetected && (
@@ -255,7 +221,7 @@ export function DashboardActions({
       )}
       <View style={st.quickActionsSection}>
         <Text style={[st.quickActionsTitle, { color: c.text }]}>
-          quick actions
+          QUICK ACTIONS
         </Text>
         <ScrollView
           horizontal
@@ -264,27 +230,38 @@ export function DashboardActions({
         >
           {[
             {
+              label: "Allocation",
+              sub: "Manage schedule",
+              icon: "flash-outline" as const,
+              href: "/pages/power-management?tab=allocation" as Href,
+            },
+            {
               label: "Heatmap",
+              sub: "Tile activity",
               icon: "map-outline" as const,
               href: "/pages/heatmap",
             },
             {
               label: "My zones",
+              sub: "Connected rooms",
               icon: "layers-outline" as const,
               href: "/pages/zones",
             },
             {
               label: "Shared",
+              sub: "Shared access",
               icon: "people-outline" as const,
               href: "/pages/accounts",
             },
             {
               label: "Device",
+              sub: "Device status",
               icon: "hardware-chip-outline" as const,
               href: "/pages/device",
             },
             {
               label: "Thresholds",
+              sub: "Power limits",
               icon: "options-outline" as const,
               href: "/pages/thresholds",
             },
@@ -297,13 +274,8 @@ export function DashboardActions({
               style={({ pressed }) => [
                 st.quickAction,
                 {
-                  backgroundColor:
-                    mode === "dark"
-                      ? "rgba(255,255,255,0.06)"
-                      : "rgba(255,255,255,0.72)",
-                  borderColor: usingGrid
-                    ? "rgba(230,100,31,0.16)"
-                    : "rgba(230,100,31,0.16)",
+                  backgroundColor: c.surface,
+                  borderColor: c.line,
                 },
                 pressed && st.quickActionPressed,
               ]}
@@ -312,29 +284,30 @@ export function DashboardActions({
                 style={[
                   st.quickActionIcon,
                   {
-                    backgroundColor:
-                      mode === "dark"
-                        ? usingGrid
-                          ? "rgba(245,162,32,0.18)"
-                          : "rgba(245,162,32,0.18)"
-                        : usingGrid
-                          ? "rgba(245,162,32,0.12)"
-                          : "rgba(245,162,32,0.12)",
+                    backgroundColor: c.accentSoft,
                   },
                 ]}
               >
                 <Ionicons
                   name={action.icon}
                   size={scale(16)}
-                  color={activeAccent}
+                  color={c.accent}
                 />
               </View>
-              <Text
-                style={[st.quickActionLabel, { color: c.text }]}
-                numberOfLines={1}
-              >
-                {action.label}
-              </Text>
+              <View style={st.quickActionText}>
+                <Text
+                  style={[st.quickActionLabel, { color: c.text }]}
+                  numberOfLines={1}
+                >
+                  {action.label}
+                </Text>
+                <Text
+                  style={[st.quickActionSub, { color: c.muted }]}
+                  numberOfLines={1}
+                >
+                  {action.sub}
+                </Text>
+              </View>
             </Pressable>
           ))}
         </ScrollView>
@@ -566,247 +539,6 @@ export function DashboardActions({
           </View>
         </TourSpot>
       </EnterView>
-
-      <TourSpot id="heatmap">
-        <EnterView delay={450}>
-          <SectionHead
-            title="Most walked-on tiles"
-            link="Full heatmap"
-            onLink={() => router.push("/pages/heatmap")}
-            mode={mode}
-            accentColor={activeOrangeDark}
-          />
-          <Card
-            mode={mode}
-            style={{ borderRadius: scale(18), padding: scale(14) }}
-          >
-            <View
-              style={{
-                flexDirection: "row",
-                alignItems: "center",
-                justifyContent: "space-between",
-              }}
-            >
-              <View style={{ flex: 1 }}>
-                <Text
-                  style={{
-                    color: c.text,
-                    fontSize: scale(12.5),
-                    fontFamily: fonts.extrabold,
-                  }}
-                >
-                  Gate pathway · live tile heat
-                </Text>
-                <Text
-                  style={{
-                    color:
-                      mode === "dark"
-                        ? "rgba(255,255,255,0.55)"
-                        : "rgba(10,42,74,0.5)",
-                    fontSize: scale(9.5),
-                    fontFamily: fonts.medium,
-                    marginTop: 1,
-                  }}
-                >
-                  {mode === "dark"
-                    ? "Brighter white = more foot traffic"
-                    : "Brighter orange = more foot traffic"}
-                </Text>
-              </View>
-              <View
-                style={[
-                  st.stepsPill,
-                  isActive
-                    ? {
-                        backgroundColor: activeAccentSoft,
-                        borderColor: usingGrid
-                          ? "rgba(230,100,31,0.4)"
-                          : accent(0.4),
-                      }
-                    : {
-                        backgroundColor: "rgba(150,150,150,0.12)",
-                        borderColor: "rgba(150,150,150,0.3)",
-                      },
-                ]}
-              >
-                <Ionicons
-                  name="footsteps"
-                  size={scale(13)}
-                  color={
-                    isActive ? (mode === "dark" ? "#FFFFFF" : NAVY) : c.muted
-                  }
-                />
-                <Text
-                  style={[
-                    st.stepsPillText,
-                    { color: isActive ? c.text : c.muted },
-                  ]}
-                >
-                  {footsteps.toLocaleString()}
-                </Text>
-              </View>
-            </View>
-
-            <View
-              style={[
-                st.kineticRow,
-                isActive
-                  ? {
-                      borderColor: usingGrid
-                        ? "rgba(230,100,31,0.35)"
-                        : accent(0.35),
-                      backgroundColor: usingGrid
-                        ? "rgba(245,162,32,0.1)"
-                        : accent(0.1),
-                    }
-                  : {
-                      borderColor: "rgba(150,150,150,0.25)",
-                      backgroundColor: "rgba(150,150,150,0.08)",
-                    },
-              ]}
-            >
-              <Ionicons
-                name="footsteps"
-                size={scale(14)}
-                color={
-                  isActive
-                    ? mode === "dark"
-                      ? "#FFFFFF"
-                      : usingGrid
-                        ? BRAND_ORANGE_DARK
-                        : "#B4771B"
-                    : c.muted
-                }
-              />
-              <Text
-                style={[
-                  st.kineticText,
-                  {
-                    color:
-                      mode === "dark"
-                        ? "rgba(255,255,255,0.75)"
-                        : "rgba(10,42,74,0.7)",
-                  },
-                ]}
-              >
-                Footsteps converted today
-              </Text>
-              <Text
-                style={{
-                  color: isActive
-                    ? mode === "dark"
-                      ? "#FFFFFF"
-                      : "#4CA83E"
-                    : c.muted,
-                  fontSize: scale(11),
-                  fontFamily: fonts.extrabold,
-                }}
-              >
-                {isActive ? `+${dynamicKwhHarvested} kWh` : "-- kWh"}
-              </Text>
-            </View>
-
-            <HeatmapTileGrid
-              tiles={isActive ? heatmapTiles : []}
-              totalCount={isActive ? installedTileCount : 0}
-              compact
-              selectedTileId={
-                activeTile === null || activeTile >= heatTiles.length
-                  ? null
-                  : activeTile + 1
-              }
-              onSelectTile={
-                isActive && tileSetupLoaded
-                  ? (id) =>
-                      setActiveTile((current) =>
-                        current === id - 1 ? null : id - 1,
-                      )
-                  : undefined
-              }
-              emptyLabel={
-                !isActive
-                  ? "No device connected."
-                  : tileSetupLoaded
-                    ? "No tiles configured. Complete Device Setup to view the heatmap."
-                    : "Loading installed tile setup..."
-              }
-            />
-
-            <View
-              style={{
-                flexDirection: "row",
-                alignItems: "center",
-                justifyContent: "center",
-                gap: scale(6),
-                marginTop: scale(10),
-              }}
-            >
-              <Text
-                style={[
-                  st.legendText,
-                  {
-                    color:
-                      mode === "dark"
-                        ? "rgba(255,255,255,0.5)"
-                        : "rgba(10,42,74,0.5)",
-                  },
-                ]}
-              >
-                less
-              </Text>
-              <View
-                style={{
-                  flexDirection: "row",
-                  gap: scale(3),
-                  opacity: isActive ? 1 : 0.4,
-                }}
-              >
-                {[0.1, 0.35, 0.6, 0.82, 0.98].map((v, i) => (
-                  <View
-                    key={i}
-                    style={[
-                      st.legendSwatch,
-                      { backgroundColor: getHeatmapTileColor(v) },
-                    ]}
-                  />
-                ))}
-              </View>
-              <Text
-                style={[
-                  st.legendText,
-                  {
-                    color:
-                      mode === "dark"
-                        ? "rgba(255,255,255,0.5)"
-                        : "rgba(10,42,74,0.5)",
-                  },
-                ]}
-              >
-                more
-              </Text>
-            </View>
-
-            {activeTile !== null &&
-              isActive &&
-              activeTile < heatTiles.length && (
-                <Text
-                  style={[
-                    st.tileInfo,
-                    {
-                      color:
-                        mode === "dark"
-                          ? "rgba(255,255,255,0.7)"
-                          : "rgba(10,42,74,0.65)",
-                    },
-                  ]}
-                >
-                  tile #{activeTile + 1} —{" "}
-                  {Math.round(heatTiles[activeTile] * 480)} crossings today
-                </Text>
-              )}
-          </Card>
-        </EnterView>
-      </TourSpot>
     </>
   );
 }

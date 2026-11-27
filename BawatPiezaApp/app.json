@@ -2,7 +2,7 @@
   "expo": {
     "name": "BawatPieza",
     "slug": "BawatPiezaApp",
-    "newArchEnabled": false,
+    "newArchEnabled": true,
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/notification-icon.png",
@@ -44,7 +44,7 @@
       [
         "expo-notifications",
         {
-          "icon": "./assets/images/LOGO4.png",
+          "icon": "./assets/images/notification-icon.png",
           "color": "#F97316",
           "sounds": [
             "./assets/sounds/bell_notification.wav",
@@ -63,6 +63,12 @@
         {
           "cameraPermission": "Allow BawatPieza to scan Wi-Fi QR codes",
           "barcodeScannerEnabled": true
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Allow BawatPieza to use your location for the local weather forecast."
         }
       ],
       [
@@ -92,7 +98,7 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true,
-      "newArchEnabled": false
+      "newArchEnabled": true
     },
     "extra": {
       "router": {},

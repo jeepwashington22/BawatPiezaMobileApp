@@ -744,8 +744,10 @@ export const styles = StyleSheet.create({
   },
   batteryStart: {
     flexDirection: "row",
+    flexWrap: "wrap",
     alignItems: "center",
     justifyContent: "space-between",
+    gap: scale(8),
     borderTopWidth: 1,
     marginTop: scale(12),
     paddingTop: scale(11),

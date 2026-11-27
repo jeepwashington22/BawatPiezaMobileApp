@@ -1,4 +1,4 @@
-import { fonts, useTheme, type Mode } from "../../theme";
+import { useTheme, type Mode } from "../../theme";
 import React, { useEffect, useState, useRef, useCallback } from "react";
 import {
   View,
@@ -7,25 +7,23 @@ import {
   Animated,
   ScrollView,
   RefreshControl,
+  DeviceEventEmitter,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { AppText as Text } from "../../components/app-text";
 import { Ionicons } from "@expo/vector-icons";
-import { useRouter, type Href } from "expo-router";
+import { useFocusEffect, useRouter, type Href } from "expo-router";
 import { ScreenShell } from "../../components/screen-shell";
 import { LoadingScreen } from "../../components/loading-screen";
 import { TourSpot } from "../../components/app-tour-overlay";
 import { useAppTour } from "../../hooks/use-app-tour";
 import { useAuth } from "../../hooks/use-auth";
 import { usePowerOverride } from "../../hooks/use-power-override";
-import { TopBar } from "../../components/top-bar";
-import { HeroGlow } from "../../components/hero-glow";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import Paho from "paho-mqtt";
 import "text-encoding";
 import { supabase } from "../../lib/supabase";
 import { installedTileCountKey } from "../../lib/device-setup";
-import { CountUpText } from "../../components/count-up-text";
 import { DashboardStats } from "../../components/home-dashboard/stats-and-battery";
 import {
   DashboardActions,
@@ -34,8 +32,19 @@ import {
 import { st } from "../../components/home-dashboard/home-styles";
 import { useDeviceConnection } from "../../components/device-status-banner";
 import { ZONES_STORAGE_KEY } from "../../components/zone-management-screen";
-import { brandAccent, scale } from "../../components/glass-ui";
+import {
+  SITE_SPECS_STORAGE_KEY,
+  siteKey,
+  type SiteSpec,
+} from "../../components/home-dashboard/room-kind";
+import { scale } from "../../components/glass-ui";
 import { updateSmokeAlarm } from "../../lib/push-notifications";
+import { apiFetch } from "../../lib/api";
+import {
+  loadSystemAllocationStatus,
+  SYSTEM_ALLOCATION_STATUS_CHANGED,
+  type SystemAllocationStatus,
+} from "../../lib/system-allocation-status";
 
 const BRAND_ORANGE = "#F5A220";
 const BRAND_ORANGE_DARK = "#E6641F";
@@ -85,6 +94,43 @@ type HubTelemetry = {
   event?: unknown;
 };
 
+type HardwareTestSettings = {
+  enabled: boolean;
+  simulated_at: string;
+  battery_percentage: number;
+  updated_at: string;
+};
+
+function isHardwareTestSettings(value: unknown): value is HardwareTestSettings {
+  if (typeof value !== "object" || value === null) return false;
+  const settings = value as Partial<HardwareTestSettings>;
+  return (
+    typeof settings.enabled === "boolean" &&
+    typeof settings.simulated_at === "string" &&
+    Number.isFinite(Date.parse(settings.simulated_at)) &&
+    typeof settings.battery_percentage === "number" &&
+    Number.isFinite(settings.battery_percentage) &&
+    settings.battery_percentage >= 0 &&
+    settings.battery_percentage <= 100 &&
+    typeof settings.updated_at === "string" &&
+    Number.isFinite(Date.parse(settings.updated_at))
+  );
+}
+
+function getApplicationDate(
+  settings: HardwareTestSettings | null,
+  nowMs = Date.now(),
+) {
+  if (settings?.enabled) {
+    const simulatedAt = Date.parse(settings.simulated_at);
+    const updatedAt = Date.parse(settings.updated_at);
+    if (Number.isFinite(simulatedAt) && Number.isFinite(updatedAt)) {
+      return new Date(simulatedAt + Math.max(0, nowMs - updatedAt));
+    }
+  }
+  return new Date(nowMs);
+}
+
 function readTelemetryNumber(value: unknown): number | null {
   if (typeof value !== "number" && typeof value !== "string") return null;
   if (typeof value === "string" && value.trim() === "") return null;
@@ -116,8 +162,12 @@ export default function HomeScreen() {
   const { ready, isLoggedIn, user } = useAuth();
   const router = useRouter();
   const hasDevice = useDeviceConnection();
+  const [hardwareTestSettings, setHardwareTestSettings] =
+    useState<HardwareTestSettings | null>(null);
+  const [clockNowMs, setClockNowMs] = useState(() => Date.now());
 
-  const { override, openOverrides } = usePowerOverride();
+  const { override, pendingMode, openOverrides, runWithAllocationInterlock } =
+    usePowerOverride();
   const [hubPowerMode, setHubPowerMode] = useState<
     "grid" | "battery" | "shutdown" | null
   >(null);
@@ -126,22 +176,23 @@ export default function HomeScreen() {
   const [smokeZone, setSmokeZone] = useState("");
   const previousSmokeRef = useRef(false);
 
-  const rawEffectiveMode = hubPowerMode ?? override;
-  const effectiveMode: "grid" | "battery" | "shutdown" =
-    rawEffectiveMode === "shutdown"
+  // Priority: what the user just picked (instant) > what the hub reports >
+  // grid-availability fallback > saved override. Waiting for the hub's next
+  // telemetry packet before switching the UI was the source of the delay.
+  const effectiveMode: "grid" | "battery" | "shutdown" = pendingMode
+    ? pendingMode
+    : hubPowerMode === "shutdown"
       ? "shutdown"
       : gridAcAvailable === false
         ? "battery"
-        : gridAcAvailable === true
-          ? "grid"
-          : (rawEffectiveMode ?? "grid");
+        : (hubPowerMode ??
+          (gridAcAvailable === true ? "grid" : (override ?? "grid")));
 
   const usingGrid = effectiveMode === "grid";
 
   const activeOrange = BRAND_ORANGE;
   const activeOrangeDark = BRAND_ORANGE_DARK;
   const activeAccent = c.orange;
-  const activeAccentSoft = c.accentSoft;
 
   const {
     checked,
@@ -151,7 +202,6 @@ export default function HomeScreen() {
     scrollContainerRef,
     setScrollOffsetY,
   } = useAppTour();
-  const accent = (alpha = 1) => brandAccent(mode, alpha);
   const { gridActive, batteryCardInk } = useGridPalette(usingGrid, mode);
 
   const [batteryPct, setBatteryPct] = useState<number | null>(null);
@@ -170,6 +220,11 @@ export default function HomeScreen() {
   const [mqttStatus, setMqttStatus] = useState<
     "Connecting..." | "Live" | "Offline"
   >("Connecting...");
+  const [systemAllocationStatus, setSystemAllocationStatus] =
+    useState<SystemAllocationStatus | null>(null);
+  const [systemAllocationClockMs, setSystemAllocationClockMs] = useState(
+    () => Date.now(),
+  );
   const [refreshing, setRefreshing] = useState(false);
   const [isSharedUser, setIsSharedUser] = useState(false);
 
@@ -177,6 +232,37 @@ export default function HomeScreen() {
 
   const mqttClientRef = useRef<Paho.Client | null>(null);
   const lastToggleAtRef = useRef<Record<number, number>>({});
+  const refreshSystemAllocationStatus = useCallback(async () => {
+    try {
+      const hubId = await AsyncStorage.getItem("bawatpieza_hub_id");
+      const status = hubId ? await loadSystemAllocationStatus(hubId) : null;
+      setSystemAllocationStatus(status);
+      setSystemAllocationClockMs(Date.now());
+    } catch (error) {
+      console.error("[dashboard] Could not load system allocation status", error);
+    }
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      void refreshSystemAllocationStatus();
+      const interval = setInterval(() => {
+        void refreshSystemAllocationStatus();
+      }, 10_000);
+      return () => clearInterval(interval);
+    }, [refreshSystemAllocationStatus]),
+  );
+
+  useEffect(() => {
+    const subscription = DeviceEventEmitter.addListener(
+      SYSTEM_ALLOCATION_STATUS_CHANGED,
+      (status: SystemAllocationStatus | null) => {
+        setSystemAllocationStatus(status);
+        setSystemAllocationClockMs(Date.now());
+      },
+    );
+    return () => subscription.remove();
+  }, []);
 
   const batteryCardMutedInk =
     mode === "dark" ? "rgba(255,255,255,0.82)" : "rgba(10,42,74,0.72)";
@@ -186,7 +272,8 @@ export default function HomeScreen() {
   const [rangeMenuOpen, setRangeMenuOpen] = useState(false);
   const statsPop = useRef(new Animated.Value(0)).current;
   const graphProgress = useRef(new Animated.Value(0)).current;
-  const currentHour = new Date().getHours();
+  const appNow = getApplicationDate(hardwareTestSettings, clockNowMs);
+  const currentHour = appNow.getHours();
   const greeting =
     currentHour < 12
       ? "Good morning"
@@ -238,6 +325,77 @@ export default function HomeScreen() {
     };
   }, []);
 
+  useEffect(() => {
+    if (!ready || !isLoggedIn || hasDevice !== true) return;
+
+    let active = true;
+    const loadHardwareTestSettings = async () => {
+      try {
+        const { data: authData, error: sessionError } =
+          await supabase.auth.getSession();
+        if (sessionError) throw sessionError;
+        const token = authData.session?.access_token;
+        if (!token) {
+          if (active) setHardwareTestSettings(null);
+          return;
+        }
+
+        const response = await apiFetch(
+          "/api/v1/public/hardware-test-settings",
+          {
+            headers: { Authorization: `Bearer ${token}` },
+            cacheTtlMs: 0,
+            timeoutMs: 8_000,
+          },
+        );
+        if (!response.ok) {
+          throw new Error(
+            `Hardware test settings request failed with status ${response.status}.`,
+          );
+        }
+
+        const body = (await response.json()) as { settings?: unknown };
+        if (!isHardwareTestSettings(body.settings)) {
+          throw new Error("Hardware test settings response is invalid.");
+        }
+        if (!active) return;
+
+        const settings = body.settings;
+        setHardwareTestSettings((current) => {
+          if (
+            current &&
+            current.updated_at === settings.updated_at &&
+            current.enabled === settings.enabled &&
+            current.simulated_at === settings.simulated_at &&
+            current.battery_percentage === settings.battery_percentage
+          ) {
+            return current;
+          }
+          return settings;
+        });
+        setClockNowMs(Date.now());
+      } catch (error) {
+        console.error("[dashboard] failed to load hardware test settings", error);
+      }
+    };
+
+    void loadHardwareTestSettings();
+    const interval = setInterval(() => {
+      if (active) void loadHardwareTestSettings();
+    }, 10_000);
+
+    return () => {
+      active = false;
+      clearInterval(interval);
+    };
+  }, [ready, isLoggedIn, hasDevice]);
+
+  useEffect(() => {
+    if (!hardwareTestSettings?.enabled) return;
+    const interval = setInterval(() => setClockNowMs(Date.now()), 10_000);
+    return () => clearInterval(interval);
+  }, [hardwareTestSettings?.enabled]);
+
   const loadConfiguredZones = useCallback(async () => {
     try {
       const hubId = await AsyncStorage.getItem("bawatpieza_hub_id");
@@ -247,6 +405,20 @@ export default function HomeScreen() {
       }
 
       let fetchedZones: DashboardZone[] = [];
+      let savedSiteSpecs: Record<string, SiteSpec> = {};
+      try {
+        const rawSiteSpecs = await AsyncStorage.getItem(
+          SITE_SPECS_STORAGE_KEY,
+        );
+        if (rawSiteSpecs) {
+          savedSiteSpecs = JSON.parse(rawSiteSpecs) as Record<
+            string,
+            SiteSpec
+          >;
+        }
+      } catch (error) {
+        console.warn("[dashboard] Could not load saved place types", error);
+      }
 
       const { data, error } = await supabase
         .from("device_setups")
@@ -255,10 +427,14 @@ export default function HomeScreen() {
         .maybeSingle();
 
       if (!error && data?.setup_payload?.channels) {
-        const payloadChannels = data.setup_payload.channels as Array<{
+        const payloadChannels = data.setup_payload.channels as {
           channel: number;
-          rooms?: Array<{ name?: string; bulbs?: number }>;
-        }>;
+          rooms?: {
+            name?: string;
+            bulbs?: number;
+            site?: SiteSpec;
+          }[];
+        }[];
 
         fetchedZones = payloadChannels.map((ch) => {
           const roomName = ch.rooms?.[0]?.name || `Room Channel ${ch.channel}`;
@@ -270,6 +446,8 @@ export default function HomeScreen() {
             detail: `Relay CH${ch.channel} · ${bulbs} bulb${bulbs > 1 ? "s" : ""}`,
             on: false,
             channel: ch.channel,
+            site:
+              ch.rooms?.[0]?.site ?? savedSiteSpecs[siteKey(roomName)],
           };
         });
       }
@@ -277,15 +455,22 @@ export default function HomeScreen() {
       if (fetchedZones.length === 0) {
         const localZonesStr = await AsyncStorage.getItem(ZONES_STORAGE_KEY);
         if (localZonesStr) {
-          const parsed = JSON.parse(localZonesStr);
+          const parsed = JSON.parse(localZonesStr) as {
+            id?: string;
+            name?: string;
+            channel?: number;
+            installedBulbs?: number;
+            site?: SiteSpec;
+          }[];
           if (Array.isArray(parsed) && parsed.length > 0) {
-            fetchedZones = parsed.map((z: any, idx: number) => ({
+            fetchedZones = parsed.map((z, idx) => ({
               id: z.id || `ch-${z.channel || idx + 1}`,
               name: z.name || `Room ${idx + 1}`,
               source: "Battery",
               detail: `Relay CH${z.channel || idx + 1} · ${z.installedBulbs || 1} bulb${(z.installedBulbs || 1) > 1 ? "s" : ""}`,
               on: false,
               channel: z.channel || idx + 1,
+              site: z.site ?? savedSiteSpecs[siteKey(z.name)],
             }));
           }
         }
@@ -466,9 +651,15 @@ export default function HomeScreen() {
           else if (batteryPower !== null)
             setLivePower(Math.round(batteryPower));
 
-          const voltage = readTelemetryNumber(data.grid_v);
-          const current = readTelemetryNumber(data.grid_a);
-          const power = readTelemetryNumber(data.grid_w);
+          const voltage =
+            readTelemetryNumber(data.grid_v) ??
+            readTelemetryNumber(data.grid_in_v);
+          const current =
+            readTelemetryNumber(data.grid_a) ??
+            readTelemetryNumber(data.grid_in_a);
+          const power =
+            readTelemetryNumber(data.grid_w) ??
+            readTelemetryNumber(data.grid_in_w);
           const energy = readTelemetryNumber(data.grid_kwh);
           if (voltage !== null) setGridVoltage(voltage);
           if (current !== null) setGridCurrent(current);
@@ -631,54 +822,78 @@ export default function HomeScreen() {
   const onZoneToggle = useCallback(
     async (zoneId: string) => {
       if (smokeDetected) return;
-      let targetChannel: number | undefined;
-      let nextState = false;
+      const selectedZone = zones.find((zone) => zone.id === zoneId);
+      if (!selectedZone) return;
+      const targetChannel = selectedZone.channel;
+      const nextState = !selectedZone.on;
 
-      setZones((currentZones) =>
-        currentZones.map((zone) => {
-          if (zone.id === zoneId) {
-            targetChannel = zone.channel;
-            nextState = !zone.on;
-            if (targetChannel !== undefined) {
-              lastToggleAtRef.current[targetChannel] = Date.now();
-            }
-            return { ...zone, on: nextState };
-          }
-          return zone;
-        }),
-      );
+      const applyToggle = async () => {
+        setZones((currentZones) =>
+          currentZones.map((zone) =>
+            zone.id === zoneId ? { ...zone, on: nextState } : zone,
+          ),
+        );
+        if (targetChannel !== undefined) {
+          lastToggleAtRef.current[targetChannel] = Date.now();
+        }
 
-      try {
-        const hubId = await AsyncStorage.getItem("bawatpieza_hub_id");
-        const client = mqttClientRef.current;
-        if (!hubId || !client?.isConnected()) return;
+        try {
+          const hubId = await AsyncStorage.getItem("bawatpieza_hub_id");
+          const client = mqttClientRef.current;
+          if (!hubId || !client?.isConnected()) return;
 
-        const payload =
-          targetChannel !== undefined
-            ? {
-                command: "room_relay",
-                channel: targetChannel,
-                state: nextState,
-              }
-            : { command: nextState ? "charger_on" : "charger_off" };
+          const payload =
+            targetChannel !== undefined
+              ? {
+                  command: "room_relay",
+                  channel: targetChannel,
+                  state: nextState,
+                }
+              : { command: nextState ? "charger_on" : "charger_off" };
 
-        const message = new Paho.Message(JSON.stringify(payload));
-        message.destinationName = `bawatpieza/devices/${hubId}/commands`;
-        client.send(message);
-      } catch (error) {
-        console.error("[dashboard] failed to send zone relay command", error);
+          const message = new Paho.Message(JSON.stringify(payload));
+          message.destinationName = `bawatpieza/devices/${hubId}/commands`;
+          client.send(message);
+        } catch (error) {
+          console.error("[dashboard] failed to send zone relay command", error);
+        }
+      };
+
+      if (targetChannel !== undefined && !nextState) {
+        try {
+          await runWithAllocationInterlock(
+            "turning off a room bulb",
+            applyToggle,
+          );
+        } catch (error) {
+          console.error(
+            "[dashboard] allocation interruption check failed",
+            error,
+          );
+        }
+        return;
       }
+      await applyToggle();
     },
-    [smokeDetected],
+    [runWithAllocationInterlock, smokeDetected, zones],
   );
 
-  const [activeTile, setActiveTile] = useState<number | null>(null);
+  const [activeTile] = useState<number | null>(null);
   const [installedTileCount, setInstalledTileCount] = useState(0);
-  const [tileSetupLoaded, setTileSetupLoaded] = useState(false);
+  const [hasLoadedInstalledTileCount, setHasLoadedInstalledTileCount] =
+    useState(false);
 
   useEffect(() => {
     let cancelled = false;
-    if (hasDevice !== true) return;
+    if (hasDevice !== true) {
+      if (hasDevice === false) {
+        setInstalledTileCount(0);
+        setHasLoadedInstalledTileCount(true);
+      }
+      return;
+    }
+
+    setHasLoadedInstalledTileCount(false);
 
     const loadInstalledTileCount = async () => {
       try {
@@ -726,7 +941,7 @@ export default function HomeScreen() {
         console.error("[dashboard] failed to read installed tile count", error);
         if (!cancelled) setInstalledTileCount(0);
       } finally {
-        if (!cancelled) setTileSetupLoaded(true);
+        if (!cancelled) setHasLoadedInstalledTileCount(true);
       }
     };
 
@@ -737,6 +952,9 @@ export default function HomeScreen() {
   }, [hasDevice]);
 
   const isActive = hasDevice === true;
+  const displayedBatteryPct = hardwareTestSettings?.enabled
+    ? hardwareTestSettings.battery_percentage
+    : batteryPct;
   const isLoadingDashboardData =
     hasDevice === null || (isActive && !hasLoadedGenerationSummary);
 
@@ -789,7 +1007,7 @@ export default function HomeScreen() {
     deltaLabel,
   });
 
-  const now = new Date();
+  const now = appNow;
   const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const tomorrow = new Date(
     now.getFullYear(),
@@ -849,18 +1067,27 @@ export default function HomeScreen() {
     day.setDate(day.getDate() - 6 + index);
     return generationTotalsByDay.get(getDateKey(day))?.kwh ?? 0;
   });
-  const dynamicKwhHarvested = generationData.today.kwh.toFixed(4);
-
-  if (isLoadingDashboardData) {
-    return <LoadingScreen label="Loading dashboard..." size="md" />;
-  }
+  const runningAllocationRooms =
+    systemAllocationStatus?.rooms.filter(
+      (room) =>
+        Date.parse(room.startAt) <= systemAllocationClockMs &&
+        Date.parse(room.endAt) > systemAllocationClockMs,
+    ) ?? [];
+  const nextAllocationStart = systemAllocationStatus?.rooms
+    .filter((room) => Date.parse(room.startAt) > systemAllocationClockMs)
+    .sort((first, second) => Date.parse(first.startAt) - Date.parse(second.startAt))[0];
+  const allocationAwaitingConfirmation =
+    systemAllocationStatus !== null &&
+    runningAllocationRooms.length === 0 &&
+    nextAllocationStart === undefined;
 
   return (
     <ScreenShell
       scroll={false}
+      title="Dashboard"
       contentPaddingHorizontal={10}
       contentPaddingBottom={0}
-      showNoDeviceNotice
+      showNoDeviceNotice={hasDevice === false}
     >
       <ScrollView
         ref={(node) => {
@@ -871,7 +1098,10 @@ export default function HomeScreen() {
         }
         scrollEventThrottle={16}
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingBottom: scale(88) }}
+        contentContainerStyle={{
+          flexGrow: 1,
+          paddingBottom: scale(88),
+        }}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -881,76 +1111,186 @@ export default function HomeScreen() {
           />
         }
       >
-        <View style={st.hero}>
-          <HeroGlow
-            mode={mode}
-            gridActive={gridActive}
-            intensity={isActive ? 1 : mode === "dark" ? 0.4 : 0.85}
-            bleedBottom={scale(76)}
-          />
-          <TopBar gutter={0} title="Dashboard" glass />
-        </View>
-        <DashboardStats
-          c={c}
-          mode={mode}
-          usingGrid={usingGrid}
-          powerMode={effectiveMode}
-          isActive={isActive}
-          isLoading={isLoadingDashboardData}
-          isSharedUser={isSharedUser}
-          activeAccent={activeAccent}
-          activeOrangeDark={activeOrangeDark}
-          batteryPct={batteryPct}
-          displayVoltage={displayVoltage}
-          gridVoltage={gridVoltage}
-          gridCurrent={gridCurrent}
-          gridPower={gridPower}
-          gridEnergyKwh={gridEnergyKwh}
-          mqttStatus={mqttStatus}
-          batteryCardInk={batteryCardInk}
-          batteryCardMutedInk={batteryCardMutedInk}
-          statsPop={statsPop}
-          graphProgress={graphProgress}
-          greeting={greeting}
-          metadataName={metadataName}
-          consumptionRange={consumptionRange}
-          consumptionData={generationData}
-          selectedConsumption={selectedGeneration}
-          generationTrend={generationTrend}
-          setConsumptionRange={setConsumptionRange}
-          rangeMenuOpen={rangeMenuOpen}
-          setRangeMenuOpen={setRangeMenuOpen}
-          stats={stats}
-          openOverrides={openOverrides}
-          installedTileCount={installedTileCount}
-          footsteps={footsteps}
-          activeTile={activeTile}
-          onOpenHeatmap={() => router.push("/pages/heatmap")}
-          zones={zones}
-        />
-        <DashboardActions
-          c={c}
-          mode={mode}
-          usingGrid={usingGrid}
-          activeOrange={activeOrange}
-          activeOrangeDark={activeOrangeDark}
-          activeAccent={activeAccent}
-          activeAccentSoft={activeAccentSoft}
-          gridActive={gridActive}
-          isActive={isActive}
-          installedTileCount={installedTileCount}
-          tileSetupLoaded={tileSetupLoaded}
-          router={router}
-          zones={zones}
-          smokeDetected={smokeDetected}
-          smokeZone={smokeZone}
-          onZoneToggle={onZoneToggle}
-          activeTile={activeTile}
-          setActiveTile={setActiveTile}
-          footsteps={footsteps}
-          dynamicKwhHarvested={dynamicKwhHarvested}
-          accent={accent}
-        />
+        {isLoadingDashboardData ? (
+          <LoadingScreen label="Loading dashboard..." size="md" />
+        ) : (
+          <>
+            <View
+              style={[
+                st.greetingRow,
+                { marginHorizontal: scale(2), marginTop: scale(2) },
+              ]}
+            >
+              <View style={st.greeting}>
+                {isSharedUser && (
+                  <Text style={[st.greetingEyebrow, { color: c.orange }]}>
+                    Shared user
+                  </Text>
+                )}
+                <Text style={[st.greetingEyebrow, { color: c.muted }]}>
+                  Welcome back
+                </Text>
+                <Text style={[st.greetingTitle, { color: c.text }]}>
+                  {greeting}, {metadataName || "There"}
+                </Text>
+              </View>
+            </View>
+            {hardwareTestSettings?.enabled && (
+              <View
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: scale(8),
+                  marginHorizontal: scale(10),
+                  marginTop: scale(10),
+                  paddingHorizontal: scale(12),
+                  paddingVertical: scale(10),
+                  borderRadius: scale(12),
+                  borderWidth: 1,
+                  borderColor: c.line,
+                  backgroundColor: c.surface,
+                }}
+              >
+                <View
+                  style={{
+                    width: scale(30),
+                    height: scale(30),
+                    borderRadius: scale(10),
+                    alignItems: "center",
+                    justifyContent: "center",
+                    backgroundColor: c.accentSoft,
+                  }}
+                >
+                  <Ionicons
+                    name="flask-outline"
+                    size={scale(16)}
+                    color={c.accent}
+                  />
+                </View>
+                <Text style={{ flex: 1, color: c.text, fontSize: scale(11) }}>
+                  Test mode · {appNow.toLocaleString()} · Battery{" "}
+                  {Math.floor(hardwareTestSettings.battery_percentage)}%
+                </Text>
+              </View>
+            )}
+            {systemAllocationStatus ? (
+              <Pressable
+                onPress={() => router.push("/pages/power-management")}
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: scale(10),
+                  marginHorizontal: scale(10),
+                  marginTop: scale(10),
+                  paddingHorizontal: scale(14),
+                  paddingVertical: scale(12),
+                  borderRadius: scale(14),
+                  borderWidth: 1,
+                  borderColor: c.line,
+                  backgroundColor: c.surface,
+                }}
+                accessibilityRole="button"
+                accessibilityLabel="System allocation status. Open power management."
+              >
+                <View
+                  style={{
+                    width: scale(32),
+                    height: scale(32),
+                    borderRadius: scale(10),
+                    alignItems: "center",
+                    justifyContent: "center",
+                    backgroundColor: c.accentSoft,
+                  }}
+                >
+                  <Ionicons
+                    name={
+                      allocationAwaitingConfirmation
+                        ? "alert-circle"
+                        : runningAllocationRooms.length > 0
+                          ? "flash"
+                          : "time-outline"
+                    }
+                    size={scale(18)}
+                    color={allocationAwaitingConfirmation ? c.danger : c.accent}
+                  />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ color: c.text, fontSize: scale(12), fontWeight: "700" }}>
+                    {runningAllocationRooms.length > 0
+                      ? "System allocation is working"
+                      : allocationAwaitingConfirmation
+                        ? "System allocation needs confirmation"
+                        : "System allocation is scheduled"}
+                  </Text>
+                  <Text style={{ color: c.muted, fontSize: scale(10), marginTop: scale(2) }}>
+                    {runningAllocationRooms.length > 0
+                      ? `${runningAllocationRooms.map((room) => room.roomName).join(", ")} running on battery`
+                      : allocationAwaitingConfirmation
+                        ? "Calculated end time passed. Verify the room relays or use Force Stop."
+                        : nextAllocationStart
+                          ? `Starts ${new Date(nextAllocationStart.startAt).toLocaleString()}`
+                          : "Room relays are being managed by the allocation schedule"}
+                  </Text>
+                </View>
+                <Ionicons name="chevron-forward" size={scale(16)} color={c.muted} />
+              </Pressable>
+            ) : null}
+            <DashboardStats
+              c={c}
+              mode={mode}
+              usingGrid={usingGrid}
+              powerMode={effectiveMode}
+              isActive={isActive}
+              isLoading={
+                isLoadingDashboardData || !hasLoadedInstalledTileCount
+              }
+              activeAccent={activeAccent}
+              activeOrangeDark={activeOrangeDark}
+              batteryPct={displayedBatteryPct}
+              displayVoltage={displayVoltage}
+              gridVoltage={gridVoltage}
+              gridCurrent={gridCurrent}
+              gridPower={gridPower}
+              gridEnergyKwh={gridEnergyKwh}
+              mqttStatus={mqttStatus}
+              batteryCardInk={batteryCardInk}
+              batteryCardMutedInk={batteryCardMutedInk}
+              statsPop={statsPop}
+              graphProgress={graphProgress}
+              consumptionRange={consumptionRange}
+              consumptionData={generationData}
+              selectedConsumption={selectedGeneration}
+              generationTrend={generationTrend}
+              setConsumptionRange={setConsumptionRange}
+              rangeMenuOpen={rangeMenuOpen}
+              setRangeMenuOpen={setRangeMenuOpen}
+              stats={stats}
+              openOverrides={openOverrides}
+              installedTileCount={installedTileCount}
+              footsteps={footsteps}
+              activeTile={activeTile}
+              onOpenHeatmap={() => router.push("/pages/heatmap")}
+              zones={zones}
+              onZoneToggle={onZoneToggle}
+              smokeDetected={smokeDetected}
+            />
+            <DashboardActions
+              c={c}
+              mode={mode}
+              usingGrid={usingGrid}
+              activeOrange={activeOrange}
+              activeOrangeDark={activeOrangeDark}
+              activeAccent={activeAccent}
+              gridActive={gridActive}
+              isActive={isActive}
+              router={router}
+              zones={zones}
+              smokeDetected={smokeDetected}
+              smokeZone={smokeZone}
+              onZoneToggle={onZoneToggle}
+            />
+          </>
+        )}
       </ScrollView>
     </ScreenShell>
   );

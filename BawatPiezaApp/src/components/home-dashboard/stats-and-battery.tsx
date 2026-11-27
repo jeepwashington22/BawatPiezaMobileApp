@@ -1,5 +1,12 @@
 import React from "react";
-import { Animated, Pressable, View } from "react-native";
+import {
+  ActivityIndicator,
+  Animated,
+  Linking,
+  Pressable,
+  StyleSheet,
+  View,
+} from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { AppText as Text } from "../app-text";
 import { Card, LiveDot, scale } from "../glass-ui";
@@ -7,7 +14,7 @@ import { CountUpText } from "../count-up-text";
 import { TourSpot } from "../app-tour-overlay";
 import { TileLoader } from "../tile-loader";
 import { getHeatmapTileColor } from "../heatmap-tile-grid";
-import { TileHeatScene } from "./tile-heat-scene";
+import { TileHeatScene } from "./tile-heat-scene-adaptive";
 import type { DashboardZone } from "./dashboard-actions";
 import Svg, {
   Defs,
@@ -18,10 +25,319 @@ import Svg, {
 } from "react-native-svg";
 import { Mode, ThemeColors, fonts } from "../../theme";
 import type { PowerOverride } from "../../hooks/use-power-override";
+import {
+  useDashboardWeather,
+  type LocatedDashboardWeatherReport,
+} from "../../hooks/use-dashboard-weather";
+import { skyLabel, type SkyKind } from "../../lib/weather";
+import { WeatherSky } from "./weather-sky";
 import { st } from "./home-styles";
 
 const BRAND_ORANGE_DARK = "#E6641F";
 const AnimatedPath = Animated.createAnimatedComponent(Path);
+
+function formatWeatherDate(date: string): string {
+  const match = date.match(/^\d{4}-(\d{2})-(\d{2})$/);
+  if (!match) return "Today";
+  const month = Number(match[1]);
+  const day = Number(match[2]);
+  const monthName = [
+    "Jan",
+    "Feb",
+    "Mar",
+    "Apr",
+    "May",
+    "Jun",
+    "Jul",
+    "Aug",
+    "Sep",
+    "Oct",
+    "Nov",
+    "Dec",
+  ][month - 1];
+  return monthName ? `Today · ${monthName} ${day}` : "Today";
+}
+
+type IoniconName = React.ComponentProps<typeof Ionicons>["name"];
+
+const SKY_OPTIONS: { kind: SkyKind; icon: IoniconName }[] = [
+  { kind: "sunny", icon: "sunny-outline" },
+  { kind: "rainy", icon: "rainy-outline" },
+  { kind: "breezy", icon: "leaf-outline" },
+];
+
+function skyIcon(sky: SkyKind, isDay: boolean): IoniconName {
+  if (sky === "rainy") return "rainy-outline";
+  if (sky === "breezy") return "leaf-outline";
+  return isDay ? "sunny-outline" : "moon-outline";
+}
+
+function WeatherWidget({
+  weather,
+  c,
+  skyPreview,
+  onSkyPreviewChange,
+}: {
+  weather:
+    | { status: "loading"; refresh: () => Promise<void> }
+    | {
+        status: "ready";
+        report: LocatedDashboardWeatherReport;
+        refresh: () => Promise<void>;
+      }
+    | { status: "error"; message: string; refresh: () => Promise<void> };
+  c: ThemeColors;
+  skyPreview: SkyKind | null;
+  onSkyPreviewChange: (sky: SkyKind | null) => void;
+}) {
+  const [isOpen, setIsOpen] = React.useState(false);
+  const report = weather.status === "ready" ? weather.report : null;
+  const activeSky: SkyKind | null = skyPreview ?? report?.sky ?? null;
+
+  const renderChip = (
+    key: string,
+    label: string,
+    icon: IoniconName,
+    selected: boolean,
+    onPress: () => void,
+  ) => (
+    <Pressable
+      key={key}
+      onPress={onPress}
+      hitSlop={4}
+      accessibilityRole="button"
+      accessibilityState={{ selected }}
+      accessibilityLabel={`${label} sky`}
+      style={{
+        flexDirection: "row",
+        alignItems: "center",
+        gap: scale(3),
+        paddingHorizontal: scale(7),
+        paddingVertical: scale(4),
+        borderRadius: scale(10),
+        borderWidth: 1,
+        borderColor: selected ? c.orange : c.line,
+        backgroundColor: selected ? c.orange : "transparent",
+      }}
+    >
+      <Ionicons
+        name={icon}
+        size={scale(11)}
+        color={selected ? "#FFFFFF" : c.muted}
+      />
+      <Text
+        style={{
+          color: selected ? "#FFFFFF" : c.text,
+          fontSize: scale(9),
+          fontWeight: "600",
+        }}
+      >
+        {label}
+      </Text>
+    </Pressable>
+  );
+
+  return (
+    <View
+      pointerEvents="box-none"
+      style={{
+        position: "absolute",
+        left: 0,
+        right: 0,
+        top: "42%",
+        height: scale(38),
+        zIndex: 20,
+      }}
+    >
+      <Pressable
+        onPress={() => setIsOpen((open) => !open)}
+        style={{
+          position: "absolute",
+          left: scale(4),
+          top: 0,
+          width: scale(38),
+          height: scale(38),
+          borderRadius: scale(19),
+          alignItems: "center",
+          justifyContent: "center",
+          borderWidth: 1,
+          borderColor: skyPreview ? c.orange : c.line,
+          backgroundColor: c.surface,
+          shadowColor: "#000000",
+          shadowOpacity: 0.16,
+          shadowRadius: scale(6),
+          shadowOffset: { width: 0, height: 2 },
+          elevation: 5,
+        }}
+        accessibilityRole="button"
+        accessibilityLabel="Toggle today's weather"
+        accessibilityState={{ expanded: isOpen }}
+      >
+        {weather.status === "loading" ? (
+          <ActivityIndicator size="small" color={c.orange} />
+        ) : (
+          <Ionicons
+            name={
+              weather.status === "error" || !activeSky
+                ? "location-outline"
+                : skyIcon(activeSky, report?.isDay ?? true)
+            }
+            size={scale(20)}
+            color={c.orange}
+          />
+        )}
+      </Pressable>
+      {isOpen ? (
+        <View
+          style={{
+            position: "absolute",
+            left: scale(46),
+            right: scale(4),
+            top: -scale(22),
+            paddingHorizontal: scale(10),
+            paddingVertical: scale(9),
+            borderRadius: scale(12),
+            borderWidth: 1,
+            borderColor: c.line,
+            backgroundColor: c.surface,
+            shadowColor: "#000000",
+            shadowOpacity: 0.18,
+            shadowRadius: scale(8),
+            shadowOffset: { width: 0, height: 3 },
+            elevation: 7,
+          }}
+          accessibilityLabel="Today's local weather forecast"
+        >
+          <View
+            style={{
+              flexDirection: "row",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: scale(6),
+            }}
+          >
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <Text
+                numberOfLines={1}
+                style={{ color: c.text, fontSize: scale(10), fontWeight: "700" }}
+              >
+                {report ? report.locationLabel : "Finding your location…"}
+              </Text>
+              <Text
+                numberOfLines={1}
+                style={{ color: c.muted, fontSize: scale(8), marginTop: scale(1) }}
+              >
+                {report
+                  ? `${formatWeatherDate(report.date)} · ${report.currentCondition}`
+                  : "Today's weather"}
+              </Text>
+            </View>
+            <Pressable
+              onPress={() => void weather.refresh()}
+              hitSlop={6}
+              disabled={weather.status === "loading"}
+              accessibilityRole="button"
+              accessibilityLabel={
+                weather.status === "error"
+                  ? "Retry weather forecast"
+                  : "Refresh weather forecast"
+              }
+            >
+              <Ionicons name="refresh" size={scale(14)} color={c.orange} />
+            </Pressable>
+          </View>
+          {report ? (
+            <>
+              <Text
+                style={{ color: c.muted, fontSize: scale(9), marginTop: scale(3) }}
+              >
+                {Math.round(report.currentTemperatureC)}°C now · Low{" "}
+                {Math.round(report.minimumTemperatureC)}° / High{" "}
+                {Math.round(report.maximumTemperatureC)}°
+              </Text>
+              <Text
+                style={{ color: c.muted, fontSize: scale(9), marginTop: scale(2) }}
+              >
+                Today: {report.forecastCondition} ·{" "}
+                {report.precipitationProbability}% rain chance · Wind{" "}
+                {Math.round(report.windSpeedKmh)} km/h
+              </Text>
+              <View
+                style={{
+                  flexDirection: "row",
+                  flexWrap: "wrap",
+                  gap: scale(5),
+                  marginTop: scale(8),
+                }}
+              >
+                {renderChip(
+                  "live",
+                  "Live",
+                  "locate-outline",
+                  skyPreview === null,
+                  () => onSkyPreviewChange(null),
+                )}
+                {SKY_OPTIONS.map(({ kind, icon }) =>
+                  renderChip(
+                    kind,
+                    skyLabel(kind),
+                    icon,
+                    skyPreview === kind,
+                    () => onSkyPreviewChange(skyPreview === kind ? null : kind),
+                  ),
+                )}
+              </View>
+              <Text
+                style={{ color: c.muted, fontSize: scale(8), marginTop: scale(5) }}
+              >
+                {skyPreview
+                  ? `Previewing a ${skyLabel(skyPreview).toLowerCase()} sky. Tap Live to return to the forecast.`
+                  : `Showing today's forecast: ${skyLabel(report.sky).toLowerCase()}. Tap a sky to preview it.`}
+              </Text>
+            </>
+          ) : (
+            <Text
+              style={{ color: c.muted, fontSize: scale(9), marginTop: scale(3) }}
+            >
+              {weather.status === "loading"
+                ? "Loading local forecast…"
+                : weather.status === "error"
+                  ? weather.message
+                  : ""}
+            </Text>
+          )}
+          {report ? (
+            <Pressable
+              onPress={() => {
+                void Linking.openURL("https://open-meteo.com/en/licence").catch(
+                  (error) =>
+                    console.warn(
+                      "[dashboard] Could not open weather data attribution",
+                      error,
+                    ),
+                );
+              }}
+              accessibilityRole="link"
+              accessibilityLabel="Weather data attribution and CC BY 4.0 license"
+              hitSlop={4}
+            >
+              <Text
+                style={{
+                  color: c.muted,
+                  fontSize: scale(8),
+                  marginTop: scale(3),
+                  textDecorationLine: "underline",
+                }}
+              >
+                Weather by Open-Meteo · CC BY 4.0
+              </Text>
+            </Pressable>
+          ) : null}
+        </View>
+      ) : null}
+    </View>
+  );
+}
 
 function EnterView({
   delay,
@@ -56,7 +372,6 @@ type Props = {
   powerMode: PowerOverride;
   isActive: boolean;
   isLoading: boolean;
-  isSharedUser: boolean;
   activeAccent: string;
   activeOrangeDark: string;
   batteryPct: number | null;
@@ -70,8 +385,6 @@ type Props = {
   batteryCardMutedInk: string;
   statsPop: Animated.Value;
   graphProgress: Animated.Value;
-  greeting: string;
-  metadataName: string;
   consumptionRange: ConsumptionRange;
   consumptionData: Record<ConsumptionRange, ConsumptionEntry>;
   selectedConsumption: ConsumptionEntry;
@@ -86,6 +399,8 @@ type Props = {
   activeTile?: number | null;
   onOpenHeatmap?: () => void;
   zones?: DashboardZone[];
+  onZoneToggle?: (zoneId: string) => void;
+  smokeDetected?: boolean;
 };
 export function DashboardStats({
   c,
@@ -94,7 +409,6 @@ export function DashboardStats({
   powerMode,
   isActive,
   isLoading,
-  isSharedUser,
   activeAccent,
   activeOrangeDark,
   batteryPct,
@@ -108,8 +422,6 @@ export function DashboardStats({
   batteryCardMutedInk,
   statsPop,
   graphProgress,
-  greeting,
-  metadataName,
   consumptionRange,
   consumptionData,
   selectedConsumption,
@@ -124,7 +436,23 @@ export function DashboardStats({
   activeTile = null,
   onOpenHeatmap,
   zones = [],
+  onZoneToggle,
+  smokeDetected = false,
 }: Props) {
+  const weather = useDashboardWeather();
+  // null = follow the live forecast; otherwise the sky the user is previewing
+  const [skyPreview, setSkyPreview] = React.useState<SkyKind | null>(null);
+  const liveReport = weather.status === "ready" ? weather.report : null;
+  const activeSky = skyPreview ?? liveReport?.sky ?? null;
+  // stable callback so the memoised 3D scene is not re-rendered on every packet
+  const zonesRef = React.useRef(zones);
+  zonesRef.current = zones;
+  const zoneToggleRef = React.useRef(onZoneToggle);
+  zoneToggleRef.current = onZoneToggle;
+  const onToggleRoom = React.useCallback((index: number) => {
+    const zone = zonesRef.current[index];
+    if (zone) zoneToggleRef.current?.(zone.id);
+  }, []);
   const maxGeneration = Math.max(...generationTrend, 0);
   const generationPoints = generationTrend.map((value, index) => {
     const x =
@@ -140,88 +468,31 @@ export function DashboardStats({
   const generationArea = `${generationLine} L320 78 L0 78 Z`;
   const isShutdown = powerMode === "shutdown";
   const isBatteryMode = powerMode === "battery";
+  const activeModeColor = isShutdown
+    ? c.danger
+    : usingGrid
+      ? c.gridGreen
+      : c.orange;
+  const activeModeTint = `${activeModeColor}14`;
   return (
     <>
       <EnterView delay={90} style={st.statsSection}>
-        <View style={st.greetingRow}>
-          <View style={st.greeting}>
-            {isSharedUser && (
-              <Text style={[st.greetingEyebrow, { color: c.orange }]}>
-                Shared user
-              </Text>
-            )}
-            <Text style={[st.greetingEyebrow, { color: c.muted }]}>
-              Welcome back
-            </Text>
-            <Text style={[st.greetingTitle, { color: c.text }]}>
-              {greeting}, {metadataName || "There"}
-            </Text>
-          </View>
-          <View style={st.statsFilterWrap}>
-            <Pressable
-              onPress={() => setRangeMenuOpen((open) => !open)}
-              style={[
-                st.statsFilterButton,
-                { backgroundColor: c.surface, borderColor: c.line },
-              ]}
-              accessibilityRole="button"
-              accessibilityLabel={`generation date range: ${selectedConsumption.label}`}
-            >
-              <Ionicons
-                name="calendar-outline"
-                size={scale(11)}
-                color={activeAccent}
-              />
-              <Text style={[st.statsFilterButtonText, { color: c.text }]}>
-                {selectedConsumption.label}
-              </Text>
-              <Ionicons
-                name={rangeMenuOpen ? "chevron-up" : "chevron-down"}
-                size={scale(10)}
-                color={c.muted}
-              />
-            </Pressable>
-            {rangeMenuOpen && (
-              <View
-                style={[
-                  st.statsFilterMenu,
-                  { backgroundColor: c.surface, borderColor: c.line },
-                ]}
-              >
-                {(
-                  Object.keys(
-                    consumptionData,
-                  ) as (keyof typeof consumptionData)[]
-                ).map((range) => (
-                  <Pressable
-                    key={range}
-                    onPress={() => {
-                      setConsumptionRange(range);
-                      setRangeMenuOpen(false);
-                    }}
-                    style={st.rangeOption}
-                  >
-                    <Text
-                      style={[
-                        st.rangeOptionText,
-                        {
-                          color:
-                            range === consumptionRange ? activeAccent : c.muted,
-                        },
-                      ]}
-                    >
-                      {consumptionData[range].label}
-                    </Text>
-                  </Pressable>
-                ))}
-              </View>
-            )}
-          </View>
-        </View>
         <TourSpot id="live-stats">
           <Animated.View
             style={[
               st.statsPop,
+              {
+                backgroundColor: c.surface,
+                borderColor: c.line,
+                borderWidth: 1,
+                borderRadius: scale(16),
+                padding: scale(12),
+                shadowColor: "#0A2A4A",
+                shadowOpacity: mode === "dark" ? 0.18 : 0.06,
+                shadowRadius: scale(10),
+                shadowOffset: { width: 0, height: 3 },
+                elevation: 2,
+              },
               {
                 opacity: statsPop,
                 transform: [
@@ -279,19 +550,50 @@ export function DashboardStats({
                   </Pressable>
                 </View>
 
-                <TileHeatScene
-                  mode={mode}
-                  isActive={isActive}
-                  installedTileCount={installedTileCount}
-                  footsteps={footsteps}
-                  batteryPct={batteryPct}
-                  activeTile={activeTile}
-                  bulbs={zones.map((zone) => isActive && zone.on)}
-                  roomNames={zones.map((zone) => zone.name)}
-                  powerMode={powerMode}
-                  gridVoltage={gridVoltage}
-                  gridPower={gridPower}
-                />
+                <View style={{ position: "relative" }}>
+                  <TileHeatScene
+                    mode={mode}
+                    isActive={isActive}
+                    installedTileCount={installedTileCount}
+                    footsteps={footsteps}
+                    batteryPct={batteryPct}
+                    activeTile={activeTile}
+                    bulbs={zones.map((zone) => isActive && zone.on)}
+                    roomNames={zones.map((zone) => zone.name)}
+                    roomKinds={zones.map((zone) => zone.site?.kind)}
+                    powerMode={powerMode}
+                    gridVoltage={gridVoltage}
+                    gridPower={gridPower}
+                    onToggleRoom={onToggleRoom}
+                    roomSwitchDisabled={smokeDetected}
+                  />
+                  {/* light, see-through weather over the scene; touches pass through */}
+                  <WeatherSky
+                    sky={activeSky}
+                    dark={mode === "dark"}
+                    isDay={liveReport?.isDay ?? true}
+                    cloudCoverPct={liveReport?.cloudCoverPct ?? 0}
+                    windSpeedKmh={
+                      skyPreview === "breezy"
+                        ? Math.max(liveReport?.windSpeedKmh ?? 0, 28)
+                        : (liveReport?.windSpeedKmh ?? 0)
+                    }
+                    rainChancePct={
+                      skyPreview === "rainy"
+                        ? Math.max(liveReport?.precipitationProbability ?? 0, 70)
+                        : (liveReport?.precipitationProbability ?? 60)
+                    }
+                    stormy={
+                      activeSky === "rainy" && (liveReport?.isThunderstorm ?? false)
+                    }
+                  />
+                  <WeatherWidget
+                    weather={weather}
+                    c={c}
+                    skyPreview={skyPreview}
+                    onSkyPreviewChange={setSkyPreview}
+                  />
+                </View>
 
                 <View style={st.hsTop}>
                   <View style={st.hsTopData}>
@@ -304,18 +606,8 @@ export function DashboardStats({
                       </Text>
                       <Text style={[st.hsKwhUnit, { color: c.text }]}>kWh</Text>
                     </View>
-                    <View style={[st.hsSteps, !isActive && { opacity: 0.5 }]}>
-                      <Ionicons
-                        name="footsteps"
-                        size={scale(11)}
-                        color={c.muted}
-                      />
-                      <Text style={[st.hsStepsText, { color: c.muted }]}>
-                        {isActive ? selectedConsumption.detail : "--"}
-                      </Text>
-                    </View>
                   </View>
-                  {(isBatteryMode || usingGrid || isShutdown) && (
+                  {isBatteryMode && (
                     <View style={[st.hsBattery, !isActive && { opacity: 0.5 }]}>
                       <Ionicons
                         name="battery-charging"
@@ -400,32 +692,18 @@ export function DashboardStats({
               style={[
                 st.batteryCard,
                 {
-                  backgroundColor:
-                    mode === "dark" ? "#21160F" : "#FFF8EA",
-                  borderColor: isShutdown
-                    ? "#DC2626"
-                    : usingGrid
-                      ? "#16A34A"
-                      : c.orange,
+                  backgroundColor: activeModeTint,
+                  borderColor: activeModeColor,
+                  borderWidth: StyleSheet.hairlineWidth,
                 },
-                { shadowColor: BRAND_ORANGE_DARK },
               ]}
             >
-              <View
-                pointerEvents="none"
-                style={[st.batteryCardAccent, { backgroundColor: c.orange }]}
-              />
               <View style={st.batteryCardHeader}>
                 <View style={st.batteryCardIdentity}>
                   <View
                     style={[
                       st.batteryCardIcon,
-                      {
-                        backgroundColor:
-                          mode === "dark"
-                            ? "rgba(245,162,32,0.18)"
-                            : "rgba(245,162,32,0.12)",
-                      },
+                      { backgroundColor: c.accentSoft },
                     ]}
                   >
                     <Ionicons
@@ -437,7 +715,7 @@ export function DashboardStats({
                             : "battery-charging"
                       }
                       size={scale(21)}
-                      color={isShutdown ? "#DC2626" : batteryCardInk}
+                      color={isShutdown ? "#DC2626" : c.accent}
                     />
                   </View>
                   <View>
@@ -490,7 +768,7 @@ export function DashboardStats({
                       <Text
                         style={[
                           st.batteryCardLevelLabel,
-                          { color: activeAccent },
+                          { color: c.accent },
                         ]}
                       >
                         Battery charge
@@ -516,7 +794,7 @@ export function DashboardStats({
                       <View
                         style={[
                           st.batteryCardTrack,
-                          { backgroundColor: "rgba(245,162,32,0.22)" },
+                          { backgroundColor: c.accentSoft },
                         ]}
                       >
                         <View
@@ -524,7 +802,7 @@ export function DashboardStats({
                             st.batteryCardFill,
                             {
                               width: `${batteryPct !== null ? Math.min(100, Math.max(0, batteryPct)) : 0}%`,
-                              backgroundColor: activeAccent,
+                              backgroundColor: c.accent,
                             },
                           ]}
                         />
@@ -618,25 +896,19 @@ export function DashboardStats({
             live grid consumption
           </Text>
         </View>
-        <Card
-          mode={mode}
-          style={[
-            st.balanceChartCard,
-            {
-              backgroundColor: mode === "dark" ? "#101010" : c.surface,
-              borderColor: c.line,
-            },
-          ]}
+        {/* No card: four readings on the page itself, separated by hairlines. */}
+        <View
+          style={{
+            borderColor: c.line,
+            borderWidth: 1,
+            borderRadius: scale(16),
+            overflow: "hidden",
+            paddingHorizontal: scale(10),
+            backgroundColor: c.surface,
+          }}
         >
-          <View
-            style={{
-              flexDirection: "row",
-              flexWrap: "wrap",
-              justifyContent: "space-between",
-              rowGap: scale(14),
-            }}
-          >
-            {[
+          {[
+            [
               {
                 label: "Voltage",
                 value: gridVoltage === null ? "--" : gridVoltage.toFixed(1),
@@ -649,6 +921,8 @@ export function DashboardStats({
                 unit: "A",
                 icon: "pulse-outline" as const,
               },
+            ],
+            [
               {
                 label: "Power",
                 value: gridPower === null ? "--" : gridPower.toFixed(1),
@@ -657,95 +931,199 @@ export function DashboardStats({
               },
               {
                 label: "Energy",
-                value: gridEnergyKwh === null ? "--" : gridEnergyKwh.toFixed(3),
+                value:
+                  gridEnergyKwh === null ? "--" : gridEnergyKwh.toFixed(3),
                 unit: "kWh",
                 icon: "analytics-outline" as const,
               },
-            ].map((metric) => (
-              <View
-                key={metric.label}
-                style={{
-                  width: "48%",
-                  minHeight: scale(62),
-                  padding: scale(10),
-                  borderRadius: scale(12),
-                  backgroundColor:
-                    mode === "dark" ? "rgba(255,255,255,0.05)" : c.surfaceMuted,
-                }}
-              >
+            ],
+          ].map((pair, rowIndex) => (
+            <View
+              key={rowIndex}
+              style={[
+                { flexDirection: "row" },
+                rowIndex > 0 && {
+                  borderTopWidth: StyleSheet.hairlineWidth,
+                  borderTopColor: c.line,
+                },
+              ]}
+            >
+              {pair.map((metric, colIndex) => (
                 <View
-                  style={{
-                    flexDirection: "row",
-                    alignItems: "center",
-                    gap: scale(5),
-                    marginBottom: scale(5),
-                  }}
+                  key={metric.label}
+                  style={[
+                    {
+                      flex: 1,
+                      paddingVertical: scale(13),
+                      paddingLeft: colIndex === 0 ? scale(2) : scale(16),
+                      paddingRight: scale(8),
+                    },
+                    colIndex > 0 && {
+                      borderLeftWidth: StyleSheet.hairlineWidth,
+                      borderLeftColor: c.line,
+                    },
+                  ]}
                 >
-                  <Ionicons
-                    name={metric.icon}
-                    size={scale(12)}
-                    color={activeAccent}
-                  />
-                  <Text
+                  <View
                     style={{
-                      color: c.muted,
-                      fontSize: scale(8),
-                      fontFamily: fonts.semibold,
+                      flexDirection: "row",
+                      alignItems: "center",
+                      gap: scale(5),
                     }}
                   >
-                    {metric.label}
-                  </Text>
+                    <Ionicons
+                      name={metric.icon}
+                      size={scale(12)}
+                      color={activeAccent}
+                    />
+                    <Text
+                      style={{
+                        color: c.muted,
+                        fontSize: scale(8.5),
+                        fontFamily: fonts.semibold,
+                      }}
+                    >
+                      {metric.label}
+                    </Text>
+                  </View>
+                  <View
+                    style={{
+                      flexDirection: "row",
+                      alignItems: "baseline",
+                      gap: scale(4),
+                      marginTop: scale(6),
+                    }}
+                  >
+                    <Text
+                      numberOfLines={1}
+                      style={{
+                        color: c.text,
+                        fontSize: scale(21),
+                        fontFamily: fonts.extrabold,
+                        flexShrink: 1,
+                      }}
+                    >
+                      {metric.value}
+                    </Text>
+                    <Text
+                      style={{
+                        color: c.muted,
+                        fontSize: scale(9),
+                        fontFamily: fonts.medium,
+                      }}
+                    >
+                      {metric.unit}
+                    </Text>
+                  </View>
                 </View>
-                <Text
-                  style={{
-                    color: c.text,
-                    fontSize: scale(16),
-                    fontFamily: fonts.extrabold,
-                  }}
-                >
-                  {metric.value}
-                  <Text
-                    style={{
-                      color: c.muted,
-                      fontSize: scale(9),
-                      fontFamily: fonts.medium,
-                    }}
-                  >
-                    {" "}
-                    {metric.unit}
-                  </Text>
-                </Text>
-              </View>
-            ))}
-          </View>
+              ))}
+            </View>
+          ))}
+        </View>
+        <View
+          style={{
+            flexDirection: "row",
+            alignItems: "center",
+            gap: scale(5),
+            marginTop: scale(8),
+          }}
+        >
+          {mqttStatus === "Live" && <LiveDot color={BRAND_ORANGE_DARK} />}
           <Text
             style={{
               color: c.muted,
               fontSize: scale(8),
               fontFamily: fonts.medium,
-              marginTop: scale(11),
+              flex: 1,
             }}
           >
             {mqttStatus === "Live"
               ? "Live PZEM-004T readings · energy is the meter's cumulative kWh"
               : `Waiting for device telemetry · status: ${mqttStatus}`}
           </Text>
-        </Card>
+        </View>
       </EnterView>
 
       <EnterView delay={180} style={st.dashboardCard}>
-        <View style={st.sectionTitleRow}>
-          <Ionicons name="analytics" size={scale(15)} color={activeAccent} />
-          <Text style={[st.sectionTitle, { color: c.text }]}>
-            Energy Generation
-          </Text>
+        <View
+          style={[
+            st.sectionTitleRow,
+            { justifyContent: "space-between", zIndex: 10, elevation: 10 },
+          ]}
+        >
+          <View style={{ flexDirection: "row", alignItems: "center", gap: scale(6) }}>
+            <Ionicons name="analytics" size={scale(15)} color={activeAccent} />
+            <Text style={[st.sectionTitle, { color: c.text }]}>
+              Energy Generation
+            </Text>
+          </View>
+          <View style={st.statsFilterWrap}>
+            <Pressable
+              onPress={() => setRangeMenuOpen((open) => !open)}
+              style={[
+                st.statsFilterButton,
+                { backgroundColor: c.surface, borderColor: c.line },
+              ]}
+              accessibilityRole="button"
+              accessibilityLabel={`generation date range: ${selectedConsumption.label}`}
+            >
+              <Ionicons
+                name="calendar-outline"
+                size={scale(11)}
+                color={activeAccent}
+              />
+              <Text style={[st.statsFilterButtonText, { color: c.text }]}>
+                {selectedConsumption.label}
+              </Text>
+              <Ionicons
+                name={rangeMenuOpen ? "chevron-up" : "chevron-down"}
+                size={scale(10)}
+                color={c.muted}
+              />
+            </Pressable>
+            {rangeMenuOpen && (
+              <View
+                style={[
+                  st.statsFilterMenu,
+                  { backgroundColor: c.surface, borderColor: c.line },
+                ]}
+              >
+                {(
+                  Object.keys(
+                    consumptionData,
+                  ) as (keyof typeof consumptionData)[]
+                ).map((range) => (
+                  <Pressable
+                    key={range}
+                    onPress={() => {
+                      setConsumptionRange(range);
+                      setRangeMenuOpen(false);
+                    }}
+                    style={st.rangeOption}
+                  >
+                    <Text
+                      style={[
+                        st.rangeOptionText,
+                        {
+                          color:
+                            range === consumptionRange ? activeAccent : c.muted,
+                        },
+                      ]}
+                    >
+                      {consumptionData[range].label}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+            )}
+          </View>
         </View>
         <Card
           mode={mode}
           style={[
             st.balanceChartCard,
             {
-              backgroundColor: mode === "dark" ? "#101010" : c.surface,
+              backgroundColor: c.surface,
               borderColor: c.line,
               shadowColor: activeAccent,
             },
