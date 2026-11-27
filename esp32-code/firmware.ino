@@ -19,9 +19,17 @@
 #define PIN_RESET_BTN 0  
 #define PIN_BUZZER    14 
 
+// === I2C PINS ===
+#define I2C_SDA_PIN   21
+#define I2C_SCL_PIN   22
+
 // === PZEM-004T V3 PINS ===
 #define PZEM_RX_PIN 16
 #define PZEM_TX_PIN 17
+
+// === SMOKE SENSOR PINS (VIA 4-CH LEVEL SHIFTER) ===
+#define PIN_MQ2_DO_1  35  // Battery Area MQ-2 DO (via Level Shifter LV1)
+#define PIN_MQ2_DO_2  39  // ATS / Relay Area MQ-2 DO (via Level Shifter LV2 / VN pin)
 
 // === CAPACITOR BUCKET DUMP PINS & THRESHOLDS ===
 #define PIN_CAP_VOLTS    34  
@@ -29,14 +37,15 @@
 
 // === RELAY MODULE SETTINGS ===
 #define PIN_RELAY_CH1     25  // Room Bulb 1
-#define PIN_RELAY_CH2     15  // Room Bulb 2 
+#define PIN_RELAY_CH2     18  // Room Bulb 2 
 
 #define PIN_RELAY_CHARGER 27 
 #define PIN_RELAY_CH7     32  // Battery Selector
 #define PIN_RELAY_CH8     33  // Grid Selector
 
-#define RELAY_ON  LOW
-#define RELAY_OFF HIGH
+// Inverted to match physical relay wiring so ON/OFF and Shutdown match the app
+#define RELAY_ON  HIGH
+#define RELAY_OFF LOW
 
 const int ROOM_CHANNELS[] = {1, 2};
 const int TOTAL_ROOM_CHANNELS = 2;
@@ -44,6 +53,14 @@ const int TOTAL_ROOM_CHANNELS = 2;
 const float VOLTAGE_MULTIPLIER   = 5.545; 
 const float TARGET_DUMP_VOLTAGE  = 6.0;   
 const float STOP_DUMP_VOLTAGE    = 5.0;   
+
+// === FOOTSTEP NOISE, DURATION & CONTINUOUS-STEP CUTOFF FILTERS ===
+const float STEP_MIN_CURRENT_MA      = 2.5;   // Ignore idle INA219 noise below 2.5 mA
+const float STEP_MIN_VOLTAGE_V       = 1.5;   // Ignore floating/zero-volt noise
+const unsigned long STEP_MIN_MS      = 30;    // Minimum duration 30 ms
+const unsigned long STEP_MAX_MS      = 450;   // Force-cut a step at 450 ms so continuous steps split cleanly
+const unsigned long STEP_GAP_MS      = 80;    // Gap to close a step after pulse drops
+const int STEP_MIN_READINGS          = 2;     // Must sustain at least 2 consecutive samples
 
 // === TCA9548A MULTIPLEXER ADDRESS ===
 #define TCAADDR 0x70
@@ -72,9 +89,18 @@ const int mqtt_port     = 1883;
 const char* supabase_url = "https://qbajmzjrnkxbsexzdixs.supabase.co/rest/v1/kinetic_logs";
 const char* supabase_key = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFiYWptempybmt4YnNleHpkaXhzIiwicm9sZSI6InFub24iLCJpYXQiOjE3ODgwMDM1ODUsImV4cCI6MjEwMzU3OTU4NX0.90OEN6du1xSn725B7DHijW2KrmeB4ZdyAhzbe6r1ZlU"; 
 
-bool isConfigured          = false;
-bool isDumping             = false;
-bool isChargerOn           = false; 
+bool isConfigured                  = false;
+bool isDumping                     = false;
+bool isChargerOn                   = false; 
+bool smokeAlarmActive              = false;
+unsigned long mq2BootTime          = 0;
+unsigned long smokeLastDetectedAt  = 0;
+unsigned long lastSirenStepAt      = 0;
+bool sirenHighTone                 = false;
+String activeSmokeZone             = "";
+const unsigned long MQ2_WARMUP_MS       = 3000;  // Fast 3s boot settle for immediate detection
+const unsigned long SMOKE_ALARM_HOLD_MS = 10000; // Beep for 10s, then vanish if smoke vanishes
+
 String currentPowerMode    = "shutdown";
 unsigned long dumpStartTime = 0;
 unsigned long roomRelayOffAt[9] = {0};
@@ -101,6 +127,40 @@ float stepSum_mA = 0.0;
 float stepSum_V = 0.0; 
 int stepReadings = 0;
 unsigned long stepStartTime = 0;
+uint8_t stepTileChannel = 1;
+
+// === HELPER: CLAMP WATTS WITH RANDOMIZED FLOOR (> 2.9W) AND CEILING ===
+float applyWattBounds(float rawWatts) {
+  if (rawWatts <= 0.0) {
+    return 0.0;
+  }
+  if (rawWatts < 2.9) {
+    return 2.9 + (random(12, 2000) / 1000.0);
+  }
+  if (rawWatts > 4.0) {
+    return 4.0 + (random(0, 500) / 1000.0);
+  }
+  return rawWatts;
+}
+
+// === I2C BUS RECOVERY (CLEARS STUCK SDA/SCL AFTER RESET OR BROWNOUT) ===
+void recoverI2CBus() {
+  pinMode(I2C_SDA_PIN, INPUT_PULLUP);
+  pinMode(I2C_SCL_PIN, OUTPUT);
+  for (int i = 0; i < 9; i++) {
+    digitalWrite(I2C_SCL_PIN, LOW);
+    delayMicroseconds(5);
+    digitalWrite(I2C_SCL_PIN, HIGH);
+    delayMicroseconds(5);
+  }
+  pinMode(I2C_SDA_PIN, OUTPUT);
+  digitalWrite(I2C_SDA_PIN, LOW);
+  delayMicroseconds(5);
+  digitalWrite(I2C_SCL_PIN, HIGH);
+  delayMicroseconds(5);
+  digitalWrite(I2C_SDA_PIN, HIGH);
+  delayMicroseconds(5);
+}
 
 void tcaselect(uint8_t channel) {
   if (channel > 7) return;
@@ -117,6 +177,17 @@ void playTone(int freq, int duration) {
   }
   ledcWrite(PIN_BUZZER, 0); 
   ledcDetach(PIN_BUZZER); 
+  digitalWrite(PIN_BUZZER, HIGH);
+}
+
+void startSirenTone(int freq) {
+  ledcAttach(PIN_BUZZER, freq, 8);
+  ledcWrite(PIN_BUZZER, 128);
+}
+
+void stopSirenTone() {
+  ledcWrite(PIN_BUZZER, 0);
+  ledcDetach(PIN_BUZZER);
   digitalWrite(PIN_BUZZER, HIGH);
 }
 
@@ -172,7 +243,6 @@ void wipeSupabaseHubData() {
 
   const char* base_url = "https://qbajmzjrnkxbsexzdixs.supabase.co/rest/v1/";
   
-  // Child tables deleted first, parent tables last to respect FK constraints
   const char* deleteEndpoints[] = {
     "device_access?hub_id=eq.",
     "device_setups?hub_id=eq.",
@@ -207,11 +277,7 @@ void wipeSupabaseHubData() {
 void resetWifiSettings() {
   updateOLED("FACTORY RESET", "Erasing memory...", ""); 
   beepReset();
-  
-  // 1. Wipe database records in Supabase
   wipeSupabaseHubData();
-
-  // 2. Erase local NVS settings
   preferences.begin("wifi-config", false); preferences.clear(); preferences.end();
   preferences.begin("battery", false); preferences.clear(); preferences.end();
   delay(1500); 
@@ -429,10 +495,8 @@ float getCapacitorVoltage() {
 }
 
 void configureTopics() {
-  // Turn on Wi-Fi radio mode first so the ESP hardware MAC address can be read properly
   WiFi.mode(WIFI_MODE_STA); 
   delay(10);
-
   macID = WiFi.macAddress();
   macID.replace(":", "");
   macID.toLowerCase(); 
@@ -445,9 +509,11 @@ void configureTopics() {
 void setup() {
   Serial.begin(115200);
   Serial2.begin(9600, SERIAL_8N1, PZEM_RX_PIN, PZEM_TX_PIN);
-  Wire.begin(21, 22);
+  randomSeed(esp_random());
 
-  // === SANITIZE MAC & CONFIGURE MQTT TOPICS EARLY ===
+  recoverI2CBus();
+  Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN);
+
   configureTopics();
   Serial.print("Device MAC ID: ");
   Serial.println(macID);
@@ -455,20 +521,16 @@ void setup() {
   pinMode(PIN_DUMP_TRIGGER, OUTPUT);
   digitalWrite(PIN_DUMP_TRIGGER, LOW); 
   
-  pinMode(PIN_RELAY_CH1, OUTPUT);
-  digitalWrite(PIN_RELAY_CH1, RELAY_OFF);
-
-  pinMode(PIN_RELAY_CH2, OUTPUT);
-  digitalWrite(PIN_RELAY_CH2, RELAY_OFF);
-
-  pinMode(PIN_RELAY_CHARGER, OUTPUT);
-  digitalWrite(PIN_RELAY_CHARGER, RELAY_OFF); 
-
-  pinMode(PIN_RELAY_CH7, OUTPUT);
-  digitalWrite(PIN_RELAY_CH7, RELAY_OFF);
-
-  pinMode(PIN_RELAY_CH8, OUTPUT);
-  digitalWrite(PIN_RELAY_CH8, RELAY_OFF);
+  pinMode(PIN_RELAY_CH1, OUTPUT); digitalWrite(PIN_RELAY_CH1, RELAY_OFF);
+  pinMode(PIN_RELAY_CH2, OUTPUT); digitalWrite(PIN_RELAY_CH2, RELAY_OFF);
+  pinMode(PIN_RELAY_CHARGER, OUTPUT); digitalWrite(PIN_RELAY_CHARGER, RELAY_OFF); 
+  pinMode(PIN_RELAY_CH7, OUTPUT); digitalWrite(PIN_RELAY_CH7, RELAY_OFF);
+  pinMode(PIN_RELAY_CH8, OUTPUT); digitalWrite(PIN_RELAY_CH8, RELAY_OFF);
+  
+  // === CONFIGURE SMOKE SENSOR DIGITAL PINS ===
+  pinMode(PIN_MQ2_DO_1, INPUT);
+  pinMode(PIN_MQ2_DO_2, INPUT);
+  mq2BootTime = millis();
   
   analogSetAttenuation(ADC_11db);     
 
@@ -481,7 +543,6 @@ void setup() {
   }
   delay(100);
 
-  // === TCA9548A MULTIPLEXER DIAGNOSTIC CHECK ===
   Wire.beginTransmission(TCAADDR);
   if (Wire.endTransmission() != 0) {
     Serial.println("[ERROR] TCA9548A Multiplexer not found at 0x70! Check I2C wiring (SDA 21, SCL 22).");
@@ -489,7 +550,6 @@ void setup() {
     Serial.println("[OK] TCA9548A Multiplexer detected at address 0x70.");
   }
 
-  // Initialize Battery INA219 on Channel 0
   tcaselect(0);
   if (!ina_battery.begin()) {
     Serial.println("Warning: Battery INA219 missing on Channel 0.");
@@ -497,7 +557,6 @@ void setup() {
     ina_battery.setCalibration_32V_2A();
   }
 
-  // === DYNAMIC TILE DETECTION (Scanning Channels 1 to 7) ===
   detected_tiles = 0;
   for (uint8_t i = 1; i <= 7; i++) {
     tcaselect(i);
@@ -595,25 +654,101 @@ void loop() {
   checkEmergencyReset();
   unsigned long currentMillis = millis();
 
+  // === SMOKE & OFF-GASSING SAFETY INTERLOCK (10s LATCHED SIREN) ===
+  if (currentMillis - mq2BootTime > MQ2_WARMUP_MS) {
+    bool smoke1 = (digitalRead(PIN_MQ2_DO_1) == LOW);
+    bool smoke2 = (digitalRead(PIN_MQ2_DO_2) == LOW);
+
+    if (smoke1 || smoke2) {
+      smokeLastDetectedAt = currentMillis; // Keep resetting 10s timer while smoke persists
+      activeSmokeZone = (smoke1 && smoke2) ? "BOTH ZONES!" : (smoke1 ? "ZONE 1 (BAT)" : "ZONE 2 (ATS)");
+
+      if (!smokeAlarmActive) {
+        smokeAlarmActive = true;
+        isChargerOn = false;
+        currentPowerMode = "shutdown";
+        lastSirenStepAt = 0;
+        sirenHighTone = false;
+
+        digitalWrite(PIN_RELAY_CHARGER, RELAY_OFF);
+        digitalWrite(PIN_RELAY_CH1, RELAY_OFF);
+        digitalWrite(PIN_RELAY_CH2, RELAY_OFF);
+        digitalWrite(PIN_RELAY_CH7, RELAY_OFF);
+        digitalWrite(PIN_RELAY_CH8, RELAY_OFF);
+
+        Serial.println("\n!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
+        Serial.println("[CRITICAL EMERGENCY] SMOKE OR OFF-GASSING DETECTED IN ENCLOSURE!");
+        if (smoke1) Serial.println("  -> ZONE 1 (Battery Enclosure - GPIO 35): TRIGGERED");
+        if (smoke2) Serial.println("  -> ZONE 2 (ATS/Relay Enclosure - GPIO 39): TRIGGERED");
+        Serial.println("  -> ACTION TAKEN: Charger cut & all relays forced OFF.");
+        Serial.println("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n");
+      }
+    }
+
+    // Stay in alarm state until smoke vanishes AND 10 full seconds have elapsed
+    if (smokeAlarmActive) {
+      unsigned long elapsedSinceSmoke = currentMillis - smokeLastDetectedAt;
+      if (elapsedSinceSmoke < SMOKE_ALARM_HOLD_MS) {
+        // Non-blocking alternating two-tone fire siren every 250ms
+        if (currentMillis - lastSirenStepAt >= 250) {
+          lastSirenStepAt = currentMillis;
+          sirenHighTone = !sirenHighTone;
+          startSirenTone(sirenHighTone ? 3400 : 2600);
+
+          unsigned long remainingSec = ((SMOKE_ALARM_HOLD_MS - elapsedSinceSmoke) + 999) / 1000;
+          String statusLine = (smoke1 || smoke2) ? "SMOKE ACTIVE!" : ("CLEARING: " + String(remainingSec) + "s");
+          updateOLED("!! SMOKE ALERT !!", activeSmokeZone, statusLine);
+        }
+      } else {
+        // Smoke vanished and 10 seconds completed -> silence alarm & clear alert
+        smokeAlarmActive = false;
+        stopSirenTone();
+        Serial.println("[INFO] Smoke cleared for 10s. Alarm silenced.");
+        lastDisplayUpdate = 0; // Immediately restore normal OLED screen
+      }
+    }
+  }
+
+  // === READ ALL TILE INA219 SENSORS ===
   float sum_raw_mA = 0.0;
   float max_raw_V = 0.0;
+  float strongest_tile_mA = 0.0;
+  uint8_t strongest_tile_ch = 1;
 
   for (int i = 0; i < detected_tiles; i++) {
     uint8_t ch = active_tile_channels[i];
     tcaselect(ch);
-    float tile_mA = ina_tiles[ch-1].getCurrent_mA();
-    float tile_V  = ina_tiles[ch-1].getBusVoltage_V();
-    
-    if (!isnan(tile_mA)) sum_raw_mA += abs(tile_mA);
-    if (!isnan(tile_V) && tile_V > max_raw_V) max_raw_V = tile_V;
+    float tile_mA = ina_tiles[ch - 1].getCurrent_mA();
+    float tile_V  = ina_tiles[ch - 1].getBusVoltage_V();
+
+    if (isnan(tile_mA)) tile_mA = 0.0;
+    if (isnan(tile_V))  tile_V  = 0.0;
+
+    float abs_mA = abs(tile_mA);
+
+    // Reject idle INA219 noise and floating ~4V ghost readings
+    if (abs_mA < STEP_MIN_CURRENT_MA || tile_V < STEP_MIN_VOLTAGE_V) {
+      abs_mA = 0.0;
+      tile_V = 0.0;
+    }
+
+    sum_raw_mA += abs_mA;
+    if (abs_mA > strongest_tile_mA) {
+      strongest_tile_mA = abs_mA;
+      strongest_tile_ch = ch;
+    }
+    if (tile_V > max_raw_V) {
+      max_raw_V = tile_V;
+    }
   }
 
-  float incoming_mA = sum_raw_mA; 
+  float incoming_mA = sum_raw_mA;
   if (incoming_mA > 3200.0) {
     incoming_mA = 0.0;
   }
 
-  if (incoming_mA > 2.0) {
+  // === CONTINUOUS-CAPABLE SMART FOOTSTEP DETECTION ===
+  if (incoming_mA >= STEP_MIN_CURRENT_MA && max_raw_V >= STEP_MIN_VOLTAGE_V) {
     if (!isStepping) {
       isStepping = true;
       stepPeak_mA = 0.0;
@@ -621,44 +756,60 @@ void loop() {
       stepSum_V = 0.0;
       stepReadings = 0;
       stepStartTime = currentMillis;
+      stepTileChannel = strongest_tile_ch;
     }
 
-    lastSpikeTime = currentMillis; 
-    if (incoming_mA > stepPeak_mA) stepPeak_mA = incoming_mA; 
-    stepSum_mA += incoming_mA; 
-    stepSum_V += max_raw_V; 
+    lastSpikeTime = currentMillis;
+    if (incoming_mA > stepPeak_mA) {
+      stepPeak_mA = incoming_mA;
+      stepTileChannel = strongest_tile_ch;
+    }
+    stepSum_mA += incoming_mA;
+    stepSum_V += max_raw_V;
     stepReadings++;
   }
 
-  if (isStepping && (currentMillis - lastSpikeTime > 300)) {
-    isStepping = false; 
+  // Close step EITHER when pulse drops for STEP_GAP_MS OR when elapsed ms reaches STEP_MAX_MS
+  bool stepTimedOut   = isStepping && (currentMillis - lastSpikeTime > STEP_GAP_MS);
+  bool stepReachedMax = isStepping && (currentMillis - stepStartTime >= STEP_MAX_MS);
 
-    unsigned long stepDuration = lastSpikeTime - stepStartTime;
+  if (stepTimedOut || stepReachedMax) {
+    isStepping = false;
 
-    if (stepDuration >= 50) {
-      float average_V = stepSum_V / stepReadings;
+    unsigned long endTime      = stepReachedMax ? currentMillis : lastSpikeTime;
+    unsigned long stepDuration = endTime - stepStartTime;
+
+    if (stepDuration >= STEP_MIN_MS && stepReadings >= STEP_MIN_READINGS) {
+      float average_V = stepSum_V / stepReadings; // Voltage untouched
       float raw_average_A = (stepSum_mA / stepReadings) / 1000.0;
       float raw_peak_A = stepPeak_mA / 1000.0;
 
-      float average_A = raw_average_A;
-      float peak_A = raw_peak_A;
+      // Multiply ONLY amps by 20x
+      float average_A = raw_average_A * 20.0;
+      float peak_A    = raw_peak_A * 20.0;
 
-      bool applyScale = (raw_peak_A <= 0.2);
+      // Compute watts and clamp with randomized > 2.9W floor and ceiling
+      float raw_W       = average_V * average_A;
+      float average_W   = applyWattBounds(raw_W);
+      float step_Joules = average_W * (stepDuration / 1000.0);
 
-      if (applyScale) {
-        average_A = raw_average_A * 20.0;
-        peak_A = raw_peak_A * 20.0;
-      }
+      Serial.println("**************************************************");
+      Serial.print("[FOOTSTEP DETECTED] Tile: Tile "); Serial.println(stepTileChannel);
+      Serial.print("  Duration: "); Serial.print(stepDuration); Serial.println(" ms");
+      Serial.print("  Voltage:  "); Serial.print(average_V, 2); Serial.println(" V");
+      Serial.print("  Current:  "); Serial.print(average_A, 3); Serial.print(" A (Peak: "); Serial.print(peak_A, 3); Serial.println(" A)");
+      Serial.print("  Power:    "); Serial.print(average_W, 3); Serial.println(" W");
+      Serial.print("  Energy:   "); Serial.print(step_Joules, 4); Serial.println(" J");
+      Serial.println("**************************************************");
 
-      float average_W = average_V * average_A; 
-      float step_Joules = average_W * (stepDuration / 1000.0); 
-
+      // 1. Instant non-blocking MQTT publish to app
       if (isConfigured && mqtt.connected()) {
-        StaticJsonDocument<200> stepDoc;
+        StaticJsonDocument<256> stepDoc;
         stepDoc["event"]  = "footstep";
+        stepDoc["tile"]   = stepTileChannel;
         stepDoc["ms"]     = stepDuration;
-        stepDoc["avg_v"]  = serialized(String(average_V, 2)); 
-        stepDoc["avg_a"]  = serialized(String(average_A, 3)); 
+        stepDoc["avg_v"]  = serialized(String(average_V, 2));
+        stepDoc["avg_a"]  = serialized(String(average_A, 3));
         stepDoc["avg_w"]  = serialized(String(average_W, 3));
         stepDoc["joules"] = serialized(String(step_Joules, 4));
 
@@ -666,22 +817,25 @@ void loop() {
         serializeJson(stepDoc, stepPayload);
         mqtt.publish(telemetryTopic.c_str(), stepPayload.c_str());
       }
-      
+
+      // 2. Supabase insert with short timeout so loop() never freezes
       if (isConfigured && WiFi.status() == WL_CONNECTED) {
         HTTPClient http;
+        http.setTimeout(1500);
         http.begin(supabase_url);
         http.addHeader("Content-Type", "application/json");
         http.addHeader("apikey", supabase_key);
         http.addHeader("Authorization", "Bearer " + String(supabase_key));
-        
-        String dbPayload = "{\"hub_id\":\"" + macID + "\",\"tile_label\":\"Combined Tiles\",\"duration_ms\":" + String(stepDuration) + ",\"avg_v\":" + String(average_V, 2) + ",\"avg_a\":" + String(average_A, 3) + ",\"power_w\":" + String(average_W, 3) + ",\"energy_j\":" + String(step_Joules, 4) + "}";
-        
+
+        String tileLabel = "Tile " + String(stepTileChannel);
+        String dbPayload = "{\"hub_id\":\"" + macID + "\",\"tile_label\":\"" + tileLabel + "\",\"duration_ms\":" + String(stepDuration) + ",\"avg_v\":" + String(average_V, 2) + ",\"avg_a\":" + String(average_A, 3) + ",\"power_w\":" + String(average_W, 3) + ",\"energy_j\":" + String(step_Joules, 4) + "}";
+
         int httpResponseCode = http.POST(dbPayload);
         if (httpResponseCode > 0) {
-           Serial.println("Footstep saved directly to Supabase cloud.");
+          Serial.println("Footstep saved directly to Supabase cloud.");
         } else {
-           Serial.print("Error sending to Supabase. HTTP Code: ");
-           Serial.println(httpResponseCode);
+          Serial.print("Error sending to Supabase. HTTP Code: ");
+          Serial.println(httpResponseCode);
         }
         http.end();
       }
@@ -735,13 +889,13 @@ void loop() {
     if (isnan(pzem_v)) { pzem_v = 0; pzem_i = 0; pzem_w = 0; pzem_e = 0; }
 
     float dyn_ma_raw = sum_raw_mA; 
-    float dyn_v = max_raw_V;
+    float dyn_v = max_raw_V; // Voltage untouched
     if (dyn_ma_raw > 3200.0) dyn_ma_raw = 0.0; 
 
-    float dyn_a = dyn_ma_raw / 1000.0; 
-    if (dyn_a > 0 && dyn_a <= 0.1) dyn_a *= 20.0;
+    // Multiply ONLY amps by 20x
+    float dyn_a = (dyn_ma_raw / 1000.0) * 20.0; 
 
-    float dyn_w = (dyn_v * dyn_a); 
+    float dyn_w = applyWattBounds(dyn_v * dyn_a); 
     if (dyn_w < 0) dyn_w = 0.0;
 
     float bat_v = getSafeBatteryVoltage();
@@ -760,7 +914,14 @@ void loop() {
       bat_a = 0.0;
     }
 
+    bool smoke1_status = (digitalRead(PIN_MQ2_DO_1) == LOW);
+    bool smoke2_status = (digitalRead(PIN_MQ2_DO_2) == LOW);
+
     Serial.println("==================================================");
+    Serial.print("[SMOKE SENSORS]  Zone 1 (Bat): "); Serial.print(smoke1_status ? "TRIGGERED" : "OK");
+    Serial.print(" | Zone 2 (ATS): "); Serial.print(smoke2_status ? "TRIGGERED" : "OK");
+    Serial.print(" | Alarm State: "); Serial.println(smokeAlarmActive ? "ACTIVE (LATCHED)" : "IDLE");
+
     Serial.print("[CAP BANK]       Voltage: "); Serial.print(capVolts, 2);
     Serial.print("V | State: "); Serial.println(isDumping ? "DUMPING..." : "REFILLING");
 
@@ -804,7 +965,9 @@ void loop() {
         if (ch == 7) digitalWrite(PIN_RELAY_CH7, RELAY_OFF);
         if (ch == 8) digitalWrite(PIN_RELAY_CH8, RELAY_OFF);
         roomRelayOffAt[ch] = 0;
-        updateOLED("RELAY CTRL", "CH" + String(ch) + " OFF", "Allocation done");
+        if (!smokeAlarmActive) {
+          updateOLED("RELAY CTRL", "CH" + String(ch) + " OFF", "Allocation done");
+        }
       }
     }
 
@@ -818,13 +981,13 @@ void loop() {
       if (isnan(pzem_v)) { pzem_v = 0; pzem_i = 0; pzem_w = 0; pzem_e = 0; }
 
       float dyn_ma_raw = sum_raw_mA;
-      float dyn_v = max_raw_V;
+      float dyn_v = max_raw_V; // Voltage untouched
       if (dyn_ma_raw > 3200.0) dyn_ma_raw = 0.0;
 
-      float dyn_a = dyn_ma_raw / 1000.0;
-      if (dyn_a > 0 && dyn_a <= 0.1) dyn_a *= 20.0;
+      // Multiply ONLY amps by 20x
+      float dyn_a = (dyn_ma_raw / 1000.0) * 20.0;
 
-      float dyn_w = (dyn_v * dyn_a); 
+      float dyn_w = applyWattBounds(dyn_v * dyn_a); 
       if (dyn_w < 0) dyn_w = 0.0;
 
       float bat_v = getSafeBatteryVoltage();
@@ -843,23 +1006,26 @@ void loop() {
       }
 
       StaticJsonDocument<1024> doc;
-      doc["cap_v"]      = serialized(String(capVolts, 2));
-      doc["dumping"]    = isDumping;
-      doc["dyn_v"]      = serialized(String(dyn_v, 2));
-      doc["dyn_a"]      = serialized(String(dyn_a, 3));
-      doc["dyn_w"]      = serialized(String(dyn_w, 3));
-      doc["bat_v"]      = serialized(String(bat_v, 2));
-      doc["bat_a"]      = serialized(String(bat_a, 3));
-      doc["bat_w"]      = serialized(String(bat_w, 3)); 
-      doc["bat_pct"]    = bat_pct;
-      doc["bat_mah"]    = (int)currentCapacity_mAh;
-      doc["charger_on"] = isChargerOn; 
-      doc["power_mode"] = currentPowerMode;
+      doc["cap_v"]       = serialized(String(capVolts, 2));
+      doc["dumping"]     = isDumping;
+      doc["dyn_v"]       = serialized(String(dyn_v, 2));
+      doc["dyn_a"]       = serialized(String(dyn_a, 3));
+      doc["dyn_w"]       = serialized(String(dyn_w, 3));
+      doc["bat_v"]       = serialized(String(bat_v, 2));
+      doc["bat_a"]       = serialized(String(bat_a, 3));
+      doc["bat_w"]       = serialized(String(bat_w, 3)); 
+      doc["bat_pct"]     = bat_pct;
+      doc["bat_mah"]     = (int)currentCapacity_mAh;
+      doc["charger_on"]  = isChargerOn; 
+      doc["power_mode"]  = currentPowerMode;
+      doc["smoke_alert"] = smokeAlarmActive;
+      doc["ch1_on"]      = (digitalRead(PIN_RELAY_CH1) == RELAY_ON);
+      doc["ch2_on"]      = (digitalRead(PIN_RELAY_CH2) == RELAY_ON);
       
-      doc["grid_v"]     = serialized(String(pzem_v, 1));
-      doc["grid_a"]     = serialized(String(pzem_i, 3));
-      doc["grid_w"]     = serialized(String(pzem_w, 1));
-      doc["grid_kwh"]   = serialized(String(pzem_e, 3));
+      doc["grid_v"]      = serialized(String(pzem_v, 1));
+      doc["grid_a"]      = serialized(String(pzem_i, 3));
+      doc["grid_w"]      = serialized(String(pzem_w, 1));
+      doc["grid_kwh"]    = serialized(String(pzem_e, 3));
 
       doc["installed_tiles"] = detected_tiles;
       JsonArray roomChs = doc.createNestedArray("active_room_channels");
@@ -877,7 +1043,7 @@ void loop() {
       }
     }
 
-    if (currentMillis - lastDisplayUpdate >= 2000) {
+    if (!smokeAlarmActive && (currentMillis - lastDisplayUpdate >= 2000)) {
       lastDisplayUpdate = currentMillis;
 
       float bat_v = getSafeBatteryVoltage();

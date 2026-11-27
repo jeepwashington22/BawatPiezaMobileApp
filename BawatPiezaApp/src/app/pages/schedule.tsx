@@ -12,6 +12,7 @@ import { fonts, useTheme, type ThemeColors } from '../../theme';
 
 const DAY_LABELS = ['M', 'T', 'W', 'Th', 'F', 'S', 'S'];
 const TIME_OPTIONS = ['6:00 PM', '7:00 PM', '8:00 PM', '9:00 PM'];
+const PRIORITIES = ['Low', 'High'] as const;
 
 type ScreenStyles = ReturnType<typeof makeStyles>;
 
@@ -24,7 +25,7 @@ export default function ScheduleScreen() {
   const [lightsOn, setLightsOn] = useState('6:00 PM');
   const [lightsOff, setLightsOff] = useState('6:00 AM');
   const [alwaysOn, setAlwaysOn] = useState(false);
-  const [priority, setPriority] = useState('High');
+  const [priority, setPriority] = useState<(typeof PRIORITIES)[number]>('High');
   const [autoSwitch, setAutoSwitch] = useState(true);
   const [saved, setSaved] = useState(false);
 
@@ -84,7 +85,7 @@ export default function ScheduleScreen() {
 
       <SectionLabel text="PRIORITY LEVEL" c={c} />
       <View style={styles.priorityRow}>
-        {['Low', 'Medium', 'High'].map((item) => (
+        {PRIORITIES.map((item) => (
           <Pressable key={item} onPress={() => setPriority(item)} style={[styles.priorityButton, priority === item ? styles.priorityActive : null]}>
             <Text style={[styles.priorityText, priority === item ? styles.priorityTextActive : null]}>{item}</Text>
           </Pressable>

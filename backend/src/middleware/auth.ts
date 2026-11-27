@@ -2,10 +2,22 @@ import type { NextFunction, Request, Response } from 'express';
 import { supabase } from '../lib/supabase.js';
 import { createHttpError } from './errorHandler.js';
 
+import type { UserRole } from '../types/api.js';
+
+function readRole(metadata: unknown): UserRole {
+  if (typeof metadata !== 'object' || metadata === null || !('role' in metadata)) {
+    return 'customer';
+  }
+  const role = metadata.role;
+  return role === 'admin' || role === 'staff' || role === 'customer' || role === 'device'
+    ? role
+    : 'customer';
+}
+
 export type AuthedUser = {
   id: string;
   email: string;
-  role: 'admin' | 'staff';
+  role: UserRole;
 };
 
 declare global {
@@ -38,7 +50,7 @@ export async function requireAuth(req: Request, _res: Response, next: NextFuncti
     req.user = {
       id: data.user.id,
       email: data.user.email ?? '',
-      role: (data.user.user_metadata as { role?: string } | undefined)?.role === 'admin' ? 'admin' : 'staff',
+      role: readRole(data.user.user_metadata),
     };
     next();
   } catch (err) {

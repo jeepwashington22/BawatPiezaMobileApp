@@ -6,9 +6,9 @@ set setup_payload = jsonb_set(
   (
     select jsonb_agg(
       case
-        when channel.value ->> 'priority_status' in ('low', 'medium', 'high')
+        when channel.value ->> 'priority_status' in ('low', 'high')
           then channel.value
-        else channel.value || '{"priority_status":"medium"}'::jsonb
+        else channel.value || '{"priority_status":"low"}'::jsonb
       end
       order by channel.ordinal
     )
@@ -30,7 +30,7 @@ as $$
       from jsonb_array_elements(payload -> 'channels') as channel(value)
       where jsonb_typeof(channel.value) <> 'object'
         or coalesce(
-          channel.value ->> 'priority_status' not in ('low', 'medium', 'high'),
+          channel.value ->> 'priority_status' not in ('low', 'high'),
           true
         )
     )

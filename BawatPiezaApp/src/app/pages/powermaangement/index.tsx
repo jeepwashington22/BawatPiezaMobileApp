@@ -1,16 +1,16 @@
 import { useEffect, useState } from "react";
-import { Pressable, StyleSheet, View } from "react-native";
-import { LinearGradient } from "expo-linear-gradient";
+import { Pressable, View } from "react-native";
+import { useLocalSearchParams } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import Paho from "paho-mqtt";
 import { AppText as Text } from "../../../components/app-text";
 import { ScreenShell } from "../../../components/screen-shell";
 import { fonts, useTheme } from "../../../theme";
-import { Monitor } from "../../../components/power-management/monitor";
-import { Configure } from "../../../components/power-management/configure";
-import { Allocation } from "../../../components/power-management/allocation";
-import { Override } from "../../../components/power-management/override";
-import { styles } from "../../../components/power-management/styles";
+import { Monitor } from "../../../components/power-management-subtab/monitor";
+import { Configure } from "../../../components/power-management-subtab/configure";
+import { Allocation } from "../../../components/power-management-subtab/allocation";
+import { Override } from "../../../components/power-management-subtab/override";
+import { styles } from "../../../components/power-management-subtab/styles";
 import { useDeviceConnection } from "../../../components/device-status-banner";
 
 type PowerTab = "monitor" | "configure" | "allocation" | "override";
@@ -18,7 +18,19 @@ type TelemetryConnection = "connecting" | "live" | "offline";
 
 export function PowerManagementScreen() {
   const { colors: c, mode } = useTheme();
-  const [tab, setTab] = useState<PowerTab>("monitor");
+  const { tab: requestedTab } = useLocalSearchParams<{
+    tab?: string | string[];
+  }>();
+  const initialTab =
+    (Array.isArray(requestedTab) ? requestedTab[0] : requestedTab) ===
+    "allocation"
+      ? "allocation"
+      : "monitor";
+  const [tab, setTab] = useState<PowerTab>(initialTab);
+  const [allocationTabMounted, setAllocationTabMounted] = useState(
+    initialTab === "allocation",
+  );
+  const [allocationStarted, setAllocationStarted] = useState(false);
   const [batteryPct, setBatteryPct] = useState<number | null>(null);
   const [batteryV, setBatteryV] = useState<number | null>(null);
   const [telemetryConnection, setTelemetryConnection] =
@@ -121,24 +133,55 @@ export function PowerManagementScreen() {
         {(["monitor", "configure", "allocation", "override"] as PowerTab[]).map((item) => {
           const active = tab === item;
           return (
-            <Pressable key={item} onPress={() => setTab(item)} style={[styles.tab, { backgroundColor: active ? "transparent" : c.surfaceMuted, borderColor: c.line }, active && styles.activeTab]} accessibilityRole="tab" accessibilityState={{ selected: active }}>
-              {active && <LinearGradient colors={["#F9A84E", "#F59E0B"]} style={StyleSheet.absoluteFill} />}
-              <Text style={[styles.tabText, { color: active ? "#FFFFFF" : c.muted }]}>{item[0].toUpperCase()}{item.slice(1)}</Text>
+            <Pressable
+              key={item}
+              onPress={() => {
+                setTab(item);
+                if (item === "allocation") setAllocationTabMounted(true);
+              }}
+              style={[
+                styles.tab,
+                {
+                  backgroundColor: active ? c.accent : c.surfaceMuted,
+                  borderColor: active ? c.accent : c.line,
+                },
+                active && styles.activeTab,
+              ]}
+              accessibilityRole="tab"
+              accessibilityState={{ selected: active }}
+            >
+              <Text
+                style={[
+                  styles.tabText,
+                  { color: active ? c.onAccent : c.muted },
+                ]}
+              >
+                {item[0].toUpperCase()}
+                {item.slice(1)}
+              </Text>
             </Pressable>
           );
         })}
       </View>
       {tab === "monitor" && <Monitor c={c} mode={mode} batteryPct={batteryPct} batteryV={batteryV} />}
       {tab === "configure" && <Configure c={c} mode={mode} />}
-      {tab === "allocation" && (
-        <Allocation
-          c={c}
-          mode={mode}
-          batteryPct={batteryPct}
-          batteryV={batteryV}
-          telemetryConnection={telemetryConnection}
-        />
-      )}
+      {allocationTabMounted ? (
+        <View
+          style={{
+            display: tab === "allocation" ? "flex" : "none",
+          }}
+        >
+          <Allocation
+            c={c}
+            mode={mode}
+            batteryPct={batteryPct}
+            batteryV={batteryV}
+            telemetryConnection={telemetryConnection}
+            allocationStarted={allocationStarted}
+            onAllocationStartedChange={setAllocationStarted}
+          />
+        </View>
+      ) : null}
       {tab === "override" && <Override c={c} />}
     </ScreenShell>
   );

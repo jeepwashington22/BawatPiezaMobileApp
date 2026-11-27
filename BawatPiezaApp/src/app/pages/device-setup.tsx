@@ -13,6 +13,17 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { AppText as Text } from "../../components/app-text";
 import { ScreenShell } from "../../components/screen-shell";
 import { scale } from "../../components/glass-ui";
+import { RoomPreview } from "../../components/home-dashboard/room-preview";
+import {
+  ROOM_KIND_ORDER,
+  ROOM_LABEL,
+  SITE_SPECS_STORAGE_KEY,
+  resolveSite,
+  siteKey,
+  roomKind,
+  type RoomKind,
+  type SiteSpec,
+} from "../../components/home-dashboard/room-kind";
 import { ZONES_STORAGE_KEY } from "../../components/zone-management-screen";
 import { useAuth } from "../../hooks/use-auth";
 import {
@@ -24,15 +35,25 @@ import {
   type ChannelPriority,
 } from "../../lib/device-priority";
 import { supabase } from "../../lib/supabase";
+import { apiFetch } from "../../lib/api";
 import { notifyDeviceAccessChanged } from "../../components/device-status-banner";
 import { fonts, useTheme } from "../../theme";
 
-const MAX_BULBS_PER_ROOM = 5;
+const MAX_BULBS_PER_ROOM = 1;
 
 type RoomSetup = {
   name: string;
   bulbs: number;
+  /** place type; "auto" / undefined = guess from the name */
+  kind?: RoomKind | "auto";
+  /** true = open-air (no walls / ceiling), undefined = the place type's default */
+  open?: boolean;
 };
+
+const specOf = (room: RoomSetup): SiteSpec => ({
+  kind: room.kind ?? "auto",
+  open: room.open,
+});
 
 type ActiveChannelSetup = {
   channelNumber: number;
@@ -48,11 +69,16 @@ type StoredZone = {
   channel: number;
   installedBulbs: number;
   roomType: string;
+  /** place type / flooring / open-air chosen in setup */
+  site?: SiteSpec;
 };
 
 export default function DeviceSetupScreen() {
   const router = useRouter();
-  const { hubId: routeHubId } = useLocalSearchParams<{ hubId?: string }>();
+  const { hubId: routeHubId, returnTo } = useLocalSearchParams<{
+    hubId?: string;
+    returnTo?: string;
+  }>();
   const { user } = useAuth();
   const { colors: c } = useTheme();
 
@@ -74,7 +100,11 @@ export default function DeviceSetupScreen() {
           if (user?.id) {
             await AsyncStorage.removeItem(deviceSetupRequiredKey(user.id));
           }
-          router.replace("/home");
+          if (returnTo === "heatmap") {
+            router.back();
+            return;
+          }
+          router.replace("/pages/system-allocation?autoMeasure=true");
         } catch (redirectError) {
           console.error("[device-setup] Redirect error:", redirectError);
           setError("Setup was saved, but the dashboard could not be opened.");
@@ -82,7 +112,7 @@ export default function DeviceSetupScreen() {
       })();
     }, 2000);
     return () => clearTimeout(redirectTimer);
-  }, [router, setupComplete, user]);
+  }, [router, returnTo, setupComplete, user]);
 
   useEffect(() => {
     void loadLocalHardwareConfiguration();
@@ -132,15 +162,29 @@ export default function DeviceSetupScreen() {
         "F1 Faculty Room",
       ];
 
+      let savedSpecs: Record<string, SiteSpec> = {};
+      try {
+        const rawSpecs = await AsyncStorage.getItem(SITE_SPECS_STORAGE_KEY);
+        if (rawSpecs) savedSpecs = JSON.parse(rawSpecs);
+      } catch {
+        // ignore a corrupt cache: fall back to auto-detect
+      }
+
       const mappedChannels: ActiveChannelSetup[] = detectedChannels.map(
-        (chNum, idx) => ({
-          channelNumber: chNum,
-          room: {
-            name: schoolNames[idx] ?? `F1 Room 10${chNum}`,
-            bulbs: 1,
-          },
-          priority: "medium",
-        }),
+        (chNum, idx) => {
+          const name = schoolNames[idx] ?? `F1 Room 10${chNum}`;
+          const saved = savedSpecs[siteKey(name)];
+          return {
+            channelNumber: chNum,
+            room: {
+              name,
+              bulbs: 1,
+              kind: saved?.kind ?? "auto",
+              open: saved?.open,
+            },
+            priority: "low" as const,
+          };
+        },
       );
 
       setActiveChannels(mappedChannels);
@@ -152,12 +196,12 @@ export default function DeviceSetupScreen() {
         {
           channelNumber: 1,
           room: { name: "F1 Hallway", bulbs: 1 },
-          priority: "medium",
+          priority: "low",
         },
         {
           channelNumber: 2,
           room: { name: "F1 Room 101", bulbs: 1 },
-          priority: "medium",
+          priority: "low",
         },
       ]);
       setDetectedTiles(1);
@@ -218,7 +262,62 @@ export default function DeviceSetupScreen() {
         user.id,
       );
 
-      // 1. Insert/Upsert Hub Row (THROWS ERROR ON FAILURE)
+      // Pair first through the backend so an existing owner's hub can never
+      // be reassigned, and do not write hub setup until ownership is verified.
+      const { data: authData, error: authError } =
+        await supabase.auth.getSession();
+      if (authError) {
+        throw new Error(`Could not verify your session: ${authError.message}`);
+      }
+      let token = authData.session?.access_token;
+      if (!token) {
+        const { data: refreshedAuth, error: refreshError } =
+          await supabase.auth.refreshSession();
+        if (refreshError) {
+          throw new Error("Your session expired. Please sign in again.");
+        }
+        token = refreshedAuth.session?.access_token;
+      }
+      if (!token) throw new Error("Your session expired. Please sign in again.");
+      let pairingResponse = await apiFetch("/accounts/device-pairing", {
+        method: "POST",
+        headers: {
+          Authorization: `******`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ hub_id: hubId }),
+        timeoutMs: 8_000,
+      });
+      if (pairingResponse.status === 401) {
+        const { data: refreshedAuth, error: refreshError } =
+          await supabase.auth.refreshSession();
+        const refreshedToken = refreshedAuth.session?.access_token;
+        if (refreshError || !refreshedToken) {
+          throw new Error("Your session expired. Please sign in again.");
+        }
+        pairingResponse = await apiFetch("/accounts/device-pairing", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${refreshedToken}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ hub_id: hubId }),
+          timeoutMs: 8_000,
+        });
+      }
+      const pairingResult = (await pairingResponse.json().catch(() => null)) as {
+        message?: string;
+        error?: string;
+      } | null;
+      if (!pairingResponse.ok) {
+        throw new Error(
+          pairingResult?.message ||
+            pairingResult?.error ||
+            `Failed to pair device (${pairingResponse.status}).`,
+        );
+      }
+
+      // Save hub configuration only after the backend confirms pairing access.
       const { error: hubErr } = await supabase.from("hubs").upsert({
         id: hubId,
         name: "F1 Energy Hub",
@@ -230,29 +329,20 @@ export default function DeviceSetupScreen() {
         throw new Error(`Failed to save hub record: ${hubErr.message}`);
       }
 
-      // 2. Insert/Upsert Device Pairing Row (THROWS ERROR ON FAILURE)
-      const { error: pairingErr } = await supabase
-        .from("device_pairings")
-        .upsert(
-          {
-            hub_id: hubId,
-            user_id: user.id,
-            last_connected: new Date().toISOString(),
-            fw_version: "1.0.0",
-          },
-          { onConflict: "hub_id" },
-        );
-      if (pairingErr) {
-        throw new Error(`Failed to pair device to user: ${pairingErr.message}`);
-      }
-
       // 3. Insert/Upsert Device Setups Row (THROWS ERROR ON FAILURE)
       const setupPayload = {
         version: 1,
         channels: activeChannels.map((ch) => ({
           channel: ch.channelNumber,
           priority_status: ch.priority,
-          rooms: [{ name: ch.room.name.trim(), bulbs: ch.room.bulbs }],
+          watts: null,
+          rooms: [
+            {
+              name: ch.room.name.trim(),
+              bulbs: ch.room.bulbs,
+              site: specOf(ch.room),
+            },
+          ],
         })),
       };
 
@@ -279,11 +369,25 @@ export default function DeviceSetupScreen() {
         id: `setup-${user.id}-${ch.channelNumber}`,
         name: ch.room.name.trim(),
         priority: ch.priority,
-        watts: ch.room.bulbs * 15,
+        watts: 0,
         channel: ch.channelNumber,
         installedBulbs: ch.room.bulbs,
         roomType: "F1 School Zone",
+        site: specOf(ch.room),
       }));
+
+      // remember the place type / flooring per zone name so the dashboard
+      // scene can draw the same site that was previewed here
+      let specMap: Record<string, SiteSpec> = {};
+      try {
+        const rawSpecs = await AsyncStorage.getItem(SITE_SPECS_STORAGE_KEY);
+        if (rawSpecs) specMap = JSON.parse(rawSpecs);
+      } catch {
+        specMap = {};
+      }
+      activeChannels.forEach((ch) => {
+        specMap[siteKey(ch.room.name)] = specOf(ch.room);
+      });
 
       const retained = existingZones.filter(
         (z) => !z.id.startsWith(`setup-${user.id}-`),
@@ -298,6 +402,7 @@ export default function DeviceSetupScreen() {
           ZONES_STORAGE_KEY,
           JSON.stringify([...retained, ...newZones]),
         ),
+        AsyncStorage.setItem(SITE_SPECS_STORAGE_KEY, JSON.stringify(specMap)),
         AsyncStorage.removeItem(deviceSetupRequiredKey(user.id)),
       ]);
 
@@ -428,7 +533,7 @@ export default function DeviceSetupScreen() {
                   <TextInput
                     value={item.room.name}
                     onChangeText={(name) => updateChannelRoom(index, { name })}
-                    placeholder="e.g. F1 Hallway, F1 Room 101, F1 Laboratory"
+                    placeholder="e.g. F1 Hallway, Main Sidewalk, Covered Walkway"
                     placeholderTextColor={c.muted}
                     style={[
                       styles.roomNameInput,
@@ -438,6 +543,102 @@ export default function DeviceSetupScreen() {
                         backgroundColor: c.surfaceMuted,
                       },
                     ]}
+                  />
+                  <Text style={[styles.roomTitle, styles.sectionGap, { color: c.text }]}>
+                    Place type
+                  </Text>
+                  <View style={styles.chipRow}>
+                    {(["auto", ...ROOM_KIND_ORDER] as const).map((k) => {
+                      const selected = (item.room.kind ?? "auto") === k;
+                      const label =
+                        k === "auto"
+                          ? `Auto · ${ROOM_LABEL[roomKind(item.room.name)]}`
+                          : ROOM_LABEL[k];
+                      return (
+                        <Pressable
+                          key={k}
+                          onPress={() =>
+                            updateChannelRoom(index, {
+                              kind: k,
+                              open: undefined,
+                            })
+                          }
+                          accessibilityRole="button"
+                          accessibilityState={{ selected }}
+                          style={[
+                            styles.chip,
+                            {
+                              borderColor: selected ? "#F97316" : c.line,
+                              backgroundColor: selected
+                                ? "rgba(249,115,22,0.14)"
+                                : c.surfaceMuted,
+                            },
+                          ]}
+                        >
+                          <Text
+                            style={[
+                              styles.chipText,
+                              { color: selected ? "#F97316" : c.text },
+                            ]}
+                          >
+                            {label}
+                          </Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                  {item.room.kind === "custom" && (
+                    <Text style={[styles.hint, { color: c.muted }]}>
+                      Other: type the place&apos;s name above (e.g. “Jeepney Terminal
+                      Ramp”), then choose whether it is indoors or open-air.
+                    </Text>
+                  )}
+
+                  {item.room.kind === "custom" && (
+                  <View style={styles.chipRow}>
+                    {[
+                      { label: "Indoor (walls)", value: false },
+                      { label: "Open-air (outdoor)", value: true },
+                    ].map((opt) => {
+                      const selected =
+                        resolveSite(item.room.name, specOf(item.room)).open === opt.value;
+                      return (
+                        <Pressable
+                          key={opt.label}
+                          onPress={() => updateChannelRoom(index, { open: opt.value })}
+                          accessibilityRole="button"
+                          accessibilityState={{ selected }}
+                          style={[
+                            styles.chip,
+                            {
+                              borderColor: selected ? "#F97316" : c.line,
+                              backgroundColor: selected
+                                ? "rgba(249,115,22,0.14)"
+                                : c.surfaceMuted,
+                            },
+                          ]}
+                        >
+                          <Text
+                            style={[
+                              styles.chipText,
+                              { color: selected ? "#F97316" : c.text },
+                            ]}
+                          >
+                            {opt.label}
+                          </Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                  )}
+
+                  <RoomPreview
+                    name={item.room.name}
+                    spec={specOf(item.room)}
+                    on
+                    backgroundColor={c.surfaceMuted}
+                    labelColor={c.muted}
+                    style={{ marginTop: scale(10) }}
                   />
                   <View style={styles.bulbRow}>
                     <Text style={[styles.bulbLabel, { color: c.muted }]}>
@@ -572,7 +773,9 @@ export default function DeviceSetupScreen() {
             </Text>
             <Text style={[styles.successCopy, { color: c.muted }]}>
               F1 hub pairing and hardware configuration saved successfully.
-              Redirecting to your dashboard...
+              {returnTo === "heatmap"
+                ? " Returning to Heatmap..."
+                : " Redirecting to your dashboard..."}
             </Text>
           </View>
         </View>
@@ -689,6 +892,29 @@ const styles = StyleSheet.create({
     paddingHorizontal: scale(11),
     fontSize: scale(10),
     fontFamily: fonts.medium,
+  },
+  sectionGap: { marginTop: scale(10) },
+  chipRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: scale(6),
+    marginTop: scale(2),
+  },
+  chip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: scale(5),
+    borderWidth: 1,
+    borderRadius: scale(999),
+    paddingHorizontal: scale(10),
+    paddingVertical: scale(6),
+  },
+  chipText: { fontSize: scale(9), fontFamily: fonts.bold },
+  hint: {
+    fontSize: scale(9),
+    fontFamily: fonts.medium,
+    marginTop: scale(6),
+    lineHeight: scale(13),
   },
   bulbRow: {
     flexDirection: "row",

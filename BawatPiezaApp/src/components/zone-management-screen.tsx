@@ -7,7 +7,11 @@ import { AppText as Text } from "./app-text";
 import { ScreenShell } from "./screen-shell";
 import { scale } from "./glass-ui";
 import { fonts, useTheme } from "../theme";
-import { formatZonePriority, type ZonePriority } from "../lib/device-priority";
+import {
+  formatZonePriority,
+  normalizeZonePriority,
+  type ZonePriority,
+} from "../lib/device-priority";
 
 type Zone = {
   id: string;
@@ -26,14 +30,22 @@ export function ZoneManagementScreen() {
   const [addOpen, setAddOpen] = useState(false);
   const [zoneName, setZoneName] = useState("");
   const [zones, setZones] = useState<Zone[]>([
-    { id: "1", name: "1F ROOM 109 - RIGHT WING", priority: "High", watts: 60 },
-    { id: "2", name: "CR - RIGHT WING", priority: "High", watts: 60 },
+    { id: "1", name: "1F ROOM 109 - RIGHT WING", priority: "high", watts: 60 },
+    { id: "2", name: "CR - RIGHT WING", priority: "high", watts: 60 },
   ]);
 
   useEffect(() => {
     AsyncStorage.getItem(ZONES_STORAGE_KEY)
       .then((stored) => {
-        if (stored) setZones(JSON.parse(stored) as Zone[]);
+        if (stored) {
+          const savedZones = JSON.parse(stored) as Zone[];
+          setZones(
+            savedZones.map((zone) => ({
+              ...zone,
+              priority: normalizeZonePriority(zone.priority),
+            })),
+          );
+        }
       })
       .catch((error) => console.error("failed to load managed zones", error));
   }, []);
@@ -54,7 +66,7 @@ export function ZoneManagementScreen() {
       {
         id: `${Date.now()}`,
         name: trimmedName.toUpperCase(),
-        priority: "Standard",
+        priority: "low",
         watts: 0,
       },
     ]);

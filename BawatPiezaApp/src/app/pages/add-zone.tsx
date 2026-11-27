@@ -12,7 +12,7 @@ import { ZONES_STORAGE_KEY } from "../../components/zone-management-screen";
 const ROOM_TYPES = ["Classroom", "Office", "Laboratory", "Common area"];
 const BUILDINGS = ["Main Building", "Science Building", "Admin Building", "Gymnasium"];
 const FLOORS = ["Ground Floor", "1F", "2F", "3F", "4F"];
-const PRIORITIES = ["High", "Standard"] as const;
+const PRIORITIES = ["High", "Low"] as const;
 const SCHEDULES = ["Always on", "Morning & evening", "Custom schedule"];
 
 export default function AddZoneScreen() {
@@ -23,7 +23,7 @@ export default function AddZoneScreen() {
   const [roomCode, setRoomCode] = useState("");
   const [roomType, setRoomType] = useState(ROOM_TYPES[0]);
   const [installedBulbs, setInstalledBulbs] = useState("4");
-  const [priority, setPriority] = useState<(typeof PRIORITIES)[number]>("Standard");
+  const [priority, setPriority] = useState<(typeof PRIORITIES)[number]>("Low");
   const [schedule, setSchedule] = useState(SCHEDULES[0]);
   const [error, setError] = useState("");
 
@@ -39,7 +39,7 @@ export default function AddZoneScreen() {
       zones.push({
         id: `${Date.now()}`,
         name: `${floor.trim().toUpperCase()} ${roomCode.trim().toUpperCase()} - ${building.trim().toUpperCase()}`,
-        priority,
+        priority: priority === "High" ? "high" : "low",
         watts: bulbs * 15,
         building: building.trim(),
         floor: floor.trim(),

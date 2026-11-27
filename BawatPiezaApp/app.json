@@ -2,16 +2,15 @@
   "expo": {
     "name": "BawatPieza",
     "slug": "BawatPiezaApp",
-    "newArchEnabled": false,
+    "newArchEnabled": true,
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/images/LOGO4.png",
+    "icon": "./assets/images/notification-icon.png",
     "scheme": "bawatpieza",
     "userInterfaceStyle": "light",
     "ios": {
       "bundleIdentifier": "com.bawatpieza.app",
       "icon": "./assets/images/LOGO4.png",
-      "googleServicesFile": "./GoogleService-Info.plist",
       "infoPlist": {
         "NSAppTransportSecurity": {
           "NSAllowsArbitraryLoads": true,
@@ -29,7 +28,10 @@
       "predictiveBackGestureEnabled": false,
       "permissions": [
         "android.permission.CAMERA",
-        "android.permission.RECORD_AUDIO"
+        "android.permission.RECORD_AUDIO",
+        "android.permission.POST_NOTIFICATIONS",
+        "android.permission.VIBRATE",
+        "android.permission.WAKE_LOCK"
       ]
     },
 
@@ -40,10 +42,33 @@
     "plugins": [
       "expo-router",
       [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/notification-icon.png",
+          "color": "#F97316",
+          "sounds": [
+            "./assets/sounds/bell_notification.wav",
+            "./assets/sounds/clear_announce_tones.wav",
+            "./assets/sounds/confirmation_tone.wav",
+            "./assets/sounds/correct_tone.wav",
+            "./assets/sounds/default_tone.wav",
+            "./assets/sounds/emergency.wav",
+            "./assets/sounds/option_preference_tone.wav",
+            "./assets/sounds/wrong_answer_fail.wav"
+          ]
+        }
+      ],
+      [
         "expo-camera",
         {
           "cameraPermission": "Allow BawatPieza to scan Wi-Fi QR codes",
           "barcodeScannerEnabled": true
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Allow BawatPieza to use your location for the local weather forecast."
         }
       ],
       [
@@ -73,7 +98,7 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true,
-      "newArchEnabled": false
+      "newArchEnabled": true
     },
     "extra": {
       "router": {},

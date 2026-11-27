@@ -13,25 +13,23 @@ import {
   ScrollView,
   Modal,
 } from "react-native";
+import { useFocusEffect, useRouter } from "expo-router";
 import { AppText as Text } from "../../components/app-text";
-import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
-import Svg, {
-  Defs,
-  LinearGradient as SvgGradient,
-  Path,
-  Line,
-  Stop,
-  Polygon,
-} from "react-native-svg";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import Paho from "paho-mqtt";
 import "text-encoding"; // Required Polyfill for MQTT
 import { supabase } from "../../lib/supabase"; // Supabase client connection
 
 import { ScreenShell } from "../../components/screen-shell";
-import { Card, LiveDot, SectionHead, scale } from "../../components/glass-ui";
-import { HeatmapTileGrid } from "../../components/heatmap-tile-grid";
+import {
+  brandAccent,
+  Card,
+  LiveDot,
+  SectionHead,
+  scale,
+} from "../../components/glass-ui";
+import { HeatmapTileScene } from "../../components/heatmap-tile-scene-adaptive";
 import { installedTileCountKey } from "../../lib/device-setup";
 import { fonts, useTheme } from "../../theme";
 
@@ -70,7 +68,6 @@ function createTiles(count: number): TileDatum[] {
 }
 
 const TILE_ORANGE = "#F97316";
-
 const PREDICTIVE = [
   {
     tile: "Tile 2",
@@ -137,7 +134,7 @@ function Segmented({
   value: ViewMode;
   onChange: (v: ViewMode) => void;
 }) {
-  const { colors: c, mode } = useTheme();
+  const { colors: c } = useTheme();
   const items: { key: ViewMode; label: string; icon: IconName }[] = [
     { key: "view", label: "View Only", icon: "grid-outline" },
     { key: "diagnostic", label: "Diagnostic", icon: "pulse-outline" },
@@ -147,7 +144,7 @@ function Segmented({
     <View
       style={[
         styles.segWrap,
-        { backgroundColor: mode === "dark" ? c.surfaceMuted : "#E9EEF5" },
+        { backgroundColor: c.surface },
       ]}
     >
       <View style={styles.segRow}>
@@ -157,23 +154,24 @@ function Segmented({
             <Pressable
               key={item.key}
               onPress={() => onChange(item.key)}
-              style={[styles.segItem, active && styles.segItemActive]}
+              style={[
+                styles.segItem,
+                {
+                  backgroundColor: active ? c.accent : c.surfaceMuted,
+                  borderColor: active ? c.accent : c.line,
+                },
+                active && styles.segItemActive,
+              ]}
             >
-              {active && (
-                <LinearGradient
-                  colors={["#FBA94C", "#F97316"]}
-                  style={StyleSheet.absoluteFill}
-                />
-              )}
               <Ionicons
                 name={item.icon}
                 size={scale(12)}
-                color={active ? "#FFFFFF" : c.muted}
+                color={active ? c.onAccent : c.muted}
               />
               <Text
                 style={[
                   styles.segText,
-                  { color: active ? "#FFFFFF" : c.textSoft },
+                  { color: active ? c.onAccent : c.muted },
                 ]}
               >
                 {item.label}
@@ -189,69 +187,21 @@ function Segmented({
 /* ------------------------------ tile rendering ------------------------------ */
 
 function HeatSurface({ children }: { children: ReactNode }) {
+  const { colors: c, mode } = useTheme();
+
   return (
-    <View style={styles.heatSurface}>
-      <Svg
-        viewBox="0 0 360 360"
-        width="100%"
-        height="100%"
-        style={StyleSheet.absoluteFill}
-      >
-        <Defs>
-          <SvgGradient id="displaySurface" x1="0" y1="0" x2="1" y2="1">
-            <Stop offset="0" stopColor="#35213F" />
-            <Stop offset="0.5" stopColor="#1D1A2A" />
-            <Stop offset="1" stopColor="#0B101A" />
-          </SvgGradient>
-        </Defs>
-        <Path d="M0 0H360V360H0Z" fill="url(#displaySurface)" />
-        <Line
-          x1="-30"
-          y1="120"
-          x2="390"
-          y2="-30"
-          stroke="#FFB347"
-          strokeOpacity="0.24"
-          strokeWidth="2"
-        />
-        <Line
-          x1="-30"
-          y1="240"
-          x2="390"
-          y2="90"
-          stroke="#FFB347"
-          strokeOpacity="0.24"
-          strokeWidth="2"
-        />
-        <Line
-          x1="-30"
-          y1="360"
-          x2="390"
-          y2="210"
-          stroke="#FFB347"
-          strokeOpacity="0.24"
-          strokeWidth="2"
-        />
-        <Polygon
-          points="180,20 340,180 180,340 20,180"
-          fill="none"
-          stroke="#FFFFFF"
-          strokeOpacity="0.06"
-          strokeWidth="1"
-        />
-      </Svg>
-      <View pointerEvents="none" style={styles.heatGlow}>
-        <Svg viewBox="0 0 360 360" width="100%" height="100%">
-          <Line
-            x1="-30"
-            y1="240"
-            x2="390"
-            y2="90"
-            stroke="#FFD166"
-            strokeWidth="3"
-          />
-        </Svg>
-      </View>
+    <View
+      style={[
+        styles.heatSurface,
+        { backgroundColor: c.surface, borderColor: c.line },
+      ]}
+    >
+      <View
+        style={[
+          styles.heatSurfaceAccent,
+          { backgroundColor: brandAccent(mode) },
+        ]}
+      />
       <View style={styles.heatGridContent}>{children}</View>
     </View>
   );
@@ -260,6 +210,7 @@ function HeatSurface({ children }: { children: ReactNode }) {
 /* --------------------------------- screen ---------------------------------- */
 
 export default function HeatmapScreen() {
+  const router = useRouter();
   const { colors: c, mode } = useTheme();
   const [viewMode, setViewMode] = useState<ViewMode>("view");
   const [kineticLogs, setKineticLogs] = useState<KineticLog[]>([]);
@@ -287,57 +238,66 @@ export default function HeatmapScreen() {
     (t) => t.traffic >= systemRules.floor,
   ).length;
 
+  useFocusEffect(
+    useCallback(() => {
+      let cancelled = false;
+
+      const loadInstalledTileCount = async () => {
+        let count = 0;
+        try {
+          const hubId = await AsyncStorage.getItem("bawatpieza_hub_id");
+          if (hubId) {
+            try {
+              const { data, error } = await supabase
+                .from("device_setups")
+                .select("installed_tile_count")
+                .eq("hub_id", hubId)
+                .maybeSingle();
+              if (error) throw error;
+
+              const remoteCount = Number(data?.installed_tile_count);
+              if (Number.isSafeInteger(remoteCount) && remoteCount >= 1) {
+                count = remoteCount;
+              }
+            } catch (error) {
+              console.error(
+                "[heatmap] failed to load installed tile setup",
+                error,
+              );
+            }
+
+            if (count === 0) {
+              const localCount = Number(
+                await AsyncStorage.getItem(installedTileCountKey(hubId)),
+              );
+              if (Number.isSafeInteger(localCount) && localCount >= 1) {
+                count = localCount;
+              }
+            }
+          }
+        } catch (error) {
+          console.error("[heatmap] failed to read installed tile count", error);
+        } finally {
+          if (!cancelled) {
+            setInstalledTileCount(count);
+            setTileSetupLoaded(true);
+          }
+        }
+      };
+
+      void loadInstalledTileCount();
+      return () => {
+        cancelled = true;
+      };
+    }, []),
+  );
+
   // === DYNAMIC DATABASE DETECTOR: FETCH RULES & LOGS ON LOAD ===
   useEffect(() => {
     let cancelled = false;
     const loadSystemData = async () => {
       try {
         const hubId = await AsyncStorage.getItem("bawatpieza_hub_id");
-        if (hubId) {
-          try {
-            const { data: setup, error: setupError } = await supabase
-              .from("device_setups")
-              .select("installed_tile_count")
-              .eq("hub_id", hubId)
-              .maybeSingle();
-            if (setupError) throw setupError;
-            if (
-              typeof setup?.installed_tile_count === "number" &&
-              Number.isSafeInteger(setup.installed_tile_count) &&
-              setup.installed_tile_count >= 6
-            ) {
-              if (!cancelled) {
-                setInstalledTileCount(setup.installed_tile_count);
-              }
-            } else {
-              const localCount = Number(
-                await AsyncStorage.getItem(installedTileCountKey(hubId)),
-              );
-              if (
-                !cancelled &&
-                Number.isSafeInteger(localCount) &&
-                localCount >= 6
-              ) {
-                setInstalledTileCount(localCount);
-              }
-            }
-          } catch (setupError) {
-            console.error(
-              "[heatmap] failed to load installed tile setup",
-              setupError,
-            );
-            const localCount = Number(
-              await AsyncStorage.getItem(installedTileCountKey(hubId)),
-            );
-            if (
-              !cancelled &&
-              Number.isSafeInteger(localCount) &&
-              localCount >= 6
-            ) {
-              setInstalledTileCount(localCount);
-            }
-          }
-        }
 
         // 1. Fetch Dynamic Threshold Rules from Supabase
         if (hubId) {
@@ -375,14 +335,24 @@ export default function HeatmapScreen() {
         }
 
         // 2. Fetch Live Log Records from Supabase
-        const { data, error } = await supabase
+        let query = supabase
           .from("kinetic_logs")
           .select("*")
           .order("created_at", { ascending: false })
           .limit(50);
+        if (hubId) query = query.eq("hub_id", hubId);
+        const { data, error } = await query;
 
         if (data && !error && data.length > 0) {
-          const dbLogs: KineticLog[] = data.map((item) => ({
+          const seenEvents = new Set<string>();
+          const uniqueRows = data.filter((item) => {
+            if (typeof item.event_id !== "string" || !item.event_id) return true;
+            const eventKey = `${item.hub_id}:${item.event_id}`;
+            if (seenEvents.has(eventKey)) return false;
+            seenEvents.add(eventKey);
+            return true;
+          });
+          const dbLogs: KineticLog[] = uniqueRows.map((item) => ({
             id: item.id || `tx-${Date.now()}`,
             tile: item.tile_label || "Tile 1",
             time: new Date(item.created_at).toLocaleTimeString([], {
@@ -409,8 +379,6 @@ export default function HeatmapScreen() {
         }
       } catch (error) {
         console.error("Failed to load system data", error);
-      } finally {
-        if (!cancelled) setTileSetupLoaded(true);
       }
     };
 
@@ -475,9 +443,18 @@ export default function HeatmapScreen() {
             const now = new Date();
             const timestamp = `${now.getHours().toString().padStart(2, "0")}:${now.getMinutes().toString().padStart(2, "0")}:${now.getSeconds().toString().padStart(2, "0")}`;
             const tileLabel = data.tile ? `Tile ${data.tile}` : "Tile 1";
+            const eventId =
+              typeof data.event_id === "string" && data.event_id.trim()
+                ? data.event_id.trim()
+                : null;
+            if (!eventId) {
+              console.warn(
+                "[heatmap] footstep MQTT event has no event_id; flash updated firmware for duplicate-safe generation logs",
+              );
+            }
 
             const newStep: KineticLog = {
-              id: `tx-${Date.now()}`,
+              id: eventId ? `mqtt:${hubId}:${eventId}` : `tx-${Date.now()}`,
               tile: tileLabel,
               time: timestamp,
               ms: data.ms ? data.ms.toString() : "0",
@@ -488,6 +465,7 @@ export default function HeatmapScreen() {
             };
 
             setKineticLogs((prev) => {
+              if (prev.some((log) => log.id === newStep.id)) return prev;
               const updated = [newStep, ...prev].slice(0, 50);
               AsyncStorage.setItem(
                 LOGS_STORAGE_KEY,
@@ -495,25 +473,6 @@ export default function HeatmapScreen() {
               ).catch(() => {});
               return updated;
             });
-
-            supabase
-              .from("kinetic_logs")
-              .insert([
-                {
-                  hub_id: hubId,
-                  tile_label: tileLabel,
-                  duration_ms: Number(data.ms) || 0,
-                  avg_v: Number(data.avg_v) || 0,
-                  avg_a: Number(data.avg_a) || 0,
-                  power_w: Number(data.avg_w) || 0,
-                  energy_j: Number(data.joules) || 0,
-                },
-              ])
-              .then(({ error }) => {
-                if (error) {
-                  console.error("Supabase insert error:", error.message);
-                }
-              });
           }
 
           // PERIODIC HUB TELEMETRY PAYLOAD
@@ -605,28 +564,23 @@ export default function HeatmapScreen() {
         }
       >
         <FadeIn delay={0}>
-          <View
-            style={[
-              styles.header,
-              {
-                backgroundColor:
-                  mode === "dark"
-                    ? "rgba(255,255,255,0.04)"
-                    : "rgba(255,255,255,0.72)",
-                borderColor: c.line,
-              },
-            ]}
-          >
+          <View style={{ marginTop: scale(4) }}>
+            <Segmented value={viewMode} onChange={setViewMode} />
+          </View>
+        </FadeIn>
+
+        <FadeIn delay={80}>
+          <View style={styles.titleBlock}>
             <View style={styles.headerEyebrowRow}>
               <View
                 style={[
                   styles.headerTick,
-                  { backgroundColor: mode === "dark" ? "#F6C445" : "#0A2A4A" },
+                  { backgroundColor: brandAccent(mode) },
                 ]}
               />
               <Text
                 style={{
-                  color: mode === "dark" ? "rgba(246,196,69,0.85)" : "#B4771B",
+                  color: c.accent,
                   fontSize: scale(8.5),
                   letterSpacing: 2.2,
                   fontFamily: fonts.extrabold,
@@ -638,32 +592,26 @@ export default function HeatmapScreen() {
             <Text
               style={{
                 color: c.text,
-                fontSize: scale(20),
+                fontSize: scale(18),
                 fontFamily: fonts.extrabold,
                 letterSpacing: -0.3,
               }}
             >
-              Gate Pathway · Live Tile Heat
+              Gate Pathway
             </Text>
             <Text
               style={{
                 color:
                   mode === "dark"
-                    ? "rgba(237,242,250,0.5)"
-                    : "rgba(10,42,74,0.5)",
-                fontSize: scale(10.5),
+                    ? "rgba(237,242,250,0.55)"
+                    : "rgba(10,42,74,0.62)",
+                fontSize: scale(10),
                 fontFamily: fonts.medium,
                 marginTop: scale(3),
               }}
             >
-              Warmer tiles = more foot traffic right now
+              Live tile heat · Warmer tiles mean more foot traffic
             </Text>
-          </View>
-        </FadeIn>
-
-        <FadeIn delay={80}>
-          <View style={{ marginTop: scale(10), marginBottom: scale(8) }}>
-            <Segmented value={viewMode} onChange={setViewMode} />
           </View>
         </FadeIn>
 
@@ -672,23 +620,57 @@ export default function HeatmapScreen() {
             <View style={styles.grid}>
               {!tileSetupLoaded ? (
                 <Text
-                  style={[styles.tileSetupMessage, { color: c.textSoft }]}
+                  style={[
+                    styles.tileSetupMessage,
+                    { color: c.textSoft },
+                  ]}
                 >
                   Loading installed tile setup...
                 </Text>
               ) : tiles.length === 0 ? (
-                <Text
-                  style={[styles.tileSetupMessage, { color: c.textSoft }]}
-                >
-                  No triangular tiles are configured. Complete Device Setup to
-                  display your installed tiles.
-                </Text>
+                <View style={{ alignItems: "center" }}>
+                  <Text
+                    style={[
+                      styles.tileSetupMessage,
+                      { color: c.text },
+                    ]}
+                  >
+                    No triangular tiles are configured. Complete Device Setup
+                    to display your installed tiles.
+                  </Text>
+                  <Pressable
+                    onPress={() =>
+                      router.push("/pages/device-setup?returnTo=heatmap")
+                    }
+                    style={[
+                      styles.setupHeatmapButton,
+                      { backgroundColor: c.accent },
+                    ]}
+                    accessibilityRole="button"
+                    accessibilityLabel="Complete device setup for the heatmap"
+                  >
+                    <Ionicons
+                      name="hardware-chip-outline"
+                      size={scale(15)}
+                      color={c.onAccent}
+                    />
+                    <Text
+                      style={[
+                        styles.setupHeatmapButtonText,
+                        { color: c.onAccent },
+                      ]}
+                    >
+                      Complete Device Setup
+                    </Text>
+                  </Pressable>
+                </View>
               ) : (
-                <HeatmapTileGrid
+                <HeatmapTileScene
                   tiles={tiles}
                   maxVisibleTiles={tiles.length}
                   viewMode={viewMode}
                   activeThreshold={systemRules.floor}
+                  dark={mode === "dark"}
                 />
               )}
             </View>
@@ -702,11 +684,17 @@ export default function HeatmapScreen() {
               <SectionHead title="PATHWAY OVERVIEW" mode={mode} />
 
               <View style={styles.statsGrid}>
-                <Card mode={mode} style={styles.statCard}>
+                <Card
+                  mode={mode}
+                  style={[
+                    styles.statCard,
+                    { backgroundColor: c.surface, borderColor: c.line },
+                  ]}
+                >
                   <Ionicons
                     name="footsteps-outline"
                     size={scale(18)}
-                    color={c.orange}
+                    color={c.accent}
                   />
                   <Text style={[styles.statValue, { color: c.text }]}>
                     {kineticLogs.length > 0
@@ -718,7 +706,13 @@ export default function HeatmapScreen() {
                   </Text>
                 </Card>
 
-                <Card mode={mode} style={styles.statCard}>
+                <Card
+                  mode={mode}
+                  style={[
+                    styles.statCard,
+                    { backgroundColor: c.surface, borderColor: c.line },
+                  ]}
+                >
                   <Ionicons
                     name="flash-outline"
                     size={scale(18)}
@@ -733,7 +727,13 @@ export default function HeatmapScreen() {
                 </Card>
               </View>
 
-              <Card mode={mode} style={styles.overviewCard}>
+              <Card
+                mode={mode}
+                style={[
+                  styles.overviewCard,
+                  { backgroundColor: c.surface, borderColor: c.line },
+                ]}
+              >
                 <View style={styles.overviewRow}>
                   <View style={{ flex: 1 }}>
                     <Text
@@ -797,15 +797,23 @@ export default function HeatmapScreen() {
                 {kineticLogs.length > 0 && (
                   <Pressable
                     onPress={archiveKineticLogs}
-                    style={styles.archiveBtn}
+                    style={[
+                      styles.archiveBtn,
+                      {
+                        backgroundColor:
+                          mode === "dark"
+                            ? "rgba(249,115,22,0.12)"
+                            : "rgba(246,196,69,0.2)",
+                      },
+                    ]}
                     hitSlop={8}
                   >
                     <Ionicons
                       name="archive-outline"
                       size={scale(12)}
-                      color={c.orange}
+                      color={c.accent}
                     />
-                    <Text style={[styles.archiveBtnText, { color: c.orange }]}>
+                    <Text style={[styles.archiveBtnText, { color: c.accent }]}>
                       Archive Logs
                     </Text>
                   </Pressable>
@@ -827,7 +835,13 @@ export default function HeatmapScreen() {
                 ) : (
                   kineticLogs.map((log) => (
                     <Pressable key={log.id} onPress={() => setSelectedLog(log)}>
-                      <Card mode={mode} style={styles.kineticCard}>
+                      <Card
+                        mode={mode}
+                        style={[
+                          styles.kineticCard,
+                          { backgroundColor: c.surface, borderColor: c.line },
+                        ]}
+                      >
                         <View style={styles.kineticHeader}>
                           <View style={styles.kineticTileRow}>
                             <Ionicons
@@ -939,7 +953,13 @@ export default function HeatmapScreen() {
 
             <View style={{ marginTop: scale(20) }}>
               <SectionHead title="PREDICTIVE INSPECTIONS" mode={mode} />
-              <Card mode={mode} style={styles.diagPanel}>
+              <Card
+                mode={mode}
+                style={[
+                  styles.diagPanel,
+                  { backgroundColor: c.surface, borderColor: c.line },
+                ]}
+              >
                 {PREDICTIVE.filter(
                   (item) =>
                     Number(item.tile.replace("Tile ", "")) <=
@@ -983,7 +1003,13 @@ export default function HeatmapScreen() {
 
             <View style={{ marginTop: scale(16) }}>
               <SectionHead title="WATCHLIST" mode={mode} />
-              <Card mode={mode} style={styles.diagPanel}>
+              <Card
+                mode={mode}
+                style={[
+                  styles.diagPanel,
+                  { backgroundColor: c.surface, borderColor: c.line },
+                ]}
+              >
                 {WATCHLIST.filter(
                   (item) =>
                     Number(item.tile.replace("Tile ", "")) <=
@@ -1027,7 +1053,13 @@ export default function HeatmapScreen() {
 
             <View style={{ marginTop: scale(16) }}>
               <SectionHead title="REMINDERS" mode={mode} />
-              <Card mode={mode} style={styles.diagPanel}>
+              <Card
+                mode={mode}
+                style={[
+                  styles.diagPanel,
+                  { backgroundColor: c.surface, borderColor: c.line },
+                ]}
+              >
                 {REMINDERS.map((r) => (
                   <View key={r.title} style={styles.diagRow}>
                     <View style={styles.diagRowLeft}>
@@ -1075,7 +1107,13 @@ export default function HeatmapScreen() {
       >
         <View style={styles.modalOverlay}>
           {selectedLog && selectedLogDetails && (
-            <Card mode={mode} style={styles.modalContent}>
+            <Card
+              mode={mode}
+              style={[
+                styles.modalContent,
+                { backgroundColor: c.surface, borderColor: c.line },
+              ]}
+            >
               <View style={styles.modalHeader}>
                 <View
                   style={{
@@ -1200,32 +1238,36 @@ export default function HeatmapScreen() {
 
 const styles = StyleSheet.create({
   segWrap: {
-    borderRadius: scale(14),
-    padding: scale(2),
-    position: "relative",
-    overflow: "hidden",
+    flexDirection: "row",
+    padding: scale(3),
+    borderRadius: scale(12),
+    marginBottom: scale(16),
+    shadowColor: "#000000",
+    shadowOpacity: 0.05,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 2,
   },
-  segRow: { flexDirection: "row", gap: scale(2) },
+  segRow: { flex: 1, flexDirection: "row", gap: scale(2) },
   segItem: {
     flex: 1,
-    flexDirection: "row",
+    minHeight: scale(34),
+    borderRadius: scale(9),
     alignItems: "center",
     justifyContent: "center",
+    overflow: "hidden",
+    flexDirection: "row",
     gap: scale(4),
-    paddingVertical: scale(6),
   },
-  segItemActive: { borderRadius: scale(11), overflow: "hidden" },
+  segItemActive: { borderRadius: scale(9), overflow: "hidden" },
   segText: {
-    fontSize: scale(9),
-    fontFamily: fonts.extrabold,
-    letterSpacing: 0.6,
+    fontSize: scale(9.5),
+    fontFamily: fonts.bold,
   },
-  header: {
-    marginTop: scale(4),
-    marginBottom: scale(4),
-    padding: scale(12),
-    borderRadius: scale(18),
-    borderWidth: 1,
+  titleBlock: {
+    marginTop: scale(2),
+    marginBottom: scale(12),
+    paddingHorizontal: scale(3),
   },
   headerEyebrowRow: {
     flexDirection: "row",
@@ -1243,35 +1285,58 @@ const styles = StyleSheet.create({
     paddingVertical: scale(24),
     textAlign: "center",
   },
+  setupHeatmapButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: scale(7),
+    borderRadius: scale(12),
+    backgroundColor: "#F97316",
+    paddingHorizontal: scale(14),
+    paddingVertical: scale(9),
+    marginBottom: scale(14),
+  },
+  setupHeatmapButtonText: {
+    color: "#FFFFFF",
+    fontSize: scale(10),
+    fontFamily: fonts.extrabold,
+  },
   heatSurface: {
     position: "relative",
     overflow: "hidden",
-    minHeight: scale(222),
-    borderRadius: scale(20),
-    paddingHorizontal: scale(12),
-    paddingVertical: scale(12),
-    backgroundColor: "#1D1A2A",
+    borderRadius: scale(15),
+    paddingHorizontal: scale(8),
+    paddingVertical: scale(8),
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.16)",
-    shadowColor: "#0B101A",
-    shadowOpacity: 0.42,
-    shadowRadius: scale(16),
-    shadowOffset: { width: 0, height: 10 },
-    elevation: 8,
+    shadowColor: "#0A2A4A",
+    shadowOpacity: 0.08,
+    shadowRadius: scale(8),
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 2,
   },
-  heatGlow: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0 },
-  heatGridContent: { position: "relative" },
+  heatSurfaceAccent: {
+    height: scale(3),
+    marginHorizontal: scale(-8),
+    marginTop: scale(-8),
+    marginBottom: scale(7),
+  },
+  heatGridContent: {
+    position: "relative",
+    width: "88%",
+    alignSelf: "center",
+  },
   statsGrid: {
     flexDirection: "row",
-    gap: scale(10),
-    marginTop: scale(6),
+    gap: scale(8),
+    marginTop: scale(5),
   },
   statCard: {
     flex: 1,
-    padding: scale(12),
-    borderRadius: scale(16),
+    padding: scale(10),
+    borderRadius: scale(13),
     alignItems: "center",
-    gap: scale(4),
+    gap: scale(3),
+    borderWidth: 1,
   },
   statValue: {
     fontSize: scale(14),
@@ -1282,9 +1347,10 @@ const styles = StyleSheet.create({
     fontFamily: fonts.semibold,
   },
   overviewCard: {
-    padding: scale(12),
-    borderRadius: scale(16),
-    marginTop: scale(10),
+    padding: scale(10),
+    borderRadius: scale(13),
+    marginTop: scale(8),
+    borderWidth: 1,
   },
   overviewRow: {
     flexDirection: "row",
@@ -1331,17 +1397,16 @@ const styles = StyleSheet.create({
     fontFamily: fonts.bold,
   },
   kineticCard: {
-    borderRadius: scale(16),
-    padding: scale(12),
+    borderRadius: scale(13),
+    padding: scale(10),
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.1)",
   },
   kineticHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: scale(10),
-    paddingBottom: scale(10),
+    marginBottom: scale(7),
+    paddingBottom: scale(7),
     borderBottomWidth: 1,
     borderBottomColor: "rgba(150,150,150,0.15)",
   },
@@ -1367,10 +1432,11 @@ const styles = StyleSheet.create({
     borderTopColor: "rgba(150,150,150,0.12)",
   },
   diagPanel: {
-    borderRadius: scale(16),
-    padding: scale(12),
-    marginTop: scale(6),
-    gap: scale(10),
+    borderRadius: scale(13),
+    padding: scale(10),
+    marginTop: scale(5),
+    gap: scale(8),
+    borderWidth: 1,
   },
   diagRow: {
     flexDirection: "row",
@@ -1389,10 +1455,9 @@ const styles = StyleSheet.create({
   },
   modalContent: {
     width: "100%",
-    borderRadius: scale(20),
-    padding: scale(16),
+    borderRadius: scale(15),
+    padding: scale(14),
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.15)",
   },
   modalHeader: {
     flexDirection: "row",

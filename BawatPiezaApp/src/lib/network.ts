@@ -44,7 +44,7 @@ export const NETWORK_ISSUE_INFO: Record<NetworkIssue, NetworkIssueInfo> = {
     issue: 'serverUnavailable',
     title: 'Cannot reach BawatPieza server',
     message:
-      "The app could not open a connection to the API on this network. Check that the backend is still running (npm run dev in backend/) and that the phone is on the same Wi-Fi as the PC.",
+      "The app could not open a connection to the API. Check that the backend is running (npm run dev in backend/), the phone is on the PC's Wi-Fi, and the PC firewall allows inbound TCP port 4000.",
     icon: 'server-outline',
   },
   unstable: {

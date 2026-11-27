@@ -14,6 +14,9 @@ import { errorHandler } from './middleware/errorHandler.js';
 import { connectRedis, disconnectRedis } from './lib/redis.js';
 import { verifyMailer } from './lib/mailer.js';
 import { startBatteryMilestoneListener } from './lib/batteryMilestoneListener.js';
+import { logger, paths } from './lib/logger.js';
+import { env, corsOrigins } from './config/env.js';
+import moduleRouter from './modules/index.js';
 
 const app = express();
 
@@ -21,11 +24,18 @@ const app = express();
 // required for the fraud alert's IP + location reporting to be accurate.
 app.set('trust proxy', true);
 app.use(helmet());
-app.use(cors({ origin: process.env.CORS_ORIGIN?.split(',') ?? '*' }));
+app.use(cors({ origin: corsOrigins }));
 app.use(express.json());
-app.use(morgan(process.env.NODE_ENV === 'production' ? 'combined' : 'dev'));
+app.use(
+  morgan(':method :url :status :response-time ms', {
+    stream: {
+      write: (message: string) => logger.info(`[request] ${message.trim()}`),
+    },
+  }),
+);
 
 app.use('/health', healthRouter);
+app.use('/api/v1', moduleRouter);
 app.use('/email', emailRouter);
 // Registered before the accounts router so the more specific /accounts/2fa
 // prefix is matched first; both are plain Express routers, so either order
@@ -41,9 +51,16 @@ app.use((_req, res) => {
 
 app.use(errorHandler);
 
-const PORT = Number(process.env.PORT ?? 4000);
+const PORT = env.PORT;
 
 async function main(): Promise<void> {
+  logger.info(`[startup] repository=${paths.repositoryRoot}`);
+  logger.info(`[startup] backend=${paths.backendRoot}`);
+  logger.info(`[startup] log=${paths.logFile}`);
+  logger.info(
+    '[startup] modules=auth, telemetry, store, admin, public; legacy routes=health, email, accounts, notifications',
+  );
+
   try {
     await connectRedis();
   } catch (err) {
@@ -58,12 +75,12 @@ async function main(): Promise<void> {
   }
 
   const server = app.listen(PORT, () => {
-    console.log(`API listening on http://localhost:${PORT}`);
+    logger.info(`[startup] API listening on http://localhost:${PORT}`);
   });
   const stopBatteryMilestoneListener = startBatteryMilestoneListener();
 
   const shutdown = async (signal: string): Promise<void> => {
-    console.log(`${signal} received, shutting down...`);
+    logger.info(`[shutdown] ${signal} received`);
     stopBatteryMilestoneListener();
     server.close(async () => {
       await disconnectRedis();
@@ -76,6 +93,6 @@ async function main(): Promise<void> {
 }
 
 main().catch((err) => {
-  console.error('Fatal startup error:', err);
+  logger.error(`Fatal startup error: ${err instanceof Error ? err.stack ?? err.message : String(err)}`);
   process.exit(1);
 });

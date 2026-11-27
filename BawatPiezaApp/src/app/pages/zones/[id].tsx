@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
@@ -13,6 +13,7 @@ import { scale } from "../../../components/glass-ui";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import Paho from "paho-mqtt";
 import "text-encoding";
+import { updateSmokeAlarm } from "../../../lib/push-notifications";
 
 const ZONE_OPTIONS = [
   {
@@ -60,6 +61,9 @@ export default function ZoneDetailScreen() {
   const [liveBatteryPct, setLiveBatteryPct] = useState<number>(0);
   const [mqttStatus, setMqttStatus] = useState<string>("Connecting...");
   const [mqttClient, setMqttClient] = useState<any>(null); // Track client for publishing
+  const [smokeDetected, setSmokeDetected] = useState(false);
+  const [smokeZone, setSmokeZone] = useState("");
+  const previousSmokeRef = useRef(false);
 
   const selectZone = (nextIndex: number) => {
     setZoneIndex(nextIndex);
@@ -97,6 +101,30 @@ export default function ZoneDetailScreen() {
 
           if (data.bat_pct !== undefined)
             setLiveBatteryPct(Math.floor(Number(data.bat_pct)));
+
+          setSmokeDetected(
+            data.smoke_alert === true ||
+              data.smoke_alert === 1 ||
+              data.smoke_alert === "1" ||
+              data.smoke_alert === "true",
+          );
+          setSmokeZone(
+            typeof data.smoke_zone === "string" ? data.smoke_zone : "",
+          );
+          const smokeActive =
+            data.smoke_alert === true ||
+            data.smoke_alert === 1 ||
+            data.smoke_alert === "1" ||
+            data.smoke_alert === "true";
+          if (smokeActive !== previousSmokeRef.current) {
+            previousSmokeRef.current = smokeActive;
+            updateSmokeAlarm(
+              smokeActive,
+              typeof data.smoke_zone === "string" ? data.smoke_zone : "",
+              hubId,
+              typeof data.smoke_event_id === "string" ? data.smoke_event_id : "",
+            );
+          }
 
           if (data.charger_on !== undefined) setEnabled(data.charger_on); // Sync UI switch to hardware state
         } catch (error) {
@@ -137,6 +165,7 @@ export default function ZoneDetailScreen() {
   // === PUBLISH COMMAND TO RELAY ===
   // === PUBLISH COMMAND TO RELAY ===
   const toggleChargerRelay = async () => {
+    if (smokeDetected) return;
     const nextState = !enabled;
     setEnabled(nextState); // Instantly update UI
 
@@ -182,6 +211,15 @@ export default function ZoneDetailScreen() {
     <ScreenShell scroll showNoDeviceNotice>
       <View style={styles.hero}>
         <HeroGlow mode={mode} intensity={1} bleedBottom={scale(40)} />
+
+        {smokeDetected && (
+          <View style={{ marginHorizontal: scale(16), marginTop: scale(12), borderRadius: scale(12), padding: scale(12), backgroundColor: "#7F1D1D", flexDirection: "row", alignItems: "center", gap: scale(8) }}>
+            <Ionicons name="warning" size={scale(18)} color="#FFFFFF" />
+            <Text style={{ flex: 1, color: "#FFFFFF", fontFamily: fonts.extrabold }}>
+              Smoke detected{smokeZone ? ` — ${smokeZone}` : ""}. Device relays are off. Check the device physically.
+            </Text>
+          </View>
+        )}
 
         <View style={styles.heroTopBar}>
           <TopBar gutter={0} title="Zone Detail" showBack glass />
@@ -263,11 +301,15 @@ export default function ZoneDetailScreen() {
               </Text>
             </View>
             <Pressable
+              disabled={smokeDetected}
               onPress={toggleChargerRelay}
               style={[
                 styles.singleSwitch,
                 enabled && styles.singleSwitchActive,
+                smokeDetected && { opacity: 0.55 },
               ]}
+              accessibilityRole="switch"
+              accessibilityState={{ checked: enabled, disabled: smokeDetected }}
             >
               <View
                 style={[

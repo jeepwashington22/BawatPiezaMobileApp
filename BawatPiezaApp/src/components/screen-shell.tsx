@@ -1,9 +1,10 @@
 import type { ReactNode } from 'react';
-import { ActivityIndicator, ScrollView, StyleSheet, View } from 'react-native';
+import { ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { BottomNav } from './bottom-nav';
 import { NoDeviceNotice, useDeviceConnection } from './device-status-banner';
+import { TileLoader } from './tile-loader';
 import { TopBar } from './top-bar';
 import { useTheme } from '../theme';
 import { useAppTour } from '../hooks/use-app-tour';
@@ -50,7 +51,7 @@ export function ScreenShell({
 
   const content = checkingDeviceAccess ? (
     <View style={styles.emptyStateContent}>
-      <ActivityIndicator color={c.orange} />
+      <TileLoader label="Checking device connection..." size="md" />
     </View>
   ) : showEmptyState ? (
     <View style={styles.emptyStateContent}>
@@ -108,5 +109,6 @@ const styles = StyleSheet.create({
   emptyStateContent: {
     flex: 1,
     paddingHorizontal: 18,
+    justifyContent: 'center',
   },
 });

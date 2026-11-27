@@ -11,10 +11,14 @@ import { AppText as Text } from "../../components/app-text";
 import { Ionicons } from "@expo/vector-icons";
 import { ScreenShell } from "../../components/screen-shell";
 import { ContentCard } from "../../components/content-card";
+import {
+  DeviceLinkScene,
+  type LinkState,
+} from "../../components/device-link-scene";
 import { useRouter } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { supabase } from "../../lib/supabase";
-import { apiFetch } from "../../lib/api";
+import { apiFetch, clearApiGetCache } from "../../lib/api";
 import { notifyDeviceAccessChanged } from "../../components/device-status-banner";
 import { deviceSetupRequiredKey } from "../../lib/device-setup";
 
@@ -115,28 +119,7 @@ export default function DeviceScreen() {
           );
         }
 
-        // Step 2: Fallback to Direct Supabase Query if API route failed
-        if (!fetchedHubId) {
-          try {
-            const { data: pairingData } = await supabase
-              .from("device_pairings")
-              .select("hub_id")
-              .eq("user_id", user.id)
-              .maybeSingle();
-
-            if (pairingData?.hub_id) {
-              fetchedHubId = pairingData.hub_id;
-              isOwner = true;
-            }
-          } catch (spError) {
-            console.warn(
-              "[device] Direct Supabase query failed, checking AsyncStorage...",
-              spError,
-            );
-          }
-        }
-
-        // Step 3: Offline Local Storage Fallback
+        // Offline local storage fallback. Database access stays behind the API.
         if (!fetchedHubId) {
           const cachedHubId = await AsyncStorage.getItem("bawatpieza_hub_id");
           if (cachedHubId) {
@@ -509,14 +492,9 @@ export default function DeviceScreen() {
             .eq("hub_id", targetHubId);
           await supabase.from("hubs").delete().eq("id", targetHubId);
         } else {
-          // Shared user: only remove user's access & pairing
+          // Shared user: only remove user's shared access from device_access
           await supabase
             .from("device_access")
-            .delete()
-            .eq("hub_id", targetHubId)
-            .eq("user_id", user.id);
-          await supabase
-            .from("device_pairings")
             .delete()
             .eq("hub_id", targetHubId)
             .eq("user_id", user.id);
@@ -538,6 +516,7 @@ export default function DeviceScreen() {
             body: JSON.stringify({ hub_id: targetHubId }),
             timeoutMs: 6_000,
           });
+          clearApiGetCache("/accounts/device-access");
         }
       } catch (apiErr) {
         console.warn(
@@ -554,10 +533,12 @@ export default function DeviceScreen() {
         AsyncStorage.removeItem("bawatpieza_temp_channels"),
         AsyncStorage.removeItem(deviceSetupRequiredKey(user.id)),
       ]);
+      clearApiGetCache("/accounts/device-access");
       notifyDeviceAccessChanged(false);
 
       setHubId(null);
       setCanUnlink(false);
+      setDeviceAccessState("unpaired");
       setDeviceStatus("Offline");
       setWaitingForRestart(false);
       accessRefreshIdRef.current += 1;
@@ -607,6 +588,17 @@ export default function DeviceScreen() {
     }
   };
 
+  // --- UI-only values for the 3D link scene ---
+  const sceneState: LinkState = hubId
+    ? unlinking
+      ? "unlinking"
+      : "linked"
+    : "unlinked";
+  const showScene =
+    deviceAccessState === "connected" ||
+    deviceAccessState === "unpaired" ||
+    unlinking;
+
   return (
     <ScreenShell title="Device" showBack showNoDeviceNotice={false}>
       <ContentCard
@@ -619,33 +611,16 @@ export default function DeviceScreen() {
                 ? "Device status unavailable"
                 : "Device pairing"
         }
-        action={
-          hubId ? (
-            <View style={styles.actionGroup}>
-              {restarting ? (
-                <ActivityIndicator size="small" color={c.orange} />
-              ) : (
-                <Text
-                  onPress={unlinking ? undefined : confirmRestart}
-                  style={[styles.rerun, { color: c.orange }]}
-                >
-                  Restart
-                </Text>
-              )}
-              {unlinking ? (
-                <ActivityIndicator size="small" color={BAD} />
-              ) : (
-                <Text
-                  onPress={restarting ? undefined : confirmUnlink}
-                  style={[styles.rerun, { color: BAD }]}
-                >
-                  {canUnlink ? "Unlink" : "Disconnect"}
-                </Text>
-              )}
-            </View>
-          ) : null
-        }
       >
+        {showScene ? (
+          <View style={styles.sceneWrap}>
+            <DeviceLinkScene
+              state={sceneState}
+              online={deviceStatus === "Online"}
+              restarting={restarting}
+            />
+          </View>
+        ) : null}
         {deviceAccessState === "checking" ? (
           <View style={[styles.row, { borderBottomWidth: 0 }]}>
             <ActivityIndicator size="small" color={c.orange} />
@@ -724,6 +699,84 @@ export default function DeviceScreen() {
           </>
         )}
       </ContentCard>
+
+      {hubId ? (
+        <View style={styles.controls}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Restart hub"
+            disabled={restarting || unlinking}
+            onPress={confirmRestart}
+            style={({ pressed }) => [
+              styles.controlRow,
+              { borderColor: c.line, backgroundColor: c.surface },
+              unlinking && styles.controlDisabled,
+              pressed && { opacity: 0.8 },
+            ]}
+          >
+            <View
+              style={[styles.controlIcon, { backgroundColor: c.surfaceMuted }]}
+            >
+              {restarting ? (
+                <ActivityIndicator size="small" color={c.orange} />
+              ) : (
+                <Ionicons name="refresh-outline" size={18} color={c.orange} />
+              )}
+            </View>
+            <View style={styles.text}>
+              <Text style={[styles.controlTitle, { color: c.text }]}>
+                {restarting ? "Restarting hub..." : "Restart hub"}
+              </Text>
+              <Text style={styles.sub}>
+                Reboots the hub. It reconnects in a few seconds.
+              </Text>
+            </View>
+          </Pressable>
+
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={canUnlink ? "Unlink hub" : "Disconnect device"}
+            disabled={restarting || unlinking}
+            onPress={confirmUnlink}
+            style={({ pressed }) => [
+              styles.controlRow,
+              {
+                borderColor: "rgba(239, 68, 68, 0.35)",
+                backgroundColor: "rgba(239, 68, 68, 0.06)",
+              },
+              restarting && styles.controlDisabled,
+              pressed && { opacity: 0.8 },
+            ]}
+          >
+            <View
+              style={[
+                styles.controlIcon,
+                { backgroundColor: "rgba(239, 68, 68, 0.12)" },
+              ]}
+            >
+              {unlinking ? (
+                <ActivityIndicator size="small" color={BAD} />
+              ) : (
+                <Ionicons name="unlink-outline" size={18} color={BAD} />
+              )}
+            </View>
+            <View style={styles.text}>
+              <Text style={[styles.controlTitle, { color: BAD }]}>
+                {unlinking
+                  ? "Unlinking..."
+                  : canUnlink
+                    ? "Unlink hub"
+                    : "Disconnect"}
+              </Text>
+              <Text style={styles.sub}>
+                {canUnlink
+                  ? "Cuts the hub from your account and resets it."
+                  : "Removes your shared access only."}
+              </Text>
+            </View>
+          </Pressable>
+        </View>
+      ) : null}
 
       <Modal
         visible={modalConfig.visible}
@@ -859,6 +912,30 @@ const makeStyles = (c: ThemeColors) => {
       flexDirection: "row",
       alignItems: "center",
       gap: 16,
+    },
+    sceneWrap: { marginBottom: 8 },
+    controls: { marginTop: 16, gap: 10 },
+    controlRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      borderWidth: 1,
+      borderRadius: 14,
+      paddingVertical: 12,
+      paddingHorizontal: 14,
+    },
+    controlDisabled: { opacity: 0.45 },
+    controlIcon: {
+      width: 36,
+      height: 36,
+      borderRadius: 12,
+      alignItems: "center",
+      justifyContent: "center",
+      marginRight: 12,
+    },
+    controlTitle: {
+      fontSize: 14,
+      fontWeight: "800",
+      fontFamily: fonts.extrabold,
     },
     row: {
       flexDirection: "row",

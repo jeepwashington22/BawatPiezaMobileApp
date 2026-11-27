@@ -1,5 +1,5 @@
 import { fonts, useTheme, type ThemeColors } from '../../theme';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -12,10 +12,18 @@ import {
 import { AppText as Text } from '../../components/app-text';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { ScreenShell } from '../../components/screen-shell';
 import { TileLoader } from '../../components/tile-loader';
 import { ContentCard } from '../../components/content-card';
+import {
+  notifyDeviceAccessChanged,
+  refreshSharedDeviceAccess,
+} from '../../components/device-status-banner';
+import {
+  InviteResponseModal,
+  type InviteResponseAction,
+  type InviteResponseStage,
+} from '../../components/invite-response-modal';
 import { supabase } from '../../lib/supabase';
 import { apiFetch, describeApiBase } from '../../lib/api';
 import { describeApiFailure } from '../../lib/network';
@@ -65,7 +73,7 @@ function matchesQuery(q: string, name: string, email?: string | null): boolean {
 
 /** Display name for a candidate/account row. */
 function displayNameOf(u: Account): string {
-  return u.name ?? [u.firstname, u.lastname].filter(Boolean).join(' ') ?? u.email ?? 'Unnamed';
+  return u.name || [u.firstname, u.lastname].filter(Boolean).join(' ') || u.email || 'Unnamed';
 }
 
 /** Role tabs under the list. Backend roles are `admin` | `staff`: Owner tab
@@ -101,10 +109,18 @@ export default function AccountsScreen() {
   // Only device owners can invite; searching is available to every account.
   const [invitable, setInvitable] = useState<Account[]>([]);
   const [invitableLoading, setInvitableLoading] = useState(false);
+  const [invitableError, setInvitableError] = useState<string | null>(null);
   const [invitingId, setInvitingId] = useState<string | null>(null);
 
   // Accept / decline busy state (invite id currently in flight).
   const [respondingId, setRespondingId] = useState<string | null>(null);
+  const [inviteDialog, setInviteDialog] = useState<{
+    invite: Invite;
+    action: InviteResponseAction;
+    stage: InviteResponseStage;
+    message?: string;
+  } | null>(null);
+  const loadInProgress = useRef(false);
 
   // Single realtime search — filters the shared list AND user-search results
   // below it, client-side on every keystroke.
@@ -118,10 +134,13 @@ export default function AccountsScreen() {
     return data.session?.access_token ?? null;
   }, []);
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const load = useCallback(async (background = false) => {
+    if (loadInProgress.current) return;
+    loadInProgress.current = true;
+    if (!background) setLoading(true);
     setError(null);
-    setInvitableLoading(true);
+    if (!background) setInvitableLoading(true);
+    setInvitableError(null);
     try {
       const token = await getToken();
       if (!token) throw new Error('Not signed in');
@@ -130,53 +149,86 @@ export default function AccountsScreen() {
       // + invitable candidates, all in parallel so the inline invite search
       // works without opening any popup.
       const auth = { headers: { Authorization: `Bearer ${token}` } };
-      const [res, invitesRes, invitableRes, deviceAccessRes] = await Promise.all([
+      const deviceAccessPromise = apiFetch('/accounts/device-access', auth)
+        .then(async (response) => {
+          if (!response.ok) {
+            throw new Error(`Device access request failed (${response.status}).`);
+          }
+          const accessJson = (await response.json().catch(() => null)) as {
+            can_invite?: boolean;
+          } | null;
+          setCanInvite(accessJson?.can_invite === true);
+        })
+        .catch((deviceAccessError) => {
+          console.warn('[accounts] Could not load device access:', deviceAccessError);
+          setCanInvite(false);
+        });
+      const [accountsResult, invitesResult, invitableResult] = await Promise.allSettled([
         apiFetch('/accounts?shared=1', auth),
         apiFetch('/accounts/invites', auth),
         apiFetch('/accounts/invitable', auth),
-        apiFetch('/accounts/device-access', auth),
       ]);
-      const json = (await res.json().catch(() => null)) as (
-        | { accounts?: Account[]; message?: string }
-        | Account[]
-        | null
-      );
-      if (!res.ok) {
-        const message = !Array.isArray(json) && json?.message;
-        throw new Error(message || `Backend responded ${res.status}`);
+      if (accountsResult.status === 'fulfilled') {
+        const res = accountsResult.value;
+        const json = (await res.json().catch(() => null)) as (
+          | { accounts?: Account[]; message?: string }
+          | Account[]
+          | null
+        );
+        if (res.ok) {
+          setAccounts(Array.isArray(json) ? json : (json?.accounts ?? []));
+        } else {
+          const message = !Array.isArray(json) && json?.message;
+          setError(message || `Backend responded ${res.status}`);
+        }
+      } else {
+        setError(describeApiFailure(accountsResult.reason, 'Failed to load shared accounts'));
       }
-      setAccounts(Array.isArray(json) ? json : (json?.accounts ?? []));
 
-      if (invitesRes.ok) {
+      if (invitesResult.status === 'fulfilled' && invitesResult.value.ok) {
+        const invitesRes = invitesResult.value;
         const invJson = (await invitesRes.json().catch(() => null)) as {
           received?: Invite[];
           sent?: Invite[];
         } | null;
         setReceivedInvites(invJson?.received ?? []);
         setSentInvites(invJson?.sent ?? []);
+      } else {
+        console.warn(
+          '[accounts] Could not refresh invitations:',
+          invitesResult.status === 'rejected'
+            ? invitesResult.reason
+            : `Backend responded ${invitesResult.value.status}`,
+        );
       }
       // A failed invites call is non-fatal: the member list still renders.
 
-      if (invitableRes.ok) {
+      if (invitableResult.status === 'fulfilled') {
+        const invitableRes = invitableResult.value;
         const invJson = (await invitableRes.json().catch(() => null)) as {
           accounts?: Account[];
+          message?: string;
         } | null;
-        setInvitable(invJson?.accounts ?? []);
+        if (!invitableRes.ok) {
+          setInvitable([]);
+          setInvitableError(invJson?.message || `User search failed (${invitableRes.status}).`);
+        } else {
+          setInvitable(invJson?.accounts ?? []);
+        }
+      } else {
+        setInvitable([]);
+        setInvitableError(describeApiFailure(invitableResult.reason, 'User search failed.'));
       }
 
-      if (deviceAccessRes.ok) {
-        const accessJson = (await deviceAccessRes.json().catch(() => null)) as {
-          can_invite?: boolean;
-        } | null;
-        setCanInvite(accessJson?.can_invite === true);
-      } else {
-        setCanInvite(false);
-      }
+      await deviceAccessPromise;
     } catch (e) {
       setError(describeApiFailure(e, 'Failed to load accounts'));
     } finally {
-      setLoading(false);
-      setInvitableLoading(false);
+      if (!background) {
+        setLoading(false);
+        setInvitableLoading(false);
+      }
+      loadInProgress.current = false;
     }
   }, [getToken]);
 
@@ -189,6 +241,11 @@ export default function AccountsScreen() {
       void load();
     }, 0);
     return () => clearTimeout(timer);
+  }, [load]);
+
+  useEffect(() => {
+    const interval = setInterval(() => void load(true), 15_000);
+    return () => clearInterval(interval);
   }, [load]);
 
   /** Invite one account inline — triggered by the Invite button on its row. */
@@ -224,6 +281,15 @@ export default function AccountsScreen() {
   const respondToInvite = useCallback(
     async (invite: Invite, action: 'accept' | 'decline') => {
       setRespondingId(invite.id);
+      setInviteDialog((current) =>
+        current
+          ? {
+              ...current,
+              stage: 'processing',
+              message: action === 'accept' ? 'Accepting invitation…' : 'Saving your response…',
+            }
+          : current,
+      );
       try {
         const token = await getToken();
         if (!token) throw new Error('Not signed in');
@@ -235,45 +301,46 @@ export default function AccountsScreen() {
         if (!res.ok) throw new Error(json?.message || `Backend responded ${res.status}`);
         setReceivedInvites((current) => current.filter((pending) => pending.id !== invite.id));
         DeviceEventEmitter.emit('bawatpieza:refresh-notifications');
-        Alert.alert(
-          action === 'accept' ? 'Access granted' : 'Invite declined',
-          json?.message ?? (action === 'accept' ? 'You are now a shared user.' : 'Invite declined.'),
-        );
         if (action === 'accept') {
-          // Persist shared-access locally so the device gate lets this
-          // account in even without its own paired hub.
-          try {
-            await AsyncStorage.setItem('bawatpieza_shared_access', '1');
-          } catch {
-            // ignore
-          }
-          // Fetch and store the owner's hub_id so device screens (MQTT,
-          // dashboard, thresholds, …) work immediately for shared users.
-          try {
-            const { data: authData } = await supabase.auth.getSession();
-            const token = authData.session?.access_token;
-            if (token) {
-              const devRes = await apiFetch('/accounts/device-access', {
-                headers: { Authorization: `Bearer ${token}` },
-                timeoutMs: 8_000,
-              });
-              if (devRes.ok) {
-                const devJson = (await devRes.json().catch(() => null)) as {
-                  hub_id?: string | null;
-                } | null;
-                if (devJson?.hub_id) {
-                  await AsyncStorage.setItem('bawatpieza_hub_id', devJson.hub_id);
+          notifyDeviceAccessChanged(null);
+        }
+        if (action === 'accept') {
+          setInviteDialog((current) =>
+            current
+              ? { ...current, stage: 'processing', message: 'Connecting to the shared device…' }
+              : current,
+          );
+          void refreshSharedDeviceAccess(token).catch((accessError) => {
+            console.warn('[accounts] Could not immediately load shared device access:', accessError);
+          });
+          void load();
+          setInviteDialog((current) =>
+            current
+              ? {
+                  ...current,
+                  stage: 'success',
+                  message: 'Invitation accepted. Continue to your device while it connects.',
                 }
-              }
-            }
-          } catch {
-            // ignore — the gate will retry on next launch.
-          }
+              : current,
+          );
+          return;
         }
         await load();
-        if (action === 'accept') router.replace('/home');
+        setInviteDialog((current) =>
+          current
+            ? {
+                ...current,
+                stage: 'success',
+                message: json?.message ?? 'Your response has been saved.',
+              }
+            : current,
+        );
       } catch (e) {
-        Alert.alert('Could not respond', describeApiFailure(e, 'Something went wrong.'));
+        setInviteDialog((current) =>
+          current
+            ? { ...current, stage: 'error', message: describeApiFailure(e, 'Something went wrong.') }
+            : current,
+        );
       } finally {
         setRespondingId(null);
       }
@@ -283,22 +350,9 @@ export default function AccountsScreen() {
 
   const confirmInviteResponse = useCallback(
     (invite: Invite, action: 'accept' | 'decline') => {
-      Alert.alert(
-        action === 'accept' ? 'Accept shared access?' : 'Decline shared access?',
-        action === 'accept'
-          ? 'The inviter will be able to share their device with you.'
-          : 'You will not get access to the inviter’s device.',
-        [
-          { text: 'Cancel', style: 'cancel' },
-          {
-            text: action === 'accept' ? 'Accept' : 'Decline',
-            style: action === 'decline' ? 'destructive' : 'default',
-            onPress: () => void respondToInvite(invite, action),
-          },
-        ],
-      );
+      setInviteDialog({ invite, action, stage: 'confirm' });
     },
-    [respondToInvite],
+    [],
   );
   /**
    * Realtime filtering: computed on every keystroke against the data already
@@ -365,6 +419,8 @@ export default function AccountsScreen() {
           title={
             invitableLoading
               ? 'Searching users...'
+              : invitableError
+                ? 'Could not search users'
               : inviteResults.length > 0
                 ? canInvite
                   ? `${inviteResults.length} user${inviteResults.length === 1 ? '' : 's'} found — tap Invite`
@@ -383,6 +439,10 @@ export default function AccountsScreen() {
             <View style={styles.inlineStateWrap}>
               <ActivityIndicator size="small" color={PRUSSIAN} />
               <Text style={[styles.inlineStateText, { color: MUTED }]}>Searching users...</Text>
+            </View>
+          ) : invitableError ? (
+            <View style={styles.inlineStateWrap}>
+              <Text style={[styles.inlineStateText, { color: MUTED }]}>{invitableError}</Text>
             </View>
           ) : inviteResults.length === 0 ? (
             <View style={styles.inlineStateWrap}>
@@ -504,9 +564,13 @@ export default function AccountsScreen() {
               <Pressable
                 disabled={respondingId === invite.id}
                 onPress={() => confirmInviteResponse(invite, 'decline')}
-                style={({ pressed }) => [styles.actionBtnOutline, pressed && { opacity: 0.7 }]}
+                style={({ pressed }) => [
+                  styles.actionBtnOutline,
+                  { borderColor: c.danger },
+                  pressed && { opacity: 0.7 },
+                ]}
               >
-                <Text style={styles.actionBtnOutlineText}>Decline</Text>
+                <Text style={[styles.actionBtnOutlineText, { color: c.danger }]}>Decline</Text>
               </Pressable>
             </View>
           ))}
@@ -612,6 +676,25 @@ export default function AccountsScreen() {
             );
           })}
         </View>
+      )}
+
+      {inviteDialog && (
+        <InviteResponseModal
+          visible
+          inviterName={inviteDialog.invite.counterpart.name}
+          action={inviteDialog.action}
+          stage={inviteDialog.stage}
+          message={inviteDialog.message}
+          onCancel={() => {
+            if (inviteDialog.stage !== 'processing') setInviteDialog(null);
+          }}
+          onConfirm={() => void respondToInvite(inviteDialog.invite, inviteDialog.action)}
+          onContinue={() => {
+            const shouldOpenHome = inviteDialog.action === 'accept' && inviteDialog.stage === 'success';
+            setInviteDialog(null);
+            if (shouldOpenHome) router.replace('/home');
+          }}
+        />
       )}
 
     </ScreenShell>
